@@ -16,6 +16,18 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Fact]
+    public void Deserialize_VersionOneProject_MigratesToCurrentVersion()
+    {
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(2, restored.Version);
+        Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
+        Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
+        Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColor);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesVideoFramesInkAndKeyframes()
     {
         var original = new EditorProject
@@ -51,7 +63,7 @@ public sealed class EditorProjectSerializerTests
         EditorProject restored = EditorProjectSerializer.Deserialize(
             EditorProjectSerializer.Serialize(original));
 
-        Assert.Equal(original.Version, restored.Version);
+        Assert.Equal(2, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
@@ -97,6 +109,35 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Fact]
+    public void RoundTrip_PreservesInkBrushSettings()
+    {
+        var original = new EditorProject
+        {
+            Frames =
+            [
+                new EditorFrame
+                {
+                    Number = 1,
+                    Strokes = [[new InkPoint
+                    {
+                        X = 0.2,
+                        Y = 0.3,
+                        BrushWidth = 8.5,
+                        BrushColor = 0xFF00BFFF,
+                    }]],
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            EditorProjectSerializer.Serialize(original));
+
+        InkPoint point = Assert.Single(Assert.Single(restored.Frames[0].Strokes));
+        Assert.Equal(8.5, point.BrushWidth);
+        Assert.Equal(0xFF00BFFFu, point.BrushColor);
+    }
+
+    [Fact]
     public void Deserialize_LegacyInkWithoutPressureUsesNeutralPressure()
     {
         EditorProject restored = EditorProjectSerializer.Deserialize(
@@ -117,6 +158,13 @@ public sealed class EditorProjectSerializerTests
                     AudioPath = @"C:\Media\music.wav",
                     StartFrame = 25,
                     Volume = 0.7,
+                    Title = "Theme",
+                    Artist = "InkMotion",
+                    Album = "Drafts",
+                    Genre = "Ambient",
+                    Comments = "Project-only comment",
+                    Year = 2026,
+                    TagsInitialized = true,
                 },
                 new AudioTrackProject
                 {
@@ -139,6 +187,13 @@ public sealed class EditorProjectSerializerTests
                 Assert.Equal(25, track.StartFrame);
                 Assert.Equal(0.7, track.Volume);
                 Assert.False(track.Muted);
+                Assert.Equal("Theme", track.Title);
+                Assert.Equal("InkMotion", track.Artist);
+                Assert.Equal("Drafts", track.Album);
+                Assert.Equal("Ambient", track.Genre);
+                Assert.Equal("Project-only comment", track.Comments);
+                Assert.Equal(2026u, track.Year);
+                Assert.True(track.TagsInitialized);
             },
             track =>
             {
@@ -147,6 +202,30 @@ public sealed class EditorProjectSerializerTests
                 Assert.Equal(0.4, track.Volume);
                 Assert.True(track.Muted);
             });
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesExplicitlyClearedAudioTags()
+    {
+        var original = new EditorProject
+        {
+            AudioTracks =
+            [
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\music.wav",
+                    TagsInitialized = true,
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            EditorProjectSerializer.Serialize(original));
+
+        var track = Assert.Single(restored.AudioTracks);
+        Assert.True(track.TagsInitialized);
+        Assert.Empty(track.Title);
+        Assert.Empty(track.Artist);
     }
 
     [Fact]
@@ -163,7 +242,7 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Theory]
-    [InlineData("""{"Version":2,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":1}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]
@@ -174,6 +253,8 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"AudioTracks":[{"Volume":-0.1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"Pressure":1.5}]]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"Pressure":-0.1}]]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"BrushWidth":0.1}]]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"AudioTracks":[{"Year":10000}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));

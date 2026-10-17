@@ -4,7 +4,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
@@ -21,6 +21,13 @@ public sealed class AudioTrackProject
     public int StartFrame { get; set; } = 1;
     public double Volume { get; set; } = 1;
     public bool Muted { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Artist { get; set; } = string.Empty;
+    public string Album { get; set; } = string.Empty;
+    public string Genre { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public uint Year { get; set; }
+    public bool TagsInitialized { get; set; }
 }
 
 public sealed class EditorFrame
@@ -35,6 +42,8 @@ public sealed class InkPoint
     public double X { get; set; }
     public double Y { get; set; }
     public double Pressure { get; set; } = 0.5;
+    public double BrushWidth { get; set; } = 4;
+    public uint BrushColor { get; set; } = 0xFFFFA500;
 }
 
 public static class EditorProjectSerializer
@@ -51,6 +60,17 @@ public static class EditorProjectSerializer
     {
         EditorProject project = JsonSerializer.Deserialize<EditorProject>(json)
             ?? throw new InvalidDataException("The project file is empty.");
+        if (project.Version == 1)
+        {
+            MigrateVersionOne(project);
+        }
+
+        EditorProjectValidation.Validate(project);
+        return project;
+    }
+
+    private static void MigrateVersionOne(EditorProject project)
+    {
         if (project.AudioTracks is { Count: 0 } && !string.IsNullOrWhiteSpace(project.AudioPath))
         {
             project.AudioTracks.Add(new AudioTrackProject
@@ -61,8 +81,7 @@ public static class EditorProjectSerializer
             });
         }
 
-        EditorProjectValidation.Validate(project);
-        return project;
+        project.Version = 2;
     }
 
 }
@@ -131,6 +150,8 @@ public static class InkAnimation
                     X = Lerp(first[pointIndex].X, second[pointIndex].X, progress),
                     Y = Lerp(first[pointIndex].Y, second[pointIndex].Y, progress),
                     Pressure = Lerp(first[pointIndex].Pressure, second[pointIndex].Pressure, progress),
+                    BrushWidth = Lerp(first[pointIndex].BrushWidth, second[pointIndex].BrushWidth, progress),
+                    BrushColor = first[pointIndex].BrushColor,
                 });
             }
 
@@ -222,6 +243,8 @@ public static class InkAnimation
                     X = stroke[0].X,
                     Y = stroke[0].Y,
                     Pressure = stroke[0].Pressure,
+                    BrushWidth = stroke[0].BrushWidth,
+                    BrushColor = stroke[0].BrushColor,
                 })
                 .ToList();
         }
@@ -243,6 +266,8 @@ public static class InkAnimation
                     X = stroke[0].X,
                     Y = stroke[0].Y,
                     Pressure = stroke[0].Pressure,
+                    BrushWidth = stroke[0].BrushWidth,
+                    BrushColor = stroke[0].BrushColor,
                 })
                 .ToList();
         }
@@ -264,6 +289,8 @@ public static class InkAnimation
                 X = Lerp(stroke[segment - 1].X, stroke[segment].X, progress),
                 Y = Lerp(stroke[segment - 1].Y, stroke[segment].Y, progress),
                 Pressure = Lerp(stroke[segment - 1].Pressure, stroke[segment].Pressure, progress),
+                BrushWidth = Lerp(stroke[segment - 1].BrushWidth, stroke[segment].BrushWidth, progress),
+                BrushColor = stroke[segment - 1].BrushColor,
             });
         }
 
@@ -284,7 +311,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 1)
+        if (project.Version != 2)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -304,9 +331,10 @@ internal static class EditorProjectValidation
                 track is null ||
                 track.StartFrame < 1 ||
                 !double.IsFinite(track.Volume) ||
-                track.Volume is < 0 or > 1))
+                track.Volume is < 0 or > 1 ||
+                track.Year > 9999))
         {
-            throw new InvalidDataException("Audio tracks must have a valid start frame and volume.");
+            throw new InvalidDataException("Audio tracks must have a valid start frame, volume, and year.");
         }
 
         if (project.Frames is null || project.Frames.Count == 0)
@@ -336,9 +364,11 @@ internal static class EditorProjectValidation
                     point.X is < 0 or > 1 ||
                     point.Y is < 0 or > 1 ||
                     !double.IsFinite(point.Pressure) ||
-                    point.Pressure is < 0 or > 1))
+                    point.Pressure is < 0 or > 1 ||
+                    !double.IsFinite(point.BrushWidth) ||
+                    point.BrushWidth is < 0.5 or > 64))
                 {
-                    throw new InvalidDataException("The project contains invalid ink coordinates or pressure.");
+                    throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
                 }
             }
         }
