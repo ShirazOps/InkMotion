@@ -348,11 +348,48 @@ public sealed partial class MainWindow : Window
         PreviewPlayer.MediaPlayer.IsLoopingEnabled = false;
         EmptyState.Visibility = Visibility.Collapsed;
         VideoTrackLabel.Text = file.Name;
+        VideoTrackTimelineLabel.Text = file.Name;
         _videoPath = file.Path;
         _hasVideo = true;
         UnsavedIndicator.Visibility = markDirty ? Visibility.Visible : Visibility.Collapsed;
         SeekToCurrentFrame();
     }
+
+    private void Workspace_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string workspace })
+        {
+            return;
+        }
+
+        VideoWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Video");
+        AudioWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Audio");
+        InkWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Ink");
+
+        bool isAudioWorkspace = workspace == "Audio";
+        bool isInkWorkspace = workspace == "Ink";
+        PreviewStage.Visibility = isAudioWorkspace ? Visibility.Collapsed : Visibility.Visible;
+        AudioWorkspacePanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoInspectorPanel.Visibility = workspace == "Video" ? Visibility.Visible : Visibility.Collapsed;
+        AudioInspectorPanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkInspectorPanel.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoTimelineWorkspace.Visibility = workspace == "Video" ? Visibility.Visible : Visibility.Collapsed;
+        AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkSurface.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+
+        if (isAudioWorkspace)
+        {
+            RefreshAudioTracks();
+        }
+        else if (isInkWorkspace)
+        {
+            RenderCurrentInk();
+        }
+    }
+
+    private static SolidColorBrush WorkspaceButtonBackground(bool selected) =>
+        new(selected ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.Transparent);
 
     private void LoadAudio(AudioTrackRuntime track, StorageFile file)
     {
@@ -735,7 +772,8 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         PreviewPlayer.Source = null;
         EmptyState.Visibility = Visibility.Visible;
-        VideoTrackLabel.Text = "Drop a video here or use Open video";
+        VideoTrackLabel.Text = "No video loaded";
+        VideoTrackTimelineLabel.Text = "Use Open video to load a source";
         _hasVideo = false;
         _isPlaying = false;
         PlayButton.Content = "Play";

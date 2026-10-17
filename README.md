@@ -4,6 +4,8 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 
 ## First milestone
 
+- Provide separate Video Editor, Audio Editor, and Ink Editor workspaces with shared project and transport controls.
+- Use the Video Editor for video preview and playback, the Audio Editor for existing multitrack clip placement/mixing and tag editing, and the Ink Editor for pen-first drawing and cel animation.
 - Open local MP4, MOV, M4V, WMV, AVI, AV1, MKV, or WebM video files in the preview. AV1 playback depends on an AV1 decoder being available on Windows.
 - Draw with a mouse, pen, or touch directly over the preview.
 - Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
@@ -25,6 +27,10 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, ink layers, exposure lengths, and keyframe tween settings. Versions 1-4 are migrated when opened.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
 - Undo and redo completed ink strokes, erasures, frame additions, duplication and deletion, keyframe changes, and ink-layer visibility/opacity changes.
+
+## Planned editing milestones
+
+The new workspaces organise the current capabilities; they do not yet provide a full nonlinear editing or audio workstation. Video clip trim/split operations, image and text tracks, audio waveform editing and processing (including fades, normalisation, tempo/pitch, and surround layouts), and final media export are planned in separate increments. Export targets are 720p, 1080p, 1440p, and 4K UHD at the supported project rates of 12, 24, 30, or 60 fps. Codec, channel-layout, and export support will depend on a verified Windows encoding pipeline.
 
 Project files store paths to the original video and audio rather than embedding the media. Keep the sources available or relink them with **Open video** and **Add audio** after opening the project.
 
