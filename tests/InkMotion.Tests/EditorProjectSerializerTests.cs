@@ -68,6 +68,63 @@ public sealed class EditorProjectSerializerTests
         Assert.Equal(2, restored.Frames[1].Strokes[0].Count);
     }
 
+    [Fact]
+    public void RoundTrip_PreservesMultipleAudioTracks()
+    {
+        var original = new EditorProject
+        {
+            AudioTracks =
+            [
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\music.wav",
+                    StartFrame = 25,
+                    Volume = 0.7,
+                },
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\voice.mp3",
+                    StartFrame = 73,
+                    Volume = 0.4,
+                    Muted = true,
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            EditorProjectSerializer.Serialize(original));
+
+        Assert.Collection(
+            restored.AudioTracks,
+            track =>
+            {
+                Assert.Equal(@"C:\Media\music.wav", track.AudioPath);
+                Assert.Equal(25, track.StartFrame);
+                Assert.Equal(0.7, track.Volume);
+                Assert.False(track.Muted);
+            },
+            track =>
+            {
+                Assert.Equal(@"C:\Media\voice.mp3", track.AudioPath);
+                Assert.Equal(73, track.StartFrame);
+                Assert.Equal(0.4, track.Volume);
+                Assert.True(track.Muted);
+            });
+    }
+
+    [Fact]
+    public void Deserialize_LegacyAudioPath_MigratesToFirstAudioTrack()
+    {
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            """{"Version":1,"AudioPath":"C:\\Media\\music.wav","AudioVolume":0.5,"AudioMuted":true,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        var track = Assert.Single(restored.AudioTracks);
+        Assert.Equal(@"C:\Media\music.wav", track.AudioPath);
+        Assert.Equal(1, track.StartFrame);
+        Assert.Equal(0.5, track.Volume);
+        Assert.True(track.Muted);
+    }
+
     [Theory]
     [InlineData("""{"Version":2,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[],"SelectedFrameIndex":0}""")]
@@ -76,6 +133,8 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]},{"Number":3,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"FrameRate":25,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"AudioVolume":1.5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"AudioTracks":[{"StartFrame":0}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"AudioTracks":[{"Volume":-0.1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));
