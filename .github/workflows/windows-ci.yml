@@ -36,6 +36,7 @@ jobs:
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installerPath
           & $installerPath -Runtime windowsdesktop -Channel 10.0 -Architecture x86 -InstallDir $runtimePath
           "DOTNET_ROOT_X86=$runtimePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "DOTNET_ROOT(x86)=$runtimePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Restore
         run: dotnet restore InkMotion.sln -p:Platform=${{ matrix.platform }}
