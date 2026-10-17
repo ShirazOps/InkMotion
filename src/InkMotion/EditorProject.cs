@@ -4,15 +4,25 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
     public List<AudioTrackProject> AudioTracks { get; set; } = [];
+    public List<InkLayerProject> InkLayers { get; set; } = [new()];
+    public string ActiveInkLayerId { get; set; } = "ink-1";
     public int SelectedFrameIndex { get; set; }
     public List<EditorFrame> Frames { get; set; } = [new()];
+}
+
+public sealed class InkLayerProject
+{
+    public string Id { get; set; } = "ink-1";
+    public string Name { get; set; } = "Ink 1";
+    public bool IsVisible { get; set; } = true;
+    public double Opacity { get; set; } = 1;
 }
 
 public sealed class AudioTrackProject
@@ -35,6 +45,7 @@ public sealed class EditorFrame
     public int Number { get; set; } = 1;
     public bool IsKeyframe { get; set; }
     public List<List<InkPoint>> Strokes { get; set; } = [];
+    public Dictionary<string, List<List<InkPoint>>> LayerStrokes { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class InkPoint
@@ -64,6 +75,10 @@ public static class EditorProjectSerializer
         {
             MigrateVersionOne(project);
         }
+        if (project.Version == 2)
+        {
+            MigrateVersionTwo(project);
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -84,6 +99,31 @@ public static class EditorProjectSerializer
         project.Version = 2;
     }
 
+    private static void MigrateVersionTwo(EditorProject project)
+    {
+        project.InkLayers ??= [];
+        if (project.InkLayers.Count == 0)
+        {
+            project.InkLayers.Add(new InkLayerProject());
+        }
+
+        project.ActiveInkLayerId = project.InkLayers.Any(layer => layer is not null && layer.Id == project.ActiveInkLayerId)
+            ? project.ActiveInkLayerId
+            : project.InkLayers.FirstOrDefault(layer => layer is not null)?.Id ?? "ink-1";
+        if (project.Frames is not null)
+        {
+            foreach (EditorFrame? frame in project.Frames)
+            {
+                if (frame is not null)
+                {
+                    frame.LayerStrokes ??= new Dictionary<string, List<List<InkPoint>>>(StringComparer.Ordinal);
+                }
+            }
+        }
+
+        project.Version = 3;
+    }
+
 }
 
 public static class InkAnimation
@@ -93,8 +133,15 @@ public static class InkAnimation
     public static IReadOnlyList<List<InkPoint>> GetDisplayedStrokes(
         IReadOnlyList<EditorFrame> frames,
         int frameIndex)
+        => GetDisplayedStrokes(frames, frameIndex, frame => frame.Strokes);
+
+    public static IReadOnlyList<List<InkPoint>> GetDisplayedStrokes(
+        IReadOnlyList<EditorFrame> frames,
+        int frameIndex,
+        Func<EditorFrame, List<List<InkPoint>>> getStrokes)
     {
         ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(getStrokes);
         ArgumentOutOfRangeException.ThrowIfNegative(frameIndex);
         if (frameIndex >= frames.Count)
         {
@@ -102,9 +149,10 @@ public static class InkAnimation
         }
 
         EditorFrame current = frames[frameIndex];
-        if (current.IsKeyframe || current.Strokes.Count > 0)
+        List<List<InkPoint>> currentStrokes = getStrokes(current);
+        if (current.IsKeyframe || currentStrokes.Count > 0)
         {
-            return current.Strokes;
+            return currentStrokes;
         }
 
         int previousKeyframe = frameIndex - 1;
@@ -113,9 +161,9 @@ public static class InkAnimation
             previousKeyframe--;
         }
 
-        if (previousKeyframe < 0 || frames[previousKeyframe].Strokes.Count == 0)
+        if (previousKeyframe < 0 || getStrokes(frames[previousKeyframe]).Count == 0)
         {
-            return current.Strokes;
+            return currentStrokes;
         }
 
         int nextKeyframe = frameIndex + 1;
@@ -126,22 +174,24 @@ public static class InkAnimation
 
         if (nextKeyframe >= frames.Count)
         {
-            return frames[previousKeyframe].Strokes;
+            return getStrokes(frames[previousKeyframe]);
         }
 
         EditorFrame start = frames[previousKeyframe];
         EditorFrame end = frames[nextKeyframe];
-        if (!CanInterpolate(start, end))
+        List<List<InkPoint>> startStrokes = getStrokes(start);
+        List<List<InkPoint>> endStrokes = getStrokes(end);
+        if (!CanInterpolate(startStrokes, endStrokes))
         {
-            return start.Strokes;
+            return startStrokes;
         }
 
         double progress = (double)(frameIndex - previousKeyframe) / (nextKeyframe - previousKeyframe);
-        var interpolated = new List<List<InkPoint>>(start.Strokes.Count);
-        for (int i = 0; i < start.Strokes.Count; i++)
+        var interpolated = new List<List<InkPoint>>(startStrokes.Count);
+        for (int i = 0; i < startStrokes.Count; i++)
         {
-            List<InkPoint> first = Resample(start.Strokes[i], GetSampleCount(start.Strokes[i], end.Strokes[i]));
-            List<InkPoint> second = Resample(end.Strokes[i], first.Count);
+            List<InkPoint> first = Resample(startStrokes[i], GetSampleCount(startStrokes[i], endStrokes[i]));
+            List<InkPoint> second = Resample(endStrokes[i], first.Count);
             var stroke = new List<InkPoint>(first.Count);
             for (int pointIndex = 0; pointIndex < first.Count; pointIndex++)
             {
@@ -162,9 +212,17 @@ public static class InkAnimation
     }
 
     public static bool IsInterpolated(IReadOnlyList<EditorFrame> frames, int frameIndex)
+        => IsInterpolated(frames, frameIndex, frame => frame.Strokes);
+
+    public static bool IsInterpolated(
+        IReadOnlyList<EditorFrame> frames,
+        int frameIndex,
+        Func<EditorFrame, List<List<InkPoint>>> getStrokes)
     {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(getStrokes);
         if (frameIndex < 0 || frameIndex >= frames.Count ||
-            frames[frameIndex].IsKeyframe || frames[frameIndex].Strokes.Count > 0)
+            frames[frameIndex].IsKeyframe || getStrokes(frames[frameIndex]).Count > 0)
         {
             return false;
         }
@@ -183,11 +241,18 @@ public static class InkAnimation
 
         return previousKeyframe >= 0 &&
             nextKeyframe < frames.Count &&
-            CanInterpolate(frames[previousKeyframe], frames[nextKeyframe]);
+            CanInterpolate(getStrokes(frames[previousKeyframe]), getStrokes(frames[nextKeyframe]));
     }
 
     public static HashSet<int> GetInterpolatedFrameIndices(IReadOnlyList<EditorFrame> frames)
+        => GetInterpolatedFrameIndices(frames, frame => frame.Strokes);
+
+    public static HashSet<int> GetInterpolatedFrameIndices(
+        IReadOnlyList<EditorFrame> frames,
+        Func<EditorFrame, List<List<InkPoint>>> getStrokes)
     {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(getStrokes);
         var interpolatedFrames = new HashSet<int>();
         int previousKeyframe = -1;
         for (int nextKeyframe = 0; nextKeyframe < frames.Count; nextKeyframe++)
@@ -201,11 +266,11 @@ public static class InkAnimation
             {
                 EditorFrame start = frames[previousKeyframe];
                 EditorFrame end = frames[nextKeyframe];
-                if (CanInterpolate(start, end))
+                if (CanInterpolate(getStrokes(start), getStrokes(end)))
                 {
                     for (int i = previousKeyframe + 1; i < nextKeyframe; i++)
                     {
-                        if (!frames[i].IsKeyframe && frames[i].Strokes.Count == 0)
+                        if (!frames[i].IsKeyframe && getStrokes(frames[i]).Count == 0)
                         {
                             interpolatedFrames.Add(i);
                         }
@@ -219,11 +284,13 @@ public static class InkAnimation
         return interpolatedFrames;
     }
 
-    private static bool CanInterpolate(EditorFrame start, EditorFrame end) =>
-        start.Strokes.Count > 0 &&
-        start.Strokes.Count == end.Strokes.Count &&
-        start.Strokes.All(stroke => stroke.Count > 0) &&
-        end.Strokes.All(stroke => stroke.Count > 0);
+    private static bool CanInterpolate(
+        IReadOnlyList<List<InkPoint>> startStrokes,
+        IReadOnlyList<List<InkPoint>> endStrokes) =>
+        startStrokes.Count > 0 &&
+        startStrokes.Count == endStrokes.Count &&
+        startStrokes.All(stroke => stroke.Count > 0) &&
+        endStrokes.All(stroke => stroke.Count > 0);
 
     private static int GetSampleCount(IReadOnlyList<InkPoint> first, IReadOnlyList<InkPoint> second) =>
         Math.Clamp(Math.Max(first.Count, second.Count), 2, MaximumInterpolatedPoints);
@@ -311,7 +378,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 2)
+        if (project.Version != 3)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -337,6 +404,20 @@ internal static class EditorProjectValidation
             throw new InvalidDataException("Audio tracks must have a valid start frame, volume, and year.");
         }
 
+        if (project.InkLayers is null || project.InkLayers.Count == 0 ||
+            project.InkLayers.Any(layer =>
+                layer is null ||
+                string.IsNullOrWhiteSpace(layer.Id) ||
+                string.IsNullOrWhiteSpace(layer.Name) ||
+                !double.IsFinite(layer.Opacity) ||
+                layer.Opacity is < 0 or > 1) ||
+            project.InkLayers.Select(layer => layer.Id).Distinct(StringComparer.Ordinal).Count() != project.InkLayers.Count ||
+            !project.InkLayers.Any(layer => layer.Id == project.ActiveInkLayerId) ||
+            !project.InkLayers.Any(layer => layer.Id == "ink-1"))
+        {
+            throw new InvalidDataException("Ink layers must have unique ids, names, valid opacity, and an active layer.");
+        }
+
         if (project.Frames is null || project.Frames.Count == 0)
         {
             throw new InvalidDataException("A project must contain at least one frame.");
@@ -350,14 +431,36 @@ internal static class EditorProjectValidation
         int expectedFrameNumber = 1;
         foreach (EditorFrame? frame in project.Frames)
         {
-            if (frame is null || frame.Number != expectedFrameNumber++ || frame.Strokes is null)
+            if (frame is null || frame.Number != expectedFrameNumber++ || frame.Strokes is null || frame.LayerStrokes is null)
             {
                 throw new InvalidDataException("The project timeline must contain valid, sequentially numbered frames.");
             }
 
-            foreach (List<InkPoint>? stroke in frame.Strokes)
+            foreach (List<List<InkPoint>> layerStrokes in new[] { frame.Strokes }
+                         .Concat(frame.LayerStrokes.Values))
             {
-                if (stroke is null || stroke.Any(point =>
+                if (layerStrokes is null)
+                {
+                    throw new InvalidDataException("A frame contains an invalid ink layer.");
+                }
+
+                foreach (List<InkPoint>? stroke in layerStrokes)
+                {
+                    ValidateStroke(stroke);
+                }
+            }
+
+            if (frame.LayerStrokes.Keys.Any(layerId =>
+                    layerId == "ink-1" || !project.InkLayers.Any(layer => layer.Id == layerId)))
+            {
+                throw new InvalidDataException("A frame contains strokes for an unknown ink layer.");
+            }
+        }
+    }
+
+    private static void ValidateStroke(List<InkPoint>? stroke)
+    {
+        if (stroke is null || stroke.Any(point =>
                     point is null ||
                     !double.IsFinite(point.X) ||
                     !double.IsFinite(point.Y) ||
@@ -368,9 +471,7 @@ internal static class EditorProjectValidation
                     !double.IsFinite(point.BrushWidth) ||
                     point.BrushWidth is < 0.5 or > 64))
                 {
-                    throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
-                }
-            }
+            throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
         }
     }
 }

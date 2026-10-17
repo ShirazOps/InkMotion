@@ -106,13 +106,22 @@
                 <TextBox x:Name="AudioCommentsBox" PlaceholderText="Project comments" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                 <TextBlock Text="Comments are stored in the project. Other tags are written to the source only when requested." TextWrapping="Wrap" FontSize="11" Foreground="#727B8A" />
                 <Button x:Name="WriteAudioTagsButton" Content="Write tags to audio file" Click="WriteAudioTags_Click" IsEnabled="False" />
-                <TextBlock Text="INK LAYER" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                <Border Background="#22262E" CornerRadius="6" Padding="12">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="Frame drawing" FontWeight="SemiBold" Foreground="#DDE1E9" />
-                        <TextBlock Text="Each frame keeps its own ink. Duplicate a frame to carry its drawing forward." TextWrapping="Wrap" Foreground="#AAB1BD" />
-                    </StackPanel>
-                </Border>
+                <TextBlock Text="INK LAYERS" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
+                <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Opacity" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                    <Slider
+                        x:Name="InkLayerOpacitySlider"
+                        Width="130"
+                        Minimum="0"
+                        Maximum="1"
+                        Value="1"
+                        StepFrequency="0.05"
+                        ValueChanged="InkLayerOpacity_Changed"
+                        LostFocus="InkLayerOpacity_LostFocus" />
+                </StackPanel>
                 <TextBlock Text="BRUSH" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                 <ComboBox x:Name="InkColorSelector" SelectedIndex="0" SelectionChanged="InkColor_SelectionChanged">
                     <ComboBoxItem Content="Orange" Tag="FFFFA500" />

@@ -20,7 +20,9 @@ public sealed partial class MainWindow : Window
 {
     private const double FramesPerSecond = 24;
     private const int MaximumHistoryEntries = 100;
+    private const string BaseInkLayerId = "ink-1";
     private readonly List<EditorFrame> _frames = [new()];
+    private readonly List<InkLayerProject> _inkLayers = [new()];
     private readonly List<Button> _timelineButtons = [];
     private readonly HashSet<int> _interpolatedFrameIndices = [];
     private readonly Stack<EditorProject> _undoHistory = [];
@@ -31,6 +33,7 @@ public sealed partial class MainWindow : Window
     private int _selectedFrameIndex;
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
+    private string _activeInkLayerId = BaseInkLayerId;
     private uint _brushColor = 0xFFFFA500;
     private double _brushWidth = 4;
     private uint? _activePointerId;
@@ -57,12 +60,131 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
         UpdateSelectedAudioTrack();
+        RefreshInkLayers();
         RefreshTimeline();
         RenderCurrentInk();
         UpdateFrameStatus();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
+    private InkLayerProject CurrentInkLayer => _inkLayers.First(layer => layer.Id == _activeInkLayerId);
+    private List<List<InkPoint>> CurrentStrokes => GetLayerStrokes(CurrentFrame, _activeInkLayerId, create: true);
+
+    private List<List<InkPoint>> GetLayerStrokes(EditorFrame frame, string layerId, bool create = false)
+    {
+        if (layerId == BaseInkLayerId)
+        {
+            return frame.Strokes;
+        }
+
+        if (frame.LayerStrokes.TryGetValue(layerId, out List<List<InkPoint>>? strokes))
+        {
+            return strokes;
+        }
+
+        if (!create)
+        {
+            return [];
+        }
+
+        strokes = [];
+        frame.LayerStrokes.Add(layerId, strokes);
+        return strokes;
+    }
+
+    private IReadOnlyList<List<InkPoint>> GetDisplayedLayerStrokes(int frameIndex, string layerId) =>
+        InkAnimation.GetDisplayedStrokes(_frames, frameIndex, frame => GetLayerStrokes(frame, layerId));
+
+    private void AddInkLayer_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        string id = $"ink-{Guid.NewGuid():N}";
+        var layer = new InkLayerProject { Id = id, Name = $"Ink {_inkLayers.Count + 1}" };
+        _inkLayers.Add(layer);
+        _activeInkLayerId = id;
+        MarkEditChanged();
+        CommitEdit();
+        RefreshInkLayers();
+        RefreshTimeline();
+        RenderCurrentInk();
+        UpdateFrameStatus();
+        StatusText.Text = $"{layer.Name} added.";
+    }
+
+    private void RefreshInkLayers()
+    {
+        _isRestoringProject = true;
+        InkLayerSelector.ItemsSource = null;
+        InkLayerSelector.ItemsSource = _inkLayers;
+        InkLayerSelector.SelectedItem = _inkLayers.FirstOrDefault(layer => layer.Id == _activeInkLayerId);
+        UpdateInkLayerControls();
+        _isRestoringProject = false;
+    }
+
+    private void UpdateInkLayerControls()
+    {
+        InkLayerVisibilityButton.IsChecked = CurrentInkLayer.IsVisible;
+        InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
+        InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
+        InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible;
+    }
+
+    private void InkLayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRestoringProject || InkLayerSelector.SelectedItem is not InkLayerProject layer)
+        {
+            return;
+        }
+
+        FinishActiveEdit();
+        _activeInkLayerId = layer.Id;
+        UpdateInkLayerControls();
+        RefreshTimeline();
+        RenderCurrentInk();
+        UpdateFrameStatus();
+    }
+
+    private void InkLayerVisibility_Click(object sender, RoutedEventArgs e)
+    {
+        bool visible = InkLayerVisibilityButton.IsChecked == true;
+        if (!visible && _inkLayers.Count(layer => layer.IsVisible) == 1)
+        {
+            _isRestoringProject = true;
+            InkLayerVisibilityButton.IsChecked = true;
+            _isRestoringProject = false;
+            StatusText.Text = "At least one ink layer must remain visible.";
+            return;
+        }
+
+        BeginEdit();
+        CurrentInkLayer.IsVisible = visible;
+        MarkEditChanged();
+        CommitEdit();
+        UpdateInkLayerControls();
+        RenderCurrentInk();
+    }
+
+    private void InkLayerOpacity_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_isRestoringProject || _isInitializing)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentInkLayer.Opacity = e.NewValue;
+        MarkEditChanged();
+        RenderCurrentInk();
+    }
+
+    private void InkLayerOpacity_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+    }
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
@@ -701,11 +823,13 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         BeginEdit();
         EditorFrame sourceFrame = CurrentFrame;
+        EditorFrame clonedSource = CloneFrame(sourceFrame);
         var duplicate = new EditorFrame
         {
             Number = sourceFrame.Number + 1,
             IsKeyframe = sourceFrame.IsKeyframe,
-            Strokes = CloneFrame(sourceFrame).Strokes,
+            Strokes = clonedSource.Strokes,
+            LayerStrokes = clonedSource.LayerStrokes,
         };
         _frames.Insert(_selectedFrameIndex + 1, duplicate);
         for (int i = _selectedFrameIndex + 2; i < _frames.Count; i++)
@@ -811,7 +935,7 @@ public sealed partial class MainWindow : Window
         else
         {
             _activeStroke = [];
-            CurrentFrame.Strokes.Add(_activeStroke);
+            CurrentStrokes.Add(_activeStroke);
             AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
         }
 
@@ -893,7 +1017,7 @@ public sealed partial class MainWindow : Window
         double radiusY = 18 / Math.Max(1, InkSurface.ActualHeight);
         double normalizedX = point.X / InkSurface.ActualWidth;
         double normalizedY = point.Y / InkSurface.ActualHeight;
-        bool changed = CurrentFrame.Strokes.RemoveAll(stroke =>
+        bool changed = CurrentStrokes.RemoveAll(stroke =>
             stroke.Any(inkPoint =>
                 Math.Abs(inkPoint.X - normalizedX) <= radiusX &&
                 Math.Abs(inkPoint.Y - normalizedY) <= radiusY)) > 0;
@@ -913,25 +1037,27 @@ public sealed partial class MainWindow : Window
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
             if (_selectedFrameIndex > 0)
             {
-                DrawStrokes(
-                    InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex - 1),
-                    0xFF00BFFF,
-                    opacity);
+                DrawVisibleLayers(_selectedFrameIndex - 1, 0xFF00BFFF, opacity);
             }
 
             if (_selectedFrameIndex + 1 < _frames.Count)
             {
-                DrawStrokes(
-                    InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex + 1),
-                    0xFFFF69B4,
-                    opacity);
+                DrawVisibleLayers(_selectedFrameIndex + 1, 0xFFFF69B4, opacity);
             }
         }
 
-        DrawStrokes(
-            InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex),
-            null,
-            1);
+        DrawVisibleLayers(_selectedFrameIndex, null, 1);
+    }
+
+    private void DrawVisibleLayers(int frameIndex, uint? color, double opacityScale)
+    {
+        foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
+        {
+            DrawStrokes(
+                GetDisplayedLayerStrokes(frameIndex, layer.Id),
+                color,
+                layer.Opacity * opacityScale);
+        }
     }
 
     private void DrawStrokes(IReadOnlyList<List<InkPoint>> strokes, uint? color, double opacity)
@@ -1143,6 +1269,8 @@ public sealed partial class MainWindow : Window
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
             AudioMuted = firstLoadedTrack?.Muted ?? false,
             AudioTracks = tracks,
+            InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
+            ActiveInkLayerId = _activeInkLayerId,
             SelectedFrameIndex = _selectedFrameIndex,
             Frames = _frames.Select(CloneFrame).ToList(),
         };
@@ -1161,6 +1289,14 @@ public sealed partial class MainWindow : Window
         Comments = track.Comments,
         Year = track.Year,
         TagsInitialized = track.TagsInitialized,
+    };
+
+    private static InkLayerProject CloneInkLayer(InkLayerProject layer) => new()
+    {
+        Id = layer.Id,
+        Name = layer.Name,
+        IsVisible = layer.IsVisible,
+        Opacity = layer.Opacity,
     };
 
     private static bool HasAudioTags(AudioTrackProject project) =>
@@ -1186,6 +1322,17 @@ public sealed partial class MainWindow : Window
                 BrushColor = point.BrushColor,
             }).ToList())
             .ToList(),
+            LayerStrokes = frame.LayerStrokes.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Select(stroke => stroke.Select(point => new InkPoint
+                {
+                    X = point.X,
+                    Y = point.Y,
+                    Pressure = point.Pressure,
+                    BrushWidth = point.BrushWidth,
+                    BrushColor = point.BrushColor,
+                }).ToList()).ToList(),
+                StringComparer.Ordinal),
     };
 
     private void RestoreProjectState(EditorProject project)
@@ -1194,10 +1341,14 @@ public sealed partial class MainWindow : Window
         _isRestoringProject = true;
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
+        _inkLayers.Clear();
+        _inkLayers.AddRange(project.InkLayers.Select(CloneInkLayer));
+        _activeInkLayerId = project.ActiveInkLayerId;
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         _videoPath = project.VideoPath;
         RestoreAudioTrackModels(project.AudioTracks);
+        RefreshInkLayers();
         _isRestoringProject = false;
         _activePointerId = null;
         _activeStroke = null;
@@ -1278,7 +1429,7 @@ public sealed partial class MainWindow : Window
     {
         if (_activeStroke is { Count: 0 })
         {
-            CurrentFrame.Strokes.Remove(_activeStroke);
+            CurrentStrokes.Remove(_activeStroke);
         }
 
         _activePointerId = null;
@@ -1396,12 +1547,13 @@ public sealed partial class MainWindow : Window
 
     private void PromoteInterpolatedFrameForEditing()
     {
-        if (CurrentFrame.IsKeyframe || CurrentFrame.Strokes.Count > 0)
+        List<List<InkPoint>> currentStrokes = CurrentStrokes;
+        if (CurrentFrame.IsKeyframe || currentStrokes.Count > 0)
         {
             return;
         }
 
-        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex);
+        IReadOnlyList<List<InkPoint>> displayed = GetDisplayedLayerStrokes(_selectedFrameIndex, _activeInkLayerId);
         if (_isEraser && displayed.Count == 0)
         {
             return;
@@ -1409,7 +1561,7 @@ public sealed partial class MainWindow : Window
 
         if (displayed.Count > 0)
         {
-            CurrentFrame.Strokes = displayed
+            currentStrokes.AddRange(displayed
                 .Select(stroke => stroke.Select(point => new InkPoint
                 {
                     X = point.X,
@@ -1418,7 +1570,7 @@ public sealed partial class MainWindow : Window
                     BrushWidth = point.BrushWidth,
                     BrushColor = point.BrushColor,
                 }).ToList())
-                .ToList();
+                .ToList());
         }
 
         CurrentFrame.IsKeyframe = true;
@@ -1430,7 +1582,9 @@ public sealed partial class MainWindow : Window
     private void RefreshTimeline()
     {
         _interpolatedFrameIndices.Clear();
-        _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(_frames));
+        _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(
+            _frames,
+            frame => GetLayerStrokes(frame, _activeInkLayerId)));
         InkFramesPanel.Children.Clear();
         _timelineButtons.Clear();
         for (int i = 0; i < _frames.Count; i++)
@@ -1536,9 +1690,9 @@ public sealed partial class MainWindow : Window
     {
         KeyframeStatus.Text = CurrentFrame.IsKeyframe
             ? $"Keyframe set at frame {CurrentFrame.Number}."
-            : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex)
+            : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex, frame => GetLayerStrokes(frame, _activeInkLayerId))
                 ? $"Interpolated drawing at frame {CurrentFrame.Number}."
-                : CurrentFrame.Strokes.Count > 0
+                : CurrentStrokes.Count > 0
                     ? $"Hand-drawn exposure at frame {CurrentFrame.Number}."
                     : "No ink on this frame";
     }
