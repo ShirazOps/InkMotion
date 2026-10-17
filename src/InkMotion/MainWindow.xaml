@@ -1,0 +1,140 @@
+<Window
+    x:Class="InkMotion.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="InkMotion">
+    <Grid Background="#101216" RequestedTheme="Dark">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="52" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="244" />
+            <RowDefinition Height="28" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Padding="16,0" Background="#191C22">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                <TextBlock Text="INKMOTION" FontSize="16" FontWeight="Bold" Foreground="#F2F4F8" />
+                <Border Width="1" Height="22" Background="#353A44" />
+                <Button Content="Open video" Click="OpenVideo_Click" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Button x:Name="PlayButton" Content="Play" Click="Play_Click" />
+                <Button Content="Previous frame" Click="PreviousFrame_Click" />
+                <Button Content="Next frame" Click="NextFrame_Click" />
+                <TextBlock x:Name="FrameReadout" Text="F 001" MinWidth="64" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#D6DBE5" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Duplicate frame" Click="DuplicateFrame_Click" />
+                <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnSpacing="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="58" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="236" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Background="#191C22" Padding="8,16" Spacing="10">
+                <Button Content="Pen" Click="SelectPen_Click" />
+                <Button Content="Erase" Click="SelectEraser_Click" />
+                <Border Height="1" Background="#353A44" Margin="0,4" />
+                <TextBlock Text="INK" FontSize="10" HorizontalAlignment="Center" Foreground="#9098A7" />
+            </StackPanel>
+
+            <Grid Grid.Column="1" Margin="24,20" Background="#08090B">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="32" />
+                </Grid.RowDefinitions>
+                <Grid Grid.Row="0" MaxWidth="960" MaxHeight="540">
+                    <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
+                    <Canvas
+                        x:Name="InkSurface"
+                        Background="Transparent"
+                        PointerPressed="InkSurface_PointerPressed"
+                        PointerMoved="InkSurface_PointerMoved"
+                        PointerReleased="InkSurface_PointerReleased"
+                        PointerCaptureLost="InkSurface_PointerCaptureLost"
+                        SizeChanged="InkSurface_SizeChanged" />
+                    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
+                        <TextBlock Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#E5E8EE" />
+                        <TextBlock Text="Open a video, then draw directly over the preview." HorizontalAlignment="Center" Foreground="#9BA3B2" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock Grid.Row="1" Text="PREVIEW  ·  VIDEO + INK" FontSize="10" CharacterSpacing="100" Foreground="#727B8A" VerticalAlignment="Center" />
+            </Grid>
+
+            <StackPanel Grid.Column="2" Background="#191C22" Padding="16" Spacing="12">
+                <TextBlock Text="Inspector" FontSize="16" FontWeight="SemiBold" Foreground="#F2F4F8" />
+                <TextBlock Text="INK LAYER" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                <Border Background="#22262E" CornerRadius="6" Padding="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Frame drawing" FontWeight="SemiBold" Foreground="#DDE1E9" />
+                        <TextBlock Text="Each frame keeps its own ink. Duplicate a frame to carry its drawing forward." TextWrapping="Wrap" Foreground="#AAB1BD" />
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="ANIMATION" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                <TextBlock x:Name="KeyframeStatus" Text="No keyframe on this frame" TextWrapping="Wrap" Foreground="#AAB1BD" />
+                <TextBlock Text="Keyframe interpolation is planned for a following milestone." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="2" Background="#191C22" Padding="12,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="28" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="146" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <TextBlock Text="TIMELINE" FontSize="10" CharacterSpacing="100" FontWeight="SemiBold" Foreground="#AAB1BD" VerticalAlignment="Center" />
+                <Button Content="+" ToolTipService.ToolTip="Add frame" Click="AddFrame_Click" />
+            </StackPanel>
+            <StackPanel Grid.Row="1" Spacing="4">
+                <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                    <TextBlock Text="V1  Video" VerticalAlignment="Center" Foreground="#C7CDD7" />
+                </Border>
+                <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                    <TextBlock Text="I1  Ink" VerticalAlignment="Center" Foreground="#C7CDD7" />
+                </Border>
+                <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                    <TextBlock Text="A1  Audio" VerticalAlignment="Center" Foreground="#C7CDD7" />
+                </Border>
+                <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                    <TextBlock Text="FX  Effects" VerticalAlignment="Center" Foreground="#C7CDD7" />
+                </Border>
+            </StackPanel>
+            <ScrollViewer Grid.Column="1" Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" ZoomMode="Disabled">
+                <StackPanel Spacing="4">
+                    <Border Height="36" Background="#292E38" CornerRadius="4" Padding="10,0">
+                        <TextBlock x:Name="VideoTrackLabel" Text="Drop a video here or use Open video" VerticalAlignment="Center" Foreground="#8F99AA" />
+                    </Border>
+                    <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="36" />
+                    <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                        <TextBlock Text="Audio track — ready for clips" VerticalAlignment="Center" Foreground="#727B8A" />
+                    </Border>
+                    <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
+                        <TextBlock Text="Effects track — ready for effects" VerticalAlignment="Center" Foreground="#727B8A" />
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Grid Grid.Row="3" Padding="12,0" Background="#121419">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusText" Text="Ready  ·  24 fps" FontSize="11" Foreground="#8992A1" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="INKMOTION  ·  PREVIEW" FontSize="10" CharacterSpacing="80" Foreground="#5F6877" VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</Window>
