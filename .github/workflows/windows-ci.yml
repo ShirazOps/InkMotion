@@ -42,5 +42,13 @@ jobs:
       - name: Build
         run: dotnet build InkMotion.sln -c Release -p:Platform=${{ matrix.platform }} --no-restore
 
-      - name: Test
+      - name: Test x86
+        if: matrix.platform == 'x86'
+        shell: pwsh
+        run: |
+          $env:DOTNET_ROOT = "C:\Program Files (x86)\dotnet"
+          dotnet test InkMotion.sln -c Release -p:Platform=x86 --no-build --no-restore
+
+      - name: Test x64
+        if: matrix.platform == 'x64'
         run: dotnet test InkMotion.sln -c Release -p:Platform=${{ matrix.platform }} --no-build --no-restore
