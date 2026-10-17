@@ -5,11 +5,25 @@ namespace InkMotion.Tests;
 public sealed class EditorProjectSerializerTests
 {
     [Fact]
+    public void Deserialize_ProjectWithoutAudioMetadata_UsesAudioDefaults()
+    {
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            """{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Null(restored.AudioPath);
+        Assert.Equal(1, restored.AudioVolume);
+        Assert.False(restored.AudioMuted);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesVideoFramesInkAndKeyframes()
     {
         var original = new EditorProject
         {
             VideoPath = @"C:\Media\scene.mp4",
+            AudioPath = @"C:\Media\music.wav",
+            AudioVolume = 0.65,
+            AudioMuted = true,
             SelectedFrameIndex = 1,
             Frames =
             [
@@ -39,6 +53,9 @@ public sealed class EditorProjectSerializerTests
 
         Assert.Equal(original.Version, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
+        Assert.Equal(original.AudioPath, restored.AudioPath);
+        Assert.Equal(original.AudioVolume, restored.AudioVolume);
+        Assert.Equal(original.AudioMuted, restored.AudioMuted);
         Assert.Equal(original.SelectedFrameIndex, restored.SelectedFrameIndex);
         Assert.Equal(30, restored.FrameRate);
         Assert.Collection(
@@ -58,6 +75,7 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]},{"Number":3,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"FrameRate":25,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"AudioVolume":1.5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));
