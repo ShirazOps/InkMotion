@@ -28,13 +28,14 @@ jobs:
         shell: pwsh
         run: |
           $manifest = Get-Content src\InkMotion\Package.appxmanifest -Raw
-          if ($manifest.Contains('InkMotion.StoreIdentityRequired')) {
+          if ($manifest.Contains('InkMotion.StoreIdentityRequired') -or $manifest.Contains('CN=STORE_PUBLISHER_REQUIRED')) {
             throw "Associate InkMotion with its reserved Partner Center app identity before creating a Store upload."
           }
 
       - name: Restore
         run: msbuild src\InkMotion\InkMotion.csproj /t:Restore /p:Configuration=Release /p:Platform=x86 /p:StorePackage=true /p:AppxBundlePlatforms="x86|x64"
 
+      # Keep runFullTrust in generated manifests; Store mode strips it before validation.
       - name: Build Store upload package
         run: >
           msbuild src\InkMotion\InkMotion.csproj
@@ -44,6 +45,7 @@ jobs:
           /p:AppxBundlePlatforms="x86|x64"
           /p:AppxBundle=Always
           /p:UapAppxPackageBuildMode=StoreUpload
+          /p:AppxPackageIsForStore=false
           /p:AppxPackageDir=Packages\
           /p:AppxPackageSigningEnabled=false
           /p:GenerateAppxPackageOnBuild=true
