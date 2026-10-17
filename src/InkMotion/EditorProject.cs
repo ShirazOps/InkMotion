@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 3;
+    public int Version { get; set; } = 4;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
@@ -46,8 +46,17 @@ public sealed class EditorFrame
 {
     public int Number { get; set; } = 1;
     public bool IsKeyframe { get; set; }
+    public InkInterpolationMode InterpolationMode { get; set; } = InkInterpolationMode.Linear;
     public List<List<InkPoint>> Strokes { get; set; } = [];
     public Dictionary<string, List<List<InkPoint>>> LayerStrokes { get; set; } = new(StringComparer.Ordinal);
+}
+
+public enum InkInterpolationMode
+{
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
 }
 
 public static class InkTimeline
@@ -94,7 +103,11 @@ public static class VideoFileTypes
 
 public static class EditorProjectSerialiser
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
 
     public static string Serialise(EditorProject project)
     {
@@ -104,7 +117,7 @@ public static class EditorProjectSerialiser
 
     public static EditorProject Deserialise(string json)
     {
-        EditorProject project = JsonSerializer.Deserialize<EditorProject>(json)
+        EditorProject project = JsonSerializer.Deserialize<EditorProject>(json, Options)
             ?? throw new InvalidDataException("The project file is empty.");
         if (project.Version == 1)
         {
@@ -113,6 +126,10 @@ public static class EditorProjectSerialiser
         if (project.Version == 2)
         {
             MigrateVersionTwo(project);
+        }
+        if (project.Version == 3)
+        {
+            MigrateVersionThree(project);
         }
 
         EditorProjectValidation.Validate(project);
@@ -157,6 +174,11 @@ public static class EditorProjectSerialiser
         }
 
         project.Version = 3;
+    }
+
+    private static void MigrateVersionThree(EditorProject project)
+    {
+        project.Version = 4;
     }
 
 }
@@ -221,7 +243,9 @@ public static class InkAnimation
             return startStrokes;
         }
 
-        double progress = (double)(frameIndex - previousKeyframe) / (nextKeyframe - previousKeyframe);
+        double progress = ApplyInterpolation(
+            (double)(frameIndex - previousKeyframe) / (nextKeyframe - previousKeyframe),
+            start.InterpolationMode);
         var interpolated = new List<List<InkPoint>>(startStrokes.Count);
         for (int i = 0; i < startStrokes.Count; i++)
         {
@@ -327,6 +351,18 @@ public static class InkAnimation
         startStrokes.All(stroke => stroke.Count > 0) &&
         endStrokes.All(stroke => stroke.Count > 0);
 
+    private static double ApplyInterpolation(double progress, InkInterpolationMode mode) =>
+        mode switch
+        {
+            InkInterpolationMode.Linear => progress,
+            InkInterpolationMode.EaseIn => progress * progress,
+            InkInterpolationMode.EaseOut => 1 - Math.Pow(1 - progress, 2),
+            InkInterpolationMode.EaseInOut => progress < 0.5
+                ? 2 * progress * progress
+                : 1 - (Math.Pow(-2 * progress + 2, 2) / 2),
+            _ => progress,
+        };
+
     private static int GetSampleCount(IReadOnlyList<InkPoint> first, IReadOnlyList<InkPoint> second) =>
         Math.Clamp(Math.Max(first.Count, second.Count), 2, MaximumInterpolatedPoints);
 
@@ -413,7 +449,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 3)
+        if (project.Version != 4)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -466,7 +502,11 @@ internal static class EditorProjectValidation
         int expectedFrameNumber = 1;
         foreach (EditorFrame? frame in project.Frames)
         {
-            if (frame is null || frame.Number != expectedFrameNumber++ || frame.Strokes is null || frame.LayerStrokes is null)
+            if (frame is null ||
+                frame.Number != expectedFrameNumber++ ||
+                !Enum.IsDefined(frame.InterpolationMode) ||
+                frame.Strokes is null ||
+                frame.LayerStrokes is null)
             {
                 throw new InvalidDataException("The project timeline must contain valid, sequentially numbered frames.");
             }
