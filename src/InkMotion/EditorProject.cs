@@ -34,6 +34,7 @@ public sealed class InkPoint
 {
     public double X { get; set; }
     public double Y { get; set; }
+    public double Pressure { get; set; } = 0.5;
 }
 
 public static class EditorProjectSerializer
@@ -129,6 +130,7 @@ public static class InkAnimation
                 {
                     X = Lerp(first[pointIndex].X, second[pointIndex].X, progress),
                     Y = Lerp(first[pointIndex].Y, second[pointIndex].Y, progress),
+                    Pressure = Lerp(first[pointIndex].Pressure, second[pointIndex].Pressure, progress),
                 });
             }
 
@@ -215,7 +217,12 @@ public static class InkAnimation
         if (stroke.Count == 1)
         {
             return Enumerable.Range(0, sampleCount)
-                .Select(_ => new InkPoint { X = stroke[0].X, Y = stroke[0].Y })
+                .Select(_ => new InkPoint
+                {
+                    X = stroke[0].X,
+                    Y = stroke[0].Y,
+                    Pressure = stroke[0].Pressure,
+                })
                 .ToList();
         }
 
@@ -231,7 +238,12 @@ public static class InkAnimation
         if (totalLength == 0)
         {
             return Enumerable.Range(0, sampleCount)
-                .Select(_ => new InkPoint { X = stroke[0].X, Y = stroke[0].Y })
+                .Select(_ => new InkPoint
+                {
+                    X = stroke[0].X,
+                    Y = stroke[0].Y,
+                    Pressure = stroke[0].Pressure,
+                })
                 .ToList();
         }
 
@@ -251,6 +263,7 @@ public static class InkAnimation
             {
                 X = Lerp(stroke[segment - 1].X, stroke[segment].X, progress),
                 Y = Lerp(stroke[segment - 1].Y, stroke[segment].Y, progress),
+                Pressure = Lerp(stroke[segment - 1].Pressure, stroke[segment].Pressure, progress),
             });
         }
 
@@ -321,9 +334,11 @@ internal static class EditorProjectValidation
                     !double.IsFinite(point.X) ||
                     !double.IsFinite(point.Y) ||
                     point.X is < 0 or > 1 ||
-                    point.Y is < 0 or > 1))
+                    point.Y is < 0 or > 1 ||
+                    !double.IsFinite(point.Pressure) ||
+                    point.Pressure is < 0 or > 1))
                 {
-                    throw new InvalidDataException("The project contains invalid ink coordinates.");
+                    throw new InvalidDataException("The project contains invalid ink coordinates or pressure.");
                 }
             }
         }
