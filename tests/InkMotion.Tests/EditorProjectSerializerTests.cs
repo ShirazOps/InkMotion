@@ -31,6 +31,7 @@ public sealed class EditorProjectSerializerTests
                     ],
                 },
             ],
+            FrameRate = 30,
         };
 
         EditorProject restored = EditorProjectSerializer.Deserialize(
@@ -39,6 +40,7 @@ public sealed class EditorProjectSerializerTests
         Assert.Equal(original.Version, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.SelectedFrameIndex, restored.SelectedFrameIndex);
+        Assert.Equal(30, restored.FrameRate);
         Assert.Collection(
             restored.Frames,
             frame => Assert.Equal(1, frame.Number),
@@ -55,6 +57,7 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":1}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]},{"Number":3,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"FrameRate":25,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));

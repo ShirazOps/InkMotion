@@ -77,6 +77,16 @@
 
             <StackPanel Grid.Column="2" Background="#191C22" Padding="16" Spacing="12">
                 <TextBlock Text="Inspector" FontSize="16" FontWeight="SemiBold" Foreground="#F2F4F8" />
+                <TextBlock Text="TIMELINE" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Frame rate" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                    <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">
+                        <ComboBoxItem Content="12 fps" Tag="12" />
+                        <ComboBoxItem Content="24 fps" Tag="24" />
+                        <ComboBoxItem Content="30 fps" Tag="30" />
+                        <ComboBoxItem Content="60 fps" Tag="60" />
+                    </ComboBox>
+                </StackPanel>
                 <TextBlock Text="INK LAYER" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                 <Border Background="#22262E" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="8">
@@ -86,7 +96,7 @@
                 </Border>
                 <TextBlock Text="ANIMATION" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                 <TextBlock x:Name="KeyframeStatus" Text="No keyframe on this frame" TextWrapping="Wrap" Foreground="#AAB1BD" />
-                <TextBlock Text="Keyframe interpolation is planned for a following milestone." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
+                <TextBlock Text="Matching strokes interpolate between keyframes. Editing an in-between frame turns it into a new keyframe." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
             </StackPanel>
         </Grid>
 
