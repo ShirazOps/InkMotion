@@ -31,7 +31,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(5, restored.Version);
+        Assert.Equal(6, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
         Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColour);
@@ -74,7 +74,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             EditorProjectSerialiser.Serialise(original));
 
-        Assert.Equal(5, restored.Version);
+        Assert.Equal(6, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
@@ -157,7 +157,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(5, restored.Version);
+        Assert.Equal(6, restored.Version);
         Assert.Equal("ink-1", restored.ActiveInkLayerId);
         Assert.Equal("Ink 1", Assert.Single(restored.InkLayers).Name);
         Assert.Single(restored.Frames[0].Strokes);
@@ -169,7 +169,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"IsKeyframe":true,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(5, restored.Version);
+        Assert.Equal(6, restored.Version);
         Assert.Equal(InkInterpolationMode.Linear, restored.Frames[0].InterpolationMode);
     }
 
@@ -179,8 +179,52 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":4,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(5, restored.Version);
+        Assert.Equal(6, restored.Version);
         Assert.Equal(1, restored.Frames[0].ExposureFrames);
+    }
+
+    [Fact]
+    public void Deserialise_VersionFiveProject_AddsTextOverlayCollection()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(6, restored.Version);
+        Assert.Empty(restored.Frames[0].TextOverlays);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesStyledTextOverlay()
+    {
+        var original = new EditorProject
+        {
+            Frames =
+            [
+                new EditorFrame
+                {
+                    Number = 1,
+                    TextOverlays =
+                    [
+                        new InkTextOverlay
+                        {
+                            Text = "InkMotion",
+                            X = 0.25,
+                            Y = 0.75,
+                            FontFamily = "Georgia",
+                            FontSize = 64,
+                            Colour = 0xFFFF69B4,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(original));
+
+        InkTextOverlay overlay = Assert.Single(restored.Frames[0].TextOverlays);
+        Assert.Equal(("InkMotion", 0.25, 0.75, "Georgia", 64, 0xFFFF69B4u),
+            (overlay.Text, overlay.X, overlay.Y, overlay.FontFamily, overlay.FontSize, overlay.Colour));
     }
 
     [Fact]
@@ -348,9 +392,11 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Theory]
-    [InlineData("""{"Version":6,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
-    [InlineData("""{"Version":5,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
-    [InlineData("""{"Version":5,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":6,"Frames":[{"Number":1,"TextOverlays":[{"Text":"","FontFamily":"Segoe UI","FontSize":24}],"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":6,"Frames":[{"Number":1,"TextOverlays":[{"Text":"Bad size","FontFamily":"Segoe UI","FontSize":513}],"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":1}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]

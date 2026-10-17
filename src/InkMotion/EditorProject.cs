@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 5;
+    public int Version { get; set; } = 6;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
@@ -50,6 +50,17 @@ public sealed class EditorFrame
     public InkInterpolationMode InterpolationMode { get; set; } = InkInterpolationMode.Linear;
     public List<List<InkPoint>> Strokes { get; set; } = [];
     public Dictionary<string, List<List<InkPoint>>> LayerStrokes { get; set; } = new(StringComparer.Ordinal);
+    public List<InkTextOverlay> TextOverlays { get; set; } = [];
+}
+
+public sealed class InkTextOverlay
+{
+    public string Text { get; set; } = string.Empty;
+    public double X { get; set; } = 0.5;
+    public double Y { get; set; } = 0.5;
+    public string FontFamily { get; set; } = "Segoe UI";
+    public double FontSize { get; set; } = 48;
+    public uint Colour { get; set; } = 0xFFFFFFFF;
 }
 
 public enum InkInterpolationMode
@@ -58,6 +69,41 @@ public enum InkInterpolationMode
     EaseIn,
     EaseOut,
     EaseInOut,
+}
+
+public enum ExportResolution
+{
+    P720,
+    P1080,
+    P1440,
+    Uhd4K,
+}
+
+public sealed record VideoExportProfile(ExportResolution Resolution, int Width, int Height, double FrameRate)
+{
+    public static IReadOnlyList<(ExportResolution Resolution, string Name, int Width, int Height)> Resolutions { get; } =
+    [
+        (ExportResolution.P720, "720p", 1280, 720),
+        (ExportResolution.P1080, "1080p", 1920, 1080),
+        (ExportResolution.P1440, "1440p", 2560, 1440),
+        (ExportResolution.Uhd4K, "4K UHD", 3840, 2160),
+    ];
+
+    public static VideoExportProfile Create(ExportResolution resolution, double frameRate)
+    {
+        var dimensions = Resolutions.FirstOrDefault(item => item.Resolution == resolution);
+        if (dimensions.Width == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(resolution));
+        }
+
+        if (!ProjectFrameRates.Supported.Contains(frameRate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameRate));
+        }
+
+        return new VideoExportProfile(resolution, dimensions.Width, dimensions.Height, frameRate);
+    }
 }
 
 public static class InkTimeline
@@ -188,6 +234,10 @@ public static class EditorProjectSerialiser
         {
             MigrateVersionFour(project);
         }
+        if (project.Version == 5)
+        {
+            MigrateVersionFive(project);
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -241,6 +291,11 @@ public static class EditorProjectSerialiser
     private static void MigrateVersionFour(EditorProject project)
     {
         project.Version = 5;
+    }
+
+    private static void MigrateVersionFive(EditorProject project)
+    {
+        project.Version = 6;
     }
 
 }
@@ -514,7 +569,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 5)
+        if (project.Version != 6)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -572,7 +627,8 @@ internal static class EditorProjectValidation
                 frame.ExposureFrames is < 1 or > 999 ||
                 !Enum.IsDefined(frame.InterpolationMode) ||
                 frame.Strokes is null ||
-                frame.LayerStrokes is null)
+                frame.LayerStrokes is null ||
+                frame.TextOverlays is null)
             {
                 throw new InvalidDataException("The project timeline must contain valid, sequentially numbered frames.");
             }
@@ -595,6 +651,22 @@ internal static class EditorProjectValidation
                     layerId == "ink-1" || !project.InkLayers.Any(layer => layer.Id == layerId)))
             {
                 throw new InvalidDataException("A frame contains strokes for an unknown ink layer.");
+            }
+
+            if (frame.TextOverlays.Any(text =>
+                    text is null ||
+                    string.IsNullOrWhiteSpace(text.Text) ||
+                    text.Text.Length > 2048 ||
+                    !double.IsFinite(text.X) ||
+                    text.X is < 0 or > 1 ||
+                    !double.IsFinite(text.Y) ||
+                    text.Y is < 0 or > 1 ||
+                    string.IsNullOrWhiteSpace(text.FontFamily) ||
+                    text.FontFamily.Length > 128 ||
+                    !double.IsFinite(text.FontSize) ||
+                    text.FontSize is < 6 or > 512))
+            {
+                throw new InvalidDataException("A text overlay contains invalid content or styling.");
             }
         }
     }
