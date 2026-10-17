@@ -278,6 +278,7 @@ public sealed partial class MainWindow : Window
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
+        MoveAudioClipButton.IsEnabled = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         if (!hasSelection)
         {
             AudioTrackLabel.Text = "No audio track selected";
@@ -294,6 +295,34 @@ public sealed partial class MainWindow : Window
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
         _isRestoringProject = false;
+    }
+
+    private void MoveAudioClipToPlayhead_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAudioTrackIndex < 0 ||
+            _selectedAudioTrackIndex >= _audioTracks.Count ||
+            !_audioTracks[_selectedAudioTrackIndex].HasSource)
+        {
+            return;
+        }
+
+        AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
+        if (track.Project.StartFrame == CurrentFrame.Number)
+        {
+            StatusText.Text = "The audio clip already starts at the playhead.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        track.Project.StartFrame = CurrentFrame.Number;
+        MarkEditChanged();
+        CommitEdit();
+        SyncAudioTracks(TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate), startPlayback: false);
+        UpdateSelectedAudioTrack();
+        RefreshAudioTracks();
+        StatusText.Text = $"Audio clip moved to frame {CurrentFrame.Number}.";
     }
 
     private void RefreshAudioTracks()
