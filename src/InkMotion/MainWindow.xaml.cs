@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Dispatching;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.Graphics.Canvas.Text;
 using System.Diagnostics;
 using System.IO;
 using System.Numerics;
@@ -30,6 +31,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
     private readonly List<RenderedStroke> _renderedStrokes = [];
+    private readonly List<RenderedText> _renderedText = [];
     private readonly DispatcherQueueTimer _playbackTimer;
     private readonly Stopwatch _audioOnlyClock = new();
     private int _selectedFrameIndex;
@@ -67,6 +69,7 @@ public sealed partial class MainWindow : Window
         RefreshTimeline();
         RenderCurrentInk();
         UpdateFrameStatus();
+        UpdateExportProfileReadout();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -1054,7 +1057,27 @@ public sealed partial class MainWindow : Window
         MarkEditChanged();
         CommitEdit();
         SeekToCurrentFrame();
+        UpdateExportProfileReadout();
         StatusText.Text = $"Timeline frame rate: {_frameRate:0} fps";
+    }
+
+    private void ExportResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateExportProfileReadout();
+    }
+
+    private void UpdateExportProfileReadout()
+    {
+        if (ExportProfileReadout is null ||
+            ExportResolutionSelector?.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
+            !Enum.TryParse(resolutionName, out ExportResolution resolution))
+        {
+            return;
+        }
+
+        VideoExportProfile profile = VideoExportProfile.Create(resolution, _frameRate);
+        ExportProfileReadout.Text =
+            $"{profile.Width} × {profile.Height} · {profile.FrameRate:0} fps";
     }
 
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -1122,6 +1145,54 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
     }
 
+    private void AddInkText_Click(object sender, RoutedEventArgs e)
+    {
+        string text = InkTextBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            StatusText.Text = "Enter text before adding an overlay.";
+            return;
+        }
+
+        string fontFamily = InkTextFontSelector.SelectedItem is ComboBoxItem { Tag: string font }
+            ? font
+            : "Segoe UI";
+        double fontSize = double.IsFinite(InkTextSizeBox.Value)
+            ? Math.Clamp(InkTextSizeBox.Value, 6, 512)
+            : 48;
+
+        FinishActiveEdit();
+        BeginEdit();
+        CurrentFrame.TextOverlays.Add(new InkTextOverlay
+        {
+            Text = text,
+            FontFamily = fontFamily,
+            FontSize = fontSize,
+            Colour = _brushColour,
+        });
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = $"Text overlay added to cel {CurrentFrame.Number}.";
+    }
+
+    private void RemoveInkText_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentFrame.TextOverlays.Count == 0)
+        {
+            StatusText.Text = "This cel has no text overlays.";
+            return;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        CurrentFrame.TextOverlays.RemoveAt(CurrentFrame.TextOverlays.Count - 1);
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = $"Last text overlay removed from cel {CurrentFrame.Number}.";
+    }
+
     private void AddPoint(Point point, double pressure)
     {
         if (_activeStroke is null || InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
@@ -1174,22 +1245,34 @@ public sealed partial class MainWindow : Window
     private void RenderCurrentInk()
     {
         _renderedStrokes.Clear();
+        _renderedText.Clear();
         if (OnionSkinToggle?.IsChecked == true)
         {
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
             if (_selectedFrameIndex > 0)
             {
                 DrawVisibleLayers(_selectedFrameIndex - 1, 0xFF00BFFF, opacity);
+                DrawVisibleText(_selectedFrameIndex - 1, opacity);
             }
 
             if (_selectedFrameIndex + 1 < _frames.Count)
             {
                 DrawVisibleLayers(_selectedFrameIndex + 1, 0xFFFF69B4, opacity);
+                DrawVisibleText(_selectedFrameIndex + 1, opacity);
             }
         }
 
         DrawVisibleLayers(_selectedFrameIndex, null, 1);
+        DrawVisibleText(_selectedFrameIndex, 1);
         InkSurface.Invalidate();
+    }
+
+    private void DrawVisibleText(int frameIndex, double opacity)
+    {
+        foreach (InkTextOverlay overlay in _frames[frameIndex].TextOverlays)
+        {
+            _renderedText.Add(new RenderedText(overlay, opacity));
+        }
     }
 
     private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
@@ -1237,6 +1320,27 @@ public sealed partial class MainWindow : Window
                     colour,
                     (float)((GetInkWidth(previous) + width) / 2));
             }
+        }
+
+        foreach (RenderedText renderedText in _renderedText)
+        {
+            InkTextOverlay overlay = renderedText.Overlay;
+            Windows.UI.Color colour = ToColour(overlay.Colour);
+            colour.A = (byte)(colour.A * Math.Clamp(renderedText.Opacity, 0, 1));
+            using var format = new CanvasTextFormat
+            {
+                FontFamily = overlay.FontFamily,
+                FontSize = (float)overlay.FontSize,
+                HorizontalAlignment = CanvasHorizontalAlignment.Center,
+                VerticalAlignment = CanvasVerticalAlignment.Center,
+            };
+            args.DrawingSession.DrawText(
+                overlay.Text,
+                new Vector2(
+                    (float)(overlay.X * sender.ActualWidth),
+                    (float)(overlay.Y * sender.ActualHeight)),
+                colour,
+                format);
         }
     }
 
@@ -1453,6 +1557,15 @@ public sealed partial class MainWindow : Window
         ExposureFrames = frame.ExposureFrames,
         IsKeyframe = frame.IsKeyframe,
         InterpolationMode = frame.InterpolationMode,
+        TextOverlays = frame.TextOverlays.Select(text => new InkTextOverlay
+        {
+            Text = text.Text,
+            X = text.X,
+            Y = text.Y,
+            FontFamily = text.FontFamily,
+            FontSize = text.FontSize,
+            Colour = text.Colour,
+        }).ToList(),
         Strokes = frame.Strokes
             .Select(stroke => stroke.Select(point => new InkPoint
             {
@@ -1838,6 +1951,7 @@ public sealed partial class MainWindow : Window
     }
 
     private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
+    private sealed record RenderedText(InkTextOverlay Overlay, double Opacity);
 
     private void UpdateFrameStatus()
     {
@@ -1874,6 +1988,7 @@ public sealed partial class MainWindow : Window
                 break;
             }
         }
+        UpdateExportProfileReadout();
     }
 
 }

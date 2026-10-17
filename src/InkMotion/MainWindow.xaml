@@ -102,7 +102,17 @@
                         <TextBlock x:Name="VideoTrackLabel" Text="No video loaded" TextWrapping="Wrap" Foreground="#AAB1BD" />
                         <Button Content="Open video" Click="OpenVideo_Click" />
                         <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="The timeline currently provides video preview and playback. Clip trimming, splitting, and additional track types are planned." TextWrapping="Wrap" FontSize="12" Foreground="#8992A1" />
+                        <TextBlock Text="EXPORT PROFILE" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <ComboBox x:Name="ExportResolutionSelector" SelectedIndex="1" SelectionChanged="ExportResolution_SelectionChanged">
+                            <ComboBoxItem Content="720p · 1280 × 720" Tag="P720" />
+                            <ComboBoxItem Content="1080p · 1920 × 1080" Tag="P1080" />
+                            <ComboBoxItem Content="1440p · 2560 × 1440" Tag="P1440" />
+                            <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
+                        </ComboBox>
+                        <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Foreground="#AAB1BD" />
+                        <Button Content="Video export encoder not available yet" IsEnabled="False" />
+                        <Border Height="1" Background="#353A44" />
+                        <TextBlock Text="The profile selector defines requested output size and uses the project frame rate. Encoded export and clip trim/split tools are planned." TextWrapping="Wrap" FontSize="12" Foreground="#8992A1" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -159,6 +169,24 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Pen size" VerticalAlignment="Center" Foreground="#AAB1BD" />
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
+                        </StackPanel>
+                        <TextBlock Text="TEXT OVERLAY" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
+                        <TextBlock Text="Font" Foreground="#AAB1BD" />
+                        <ComboBox x:Name="InkTextFontSelector" SelectedIndex="0">
+                            <ComboBoxItem Content="Segoe UI" Tag="Segoe UI" />
+                            <ComboBoxItem Content="Arial" Tag="Arial" />
+                            <ComboBoxItem Content="Georgia" Tag="Georgia" />
+                            <ComboBoxItem Content="Comic Sans MS" Tag="Comic Sans MS" />
+                            <ComboBoxItem Content="Consolas" Tag="Consolas" />
+                        </ComboBox>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Text size" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                            <NumberBox x:Name="InkTextSizeBox" Minimum="6" Maximum="512" Value="48" SmallChange="2" SpinButtonPlacementMode="Compact" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Add text to cel" Click="AddInkText_Click" />
+                            <Button Content="Remove last text" Click="RemoveInkText_Click" />
                         </StackPanel>
                         <TextBlock Text="ANIMATION" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show the adjacent animation cels as translucent guides." Click="OnionSkin_Click" />
