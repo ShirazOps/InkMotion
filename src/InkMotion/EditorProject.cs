@@ -7,6 +7,9 @@ public sealed class EditorProject
     public int Version { get; set; } = 1;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
+    public string? AudioPath { get; set; }
+    public double AudioVolume { get; set; } = 1;
+    public bool AudioMuted { get; set; }
     public int SelectedFrameIndex { get; set; }
     public List<EditorFrame> Frames { get; set; } = [new()];
 }
@@ -257,6 +260,11 @@ internal static class EditorProjectValidation
         if (!ProjectFrameRates.Supported.Contains(project.FrameRate))
         {
             throw new InvalidDataException("The project frame rate must be 12, 24, 30, or 60 fps.");
+        }
+
+        if (!double.IsFinite(project.AudioVolume) || project.AudioVolume is < 0 or > 1)
+        {
+            throw new InvalidDataException("Audio volume must be between 0 and 1.");
         }
 
         if (project.Frames is null || project.Frames.Count == 0)
