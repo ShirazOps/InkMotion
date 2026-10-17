@@ -18,7 +18,8 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
    - Link ink tracks to video timeline content and preserve drawing data through project save/load and history.
 
 3. **Audio Editor**
-   - Establish a non-destructive multitrack audio model, clip waveform display, selection, trim, split, and fades.
+   - Show decoded waveform previews for audio clips; the first waveform increment uses NAudio and reports decoding failures in the track UI.
+   - Establish a non-destructive multitrack audio model with clip selection, trim, split, and fades.
    - Add normalisation and audio metadata editing/writing, with explicit source-file write actions.
    - Add mono, stereo, and supported surround layouts up to 12.1; provide tempo and pitch processing controls only when a real processing implementation is available.
    - Preserve existing audio playback and project compatibility through versioned migrations.
@@ -28,12 +29,18 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
    - Implement export through a Windows-supported encoding pipeline, with clear validation for unsupported codecs, dimensions, or frame-rate combinations.
    - Verify exported media dimensions, frame rate, audio handling, and project-state preservation.
 
+5. **Windows distribution**
+   - Build and test x86 and x64 configurations on Windows runners.
+   - Produce a Store-upload MSIX bundle for both architectures after the Partner Center package identity is associated.
+
 ## Important decisions and constraints
 
 - Deliver in small, buildable increments; do not present non-functional controls as implemented features.
 - Treat text overlays as typed text with selectable fonts, separate from freehand handwriting/brush presets.
+- Use NAudio for waveform decoding and future Windows audio-processing work rather than introducing custom codec interop.
 - Keep editing non-destructive where practical and retain backward compatibility for `.inkmotion` projects.
 - Support formats and channel layouts according to available Windows codecs and verified processing capabilities; do not claim unsupported 12.1 processing or export.
+- Keep Store identity values tied to Partner Center; never guess or commit signing certificates.
 - Add focused tests for project models, timeline operations, migrations, and export-profile validation as each phase lands.
 
 ## Initial implementation increment
@@ -42,6 +49,6 @@ Implement the workspace shell and reorganise the existing editor into Video Edit
 
 ## Validation
 
-- Build `InkMotion.sln` as x64 Release on Windows and run the full test suite.
+- Build `InkMotion.sln` as x86 and x64 Release on Windows and run the full test suite for both architectures.
 - Launch the application and verify each workspace is navigable, the current editing interactions still function, and the window remains responsive.
 - Run `git diff --check` and add/update project documentation for the actual delivered capabilities.

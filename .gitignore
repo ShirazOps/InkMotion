@@ -4,6 +4,11 @@ obj/
 AppPackages/
 BundleArtifacts/
 ProjectAssemblies/
+Packages/
+*.pfx
+*.cer
+StoreAssociation.xml
+*.msixupload
 *.user
 *.suo
 *.cache

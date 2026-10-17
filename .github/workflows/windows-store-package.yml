@@ -1,0 +1,56 @@
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  create-store-package:
+    runs-on: windows-2022
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Require Microsoft Store identity
+        shell: pwsh
+        run: |
+          $manifest = Get-Content src\InkMotion\Package.appxmanifest -Raw
+          if ($manifest.Contains('InkMotion.StoreIdentityRequired')) {
+            throw "Associate InkMotion with its reserved Partner Center app identity before creating a Store upload."
+          }
+
+      - name: Restore
+        run: msbuild src\InkMotion\InkMotion.csproj /t:Restore /p:Configuration=Release /p:Platform=x86 /p:StorePackage=true /p:AppxBundlePlatforms="x86|x64"
+
+      - name: Build Store upload package
+        run: >
+          msbuild src\InkMotion\InkMotion.csproj
+          /p:Configuration=Release
+          /p:Platform=x86
+          /p:StorePackage=true
+          /p:AppxBundlePlatforms="x86|x64"
+          /p:AppxBundle=Always
+          /p:UapAppxPackageBuildMode=StoreUpload
+          /p:AppxPackageDir=Packages\
+          /p:AppxPackageSigningEnabled=false
+          /p:GenerateAppxPackageOnBuild=true
+
+      - name: Upload Store package
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkMotion-Microsoft-Store
+          path: "**/Packages/**/*.msixupload"
+          if-no-files-found: error

@@ -330,6 +330,7 @@ public sealed partial class MainWindow : Window
             }
 
             LoadAudio(_audioTracks[_selectedAudioTrackIndex], file);
+            await LoadAudioWaveformAsync(_audioTracks[_selectedAudioTrackIndex]);
             bool tagsLoaded = await LoadAudioTagsAsync(_audioTracks[_selectedAudioTrackIndex]);
             ClearHistory();
             UpdateSelectedAudioTrack();
@@ -659,22 +660,134 @@ public sealed partial class MainWindow : Window
         {
             AudioTrackRuntime track = _audioTracks[i];
             AudioTrackNamesPanel.Children.Add(CreateAudioTrackName($"A{i + 1}  Audio"));
-            var button = new Button
+            AudioTracksPanel.Children.Add(CreateAudioTrackLane(track, i));
+        }
+    }
+
+    private Button CreateAudioTrackLane(AudioTrackRuntime track, int index)
+    {
+        var waveform = new CanvasControl
+        {
+            ClearColor = Windows.UI.Color.FromArgb(0, 0, 0, 0),
+            Height = 36,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Tag = track,
+        };
+        waveform.Draw += AudioWaveform_Draw;
+
+        var content = new Grid();
+        content.Children.Add(waveform);
+        content.Children.Add(new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
+            Padding = new Thickness(6, 2, 6, 2),
+            Child = new TextBlock
             {
-                Height = 36,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(10, 0, 10, 0),
-                Background = new SolidColorBrush(i == _selectedAudioTrackIndex
-                    ? Microsoft.UI.Colors.DarkSlateBlue
-                    : Microsoft.UI.Colors.DarkSlateGray),
-                Content = string.IsNullOrWhiteSpace(track.Project.AudioPath)
-                    ? "Empty audio track"
-                    : $"{System.IO.Path.GetFileName(track.Project.AudioPath)}  ·  F{track.Project.StartFrame:000}",
-                Tag = i,
-            };
-            button.Click += AudioTrack_Click;
-            AudioTracksPanel.Children.Add(button);
+                Text = AudioWaveformLabel(track),
+                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                FontSize = 11,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            },
+        });
+
+        var button = new Button
+        {
+            Height = 42,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(6, 2, 6, 2),
+            Background = new SolidColorBrush(index == _selectedAudioTrackIndex
+                ? Microsoft.UI.Colors.DarkSlateBlue
+                : Microsoft.UI.Colors.DarkSlateGray),
+            Content = content,
+            Tag = index,
+        };
+        button.Click += AudioTrack_Click;
+        return button;
+    }
+
+    private static string AudioWaveformLabel(AudioTrackRuntime track)
+    {
+        if (track.WaveformError is not null)
+        {
+            return track.WaveformError;
+        }
+
+        if (track.WaveformLoading)
+        {
+            return "Generating waveform…";
+        }
+
+        return string.IsNullOrWhiteSpace(track.Project.AudioPath)
+            ? "Empty audio track"
+            : $"{System.IO.Path.GetFileName(track.Project.AudioPath)}  ·  F{track.Project.StartFrame:000}";
+    }
+
+    private void AudioWaveform_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        if (sender.Tag is not AudioTrackRuntime { WaveformPeaks.Length: > 0 } track)
+        {
+            return;
+        }
+
+        float centre = (float)sender.ActualHeight / 2;
+        float halfHeight = centre * 0.82f;
+        float columnWidth = (float)sender.ActualWidth / track.WaveformPeaks.Length;
+        Windows.UI.Color colour = ToColour(0xFF64C8FF);
+        for (int i = 0; i < track.WaveformPeaks.Length; i++)
+        {
+            float amplitude = track.WaveformPeaks[i] * halfHeight;
+            if (amplitude <= 0)
+            {
+                continue;
+            }
+
+            float x = (i + 0.5f) * columnWidth;
+            args.DrawingSession.DrawLine(
+                x,
+                centre - amplitude,
+                x,
+                centre + amplitude,
+                colour,
+                Math.Max(1, columnWidth * 0.7f));
+        }
+    }
+
+    private async Task LoadAudioWaveformAsync(AudioTrackRuntime track)
+    {
+        string? audioPath = track.Project.AudioPath;
+        if (string.IsNullOrWhiteSpace(audioPath))
+        {
+            return;
+        }
+
+        track.WaveformPeaks = [];
+        track.WaveformError = null;
+        track.WaveformLoading = true;
+        RefreshAudioTracks();
+        try
+        {
+            track.WaveformPeaks = await Task.Run(() => AudioWaveformReader.ReadPeaks(audioPath));
+        }
+        catch (Exception ex) when (
+            ex is IOException or
+            InvalidDataException or
+            UnauthorizedAccessException or
+            NotSupportedException or
+            ArgumentException or
+            InvalidOperationException or
+            NAudio.MmException or
+            System.Runtime.InteropServices.COMException)
+        {
+            track.WaveformError = $"Waveform unavailable: {ex.Message}";
+        }
+        finally
+        {
+            track.WaveformLoading = false;
+            RefreshAudioTracks();
         }
     }
 
@@ -739,6 +852,7 @@ public sealed partial class MainWindow : Window
                 runtime.HasSource = true;
                 runtime.Player.Volume = project.Volume;
                 runtime.Player.IsMuted = project.Muted;
+                await LoadAudioWaveformAsync(runtime);
                 if (!HasAudioTags(project))
                 {
                     await LoadAudioTagsAsync(runtime);
@@ -1948,6 +2062,9 @@ public sealed partial class MainWindow : Window
         public MediaPlayer Player { get; } = new() { AudioCategory = MediaPlayerAudioCategory.Media };
         public bool HasSource { get; set; }
         public string? LoadError { get; set; }
+        public float[] WaveformPeaks { get; set; } = [];
+        public string? WaveformError { get; set; }
+        public bool WaveformLoading { get; set; }
     }
 
     private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
