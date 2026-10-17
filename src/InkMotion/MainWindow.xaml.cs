@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Microsoft.UI.Dispatching;
 using System.IO;
 using System.Text.Json;
 using Windows.Media.Core;
@@ -18,9 +19,13 @@ public sealed partial class MainWindow : Window
     private const double FramesPerSecond = 24;
     private const int MaximumHistoryEntries = 100;
     private readonly List<EditorFrame> _frames = [new()];
+    private readonly List<Button> _timelineButtons = [];
+    private readonly HashSet<int> _interpolatedFrameIndices = [];
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
+    private readonly DispatcherQueueTimer _playbackTimer;
     private int _selectedFrameIndex;
+    private double _frameRate = FramesPerSecond;
     private uint? _activePointerId;
     private List<InkPoint>? _activeStroke;
     private EditorProject? _pendingEdit;
@@ -35,14 +40,19 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         Title = "InkMotion";
+        _playbackTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _playbackTimer.Tick += PlaybackTimer_Tick;
         RefreshTimeline();
         RenderCurrentInk();
+        UpdateFrameStatus();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".inkmotion");
@@ -66,7 +76,7 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
-                    LoadVideo(await StorageFile.GetFileFromPathAsync(_videoPath));
+                    LoadVideo(await StorageFile.GetFileFromPathAsync(_videoPath), markDirty: false);
                     StatusText.Text = $"Project opened  ·  {file.Name}";
                 }
                 catch (Exception ex) when (IsFileAccessException(ex))
@@ -91,6 +101,7 @@ public sealed partial class MainWindow : Window
 
     private async void SaveProject_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         StorageFile? file = _projectFile;
         if (file is null)
@@ -124,6 +135,7 @@ public sealed partial class MainWindow : Window
 
     private async void OpenVideo_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".mp4");
@@ -143,20 +155,22 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"Loaded  ·  {file.Name}";
     }
 
-    private void LoadVideo(StorageFile file)
+    private void LoadVideo(StorageFile file, bool markDirty = true)
     {
+        PausePlayback();
         PreviewPlayer.Source = MediaSource.CreateFromStorageFile(file);
         PreviewPlayer.MediaPlayer.IsLoopingEnabled = false;
         EmptyState.Visibility = Visibility.Collapsed;
         VideoTrackLabel.Text = file.Name;
         _videoPath = file.Path;
         _hasVideo = true;
-        UnsavedIndicator.Visibility = Visibility.Visible;
+        UnsavedIndicator.Visibility = markDirty ? Visibility.Visible : Visibility.Collapsed;
         SeekToCurrentFrame();
     }
 
     private void ClearVideoSource()
     {
+        PausePlayback();
         PreviewPlayer.Source = null;
         EmptyState.Visibility = Visibility.Visible;
         VideoTrackLabel.Text = "Drop a video here or use Open video";
@@ -183,16 +197,24 @@ public sealed partial class MainWindow : Window
 
         if (_isPlaying)
         {
-            PreviewPlayer.MediaPlayer.Pause();
-            PlayButton.Content = "Play";
+            PausePlayback();
         }
         else
         {
+            FinishActiveEdit();
+            TimeSpan duration = PreviewPlayer.MediaPlayer.PlaybackSession.NaturalDuration;
+            if (duration > TimeSpan.Zero &&
+                PreviewPlayer.MediaPlayer.PlaybackSession.Position >= duration)
+            {
+                PreviewPlayer.MediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
+                SelectFrame(0, seekVideo: false);
+            }
+
             PreviewPlayer.MediaPlayer.Play();
+            _playbackTimer.Start();
+            _isPlaying = true;
             PlayButton.Content = "Pause";
         }
-
-        _isPlaying = !_isPlaying;
     }
 
     private void PreviousFrame_Click(object sender, RoutedEventArgs e)
@@ -207,17 +229,20 @@ public sealed partial class MainWindow : Window
 
     private void AddFrame_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         BeginEdit();
         int number = _frames.Max(frame => frame.Number) + 1;
         _frames.Add(new EditorFrame { Number = number });
         MarkEditChanged();
         CommitEdit();
+        AddTimelineButton(_frames[^1], _frames.Count - 1);
         SelectFrame(_frames.Count - 1);
     }
 
     private void DuplicateFrame_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         BeginEdit();
         EditorFrame sourceFrame = CurrentFrame;
@@ -235,11 +260,13 @@ public sealed partial class MainWindow : Window
 
         MarkEditChanged();
         CommitEdit();
+        RefreshTimeline();
         SelectFrame(_selectedFrameIndex + 1);
     }
 
     private void ToggleKeyframe_Click(object sender, RoutedEventArgs e)
     {
+        PausePlayback();
         FinishActiveEdit();
         BeginEdit();
         CurrentFrame.IsKeyframe = !CurrentFrame.IsKeyframe;
@@ -289,6 +316,26 @@ public sealed partial class MainWindow : Window
         StatusText.Text = "Erase mode selected.";
     }
 
+    private void FrameRate_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox { SelectedItem: ComboBoxItem item } ||
+            !double.TryParse(item.Tag?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out double rate) ||
+            !ProjectFrameRates.Supported.Contains(rate) ||
+            rate == _frameRate)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _frameRate = rate;
+        MarkEditChanged();
+        CommitEdit();
+        SeekToCurrentFrame();
+        StatusText.Text = $"Timeline frame rate: {_frameRate:0} fps";
+    }
+
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (_activePointerId is not null)
@@ -296,7 +343,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        PausePlayback();
         BeginEdit();
+        PromoteInterpolatedFrameForEditing();
         Point point = e.GetCurrentPoint(InkSurface).Position;
         _activePointerId = e.Pointer.PointerId;
         InkSurface.CapturePointer(e.Pointer);
@@ -399,7 +448,7 @@ public sealed partial class MainWindow : Window
     private void RenderCurrentInk()
     {
         InkSurface.Children.Clear();
-        foreach (List<InkPoint> stroke in CurrentFrame.Strokes)
+        foreach (List<InkPoint> stroke in InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex))
         {
             if (stroke.Count == 1)
             {
@@ -434,18 +483,36 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void SelectFrame(int index)
+    private void SelectFrame(int index, bool seekVideo = true)
     {
-        if (index == _selectedFrameIndex)
+        if (index < 0 || index >= _frames.Count)
         {
             return;
         }
 
+        if (index == _selectedFrameIndex)
+        {
+            if (seekVideo)
+            {
+                SeekToCurrentFrame();
+            }
+
+            return;
+        }
+
         FinishActiveEdit();
+        int previousIndex = _selectedFrameIndex;
         _selectedFrameIndex = index;
         RenderCurrentInk();
-        SeekToCurrentFrame();
-        RefreshTimeline();
+        if (seekVideo)
+        {
+            SeekToCurrentFrame();
+        }
+
+        UpdateTimelineButton(previousIndex);
+        UpdateTimelineButton(_selectedFrameIndex);
+        UpdateFrameReadout();
+        KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
         UpdateFrameStatus();
     }
 
@@ -454,12 +521,13 @@ public sealed partial class MainWindow : Window
         if (_hasVideo)
         {
             PreviewPlayer.MediaPlayer.PlaybackSession.Position =
-                TimeSpan.FromSeconds((CurrentFrame.Number - 1) / FramesPerSecond);
+                TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
         }
     }
 
     private EditorProject CreateProjectSnapshot() => new()
     {
+        FrameRate = _frameRate,
         VideoPath = _videoPath,
         SelectedFrameIndex = _selectedFrameIndex,
         Frames = _frames.Select(CloneFrame).ToList(),
@@ -476,9 +544,11 @@ public sealed partial class MainWindow : Window
 
     private void RestoreProjectState(EditorProject project)
     {
+        PausePlayback();
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
         _selectedFrameIndex = project.SelectedFrameIndex;
+        _frameRate = project.FrameRate;
         _videoPath = project.VideoPath;
         _activePointerId = null;
         _activeStroke = null;
@@ -488,6 +558,7 @@ public sealed partial class MainWindow : Window
         SeekToCurrentFrame();
         RefreshTimeline();
         UpdateFrameStatus();
+        UpdateFrameRateSelector();
     }
 
     private void BeginEdit()
@@ -561,28 +632,128 @@ public sealed partial class MainWindow : Window
         RedoButton.IsEnabled = _redoHistory.Count > 0;
     }
 
-    private void RefreshTimeline()
+    private void PlaybackTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        InkFramesPanel.Children.Clear();
-        for (int i = 0; i < _frames.Count; i++)
+        if (!_isPlaying || !_hasVideo)
         {
-            EditorFrame frame = _frames[i];
-            var button = new Button
-            {
-                Width = 54,
-                Padding = new Thickness(4, 0, 4, 0),
-                Content = frame.IsKeyframe ? $"K {frame.Number:000}" : frame.Number.ToString("000"),
-                Tag = i,
-                Background = i == _selectedFrameIndex
-                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DodgerBlue)
-                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
-            };
-            button.Click += TimelineFrame_Click;
-            InkFramesPanel.Children.Add(button);
+            return;
         }
 
-        FrameReadout.Text = $"F {CurrentFrame.Number:000}";
+        var session = PreviewPlayer.MediaPlayer.PlaybackSession;
+        TimeSpan position = session.Position;
+        TimeSpan duration = session.NaturalDuration;
+        if (duration > TimeSpan.Zero && position >= duration)
+        {
+            PausePlayback();
+            return;
+        }
+
+        int frameIndex = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
+        EnsureFrameExists(frameIndex);
+        SelectFrame(frameIndex, seekVideo: false);
+    }
+
+    private void EnsureFrameExists(int frameIndex)
+    {
+        while (_frames.Count <= frameIndex)
+        {
+            var frame = new EditorFrame { Number = _frames.Count + 1 };
+            _frames.Add(frame);
+            AddTimelineButton(frame, _frames.Count - 1);
+            UnsavedIndicator.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void PausePlayback()
+    {
+        if (!_isPlaying)
+        {
+            return;
+        }
+
+        PreviewPlayer.MediaPlayer.Pause();
+        _playbackTimer.Stop();
+        _isPlaying = false;
+        PlayButton.Content = "Play";
+    }
+
+    private void PromoteInterpolatedFrameForEditing()
+    {
+        if (CurrentFrame.IsKeyframe || CurrentFrame.Strokes.Count > 0)
+        {
+            return;
+        }
+
+        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex);
+        if (_isEraser && displayed.Count == 0)
+        {
+            return;
+        }
+
+        if (displayed.Count > 0)
+        {
+            CurrentFrame.Strokes = displayed
+                .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
+                .ToList();
+        }
+
+        CurrentFrame.IsKeyframe = true;
+        MarkEditChanged();
+        RefreshTimeline();
+        UpdateFrameStatus();
+    }
+
+    private void RefreshTimeline()
+    {
+        _interpolatedFrameIndices.Clear();
+        _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(_frames));
+        InkFramesPanel.Children.Clear();
+        _timelineButtons.Clear();
+        for (int i = 0; i < _frames.Count; i++)
+        {
+            AddTimelineButton(_frames[i], i);
+        }
+
+        UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
+        for (int i = 0; i < _frames.Count; i++)
+        {
+            UpdateTimelineButton(i);
+        }
+    }
+
+    private void AddTimelineButton(EditorFrame frame, int index)
+    {
+        var button = new Button
+        {
+            Width = 54,
+            Padding = new Thickness(3, 0, 3, 0),
+            Tag = index,
+        };
+        button.Click += TimelineFrame_Click;
+        _timelineButtons.Add(button);
+        InkFramesPanel.Children.Add(button);
+        UpdateTimelineButton(index);
+    }
+
+    private void UpdateTimelineButton(int index)
+    {
+        if (index < 0 || index >= _timelineButtons.Count)
+        {
+            return;
+        }
+
+        EditorFrame frame = _frames[index];
+        Button button = _timelineButtons[index];
+        bool isInterpolated = _interpolatedFrameIndices.Contains(index);
+        string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
+        button.Content = $"{prefix}{frame.Number:000}";
+        ToolTipService.SetToolTip(
+            button,
+            frame.IsKeyframe ? $"Keyframe {frame.Number}" :
+                isInterpolated ? $"Interpolated frame {frame.Number}" : $"Frame {frame.Number}");
+        button.Background = new SolidColorBrush(
+            index == _selectedFrameIndex ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.DarkSlateGray);
     }
 
     private void TimelineFrame_Click(object sender, RoutedEventArgs e)
@@ -597,7 +768,29 @@ public sealed partial class MainWindow : Window
     {
         KeyframeStatus.Text = CurrentFrame.IsKeyframe
             ? $"Keyframe set at frame {CurrentFrame.Number}."
-            : "No keyframe on this frame";
+            : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex)
+                ? $"Interpolated drawing at frame {CurrentFrame.Number}."
+                : CurrentFrame.Strokes.Count > 0
+                    ? $"Hand-drawn exposure at frame {CurrentFrame.Number}."
+                    : "No ink on this frame";
+    }
+
+    private void UpdateFrameReadout()
+    {
+        FrameReadout.Text = $"F {CurrentFrame.Number:000}";
+    }
+
+    private void UpdateFrameRateSelector()
+    {
+        foreach (ComboBoxItem item in FrameRateSelector.Items.OfType<ComboBoxItem>())
+        {
+            if (double.TryParse(item.Tag?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out double rate) &&
+                rate == _frameRate)
+            {
+                FrameRateSelector.SelectedItem = item;
+                break;
+            }
+        }
     }
 
 }
