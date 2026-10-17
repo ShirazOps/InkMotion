@@ -280,9 +280,11 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".mp4");
-        picker.FileTypeFilter.Add(".mov");
-        picker.FileTypeFilter.Add(".m4v");
+        foreach (string extension in VideoFileTypes.SupportedExtensions)
+        {
+            picker.FileTypeFilter.Add(extension);
+        }
+
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
 
         StorageFile? file = await picker.PickSingleFileAsync();

@@ -5,6 +5,16 @@ namespace InkMotion.Tests;
 public sealed class EditorProjectSerialiserTests
 {
     [Fact]
+    public void SupportedVideoExtensions_IncludeWmvAviAndAv1Containers()
+    {
+        Assert.Contains(".wmv", VideoFileTypes.SupportedExtensions);
+        Assert.Contains(".avi", VideoFileTypes.SupportedExtensions);
+        Assert.Contains(".av1", VideoFileTypes.SupportedExtensions);
+        Assert.Contains(".mkv", VideoFileTypes.SupportedExtensions);
+        Assert.Contains(".webm", VideoFileTypes.SupportedExtensions);
+    }
+
+    [Fact]
     public void Deserialise_ProjectWithoutAudioMetadata_UsesAudioDefaults()
     {
         EditorProject restored = EditorProjectSerialiser.Deserialise(

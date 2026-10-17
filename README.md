@@ -4,7 +4,7 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 
 ## First milestone
 
-- Open a local MP4, MOV, or M4V video in the preview.
+- Open local MP4, MOV, M4V, WMV, AVI, AV1, MKV, or WebM video files in the preview. AV1 playback depends on an AV1 decoder being available on Windows.
 - Draw with a mouse, pen, or touch directly over the preview.
 - Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
 - Set the ink brush colour and size for new strokes; existing strokes keep their saved appearance.
