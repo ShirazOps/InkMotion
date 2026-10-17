@@ -27,13 +27,14 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Set up x86 .NET runtime
+      - name: Set up x86 .NET runtimes
         if: matrix.platform == 'x86'
         shell: pwsh
         run: |
           $runtimePath = "C:\Program Files (x86)\dotnet"
           $installerPath = Join-Path $env:RUNNER_TEMP "dotnet-install.ps1"
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $installerPath
+          & $installerPath -Runtime dotnet -Channel 10.0 -Architecture x86 -InstallDir $runtimePath
           & $installerPath -Runtime windowsdesktop -Channel 10.0 -Architecture x86 -InstallDir $runtimePath
 
       - name: Restore
