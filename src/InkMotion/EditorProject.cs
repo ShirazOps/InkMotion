@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 5;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
@@ -45,6 +45,7 @@ public sealed class AudioTrackProject
 public sealed class EditorFrame
 {
     public int Number { get; set; } = 1;
+    public int ExposureFrames { get; set; } = 1;
     public bool IsKeyframe { get; set; }
     public InkInterpolationMode InterpolationMode { get; set; } = InkInterpolationMode.Linear;
     public List<List<InkPoint>> Strokes { get; set; } = [];
@@ -61,6 +62,58 @@ public enum InkInterpolationMode
 
 public static class InkTimeline
 {
+    public static int GetStartFramePosition(IReadOnlyList<EditorFrame> frames, int frameIndex)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentOutOfRangeException.ThrowIfNegative(frameIndex);
+        if (frameIndex >= frames.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameIndex));
+        }
+
+        int framePosition = 0;
+        for (int index = 0; index < frameIndex; index++)
+        {
+            framePosition = checked(framePosition + frames[index].ExposureFrames);
+        }
+
+        return framePosition;
+    }
+
+    public static int GetTotalExposureFrames(IReadOnlyList<EditorFrame> frames)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        int total = 0;
+        foreach (EditorFrame frame in frames)
+        {
+            total = checked(total + frame.ExposureFrames);
+        }
+
+        return total;
+    }
+
+    public static int GetFrameIndexAtPosition(IReadOnlyList<EditorFrame> frames, int framePosition)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentOutOfRangeException.ThrowIfNegative(framePosition);
+        if (frames.Count == 0)
+        {
+            throw new ArgumentException("The timeline must contain at least one frame.", nameof(frames));
+        }
+
+        int currentPosition = 0;
+        for (int index = 0; index < frames.Count; index++)
+        {
+            currentPosition = checked(currentPosition + frames[index].ExposureFrames);
+            if (framePosition < currentPosition)
+            {
+                return index;
+            }
+        }
+
+        return frames.Count - 1;
+    }
+
     public static int DeleteFrame(IList<EditorFrame> frames, int frameIndex)
     {
         ArgumentNullException.ThrowIfNull(frames);
@@ -131,6 +184,10 @@ public static class EditorProjectSerialiser
         {
             MigrateVersionThree(project);
         }
+        if (project.Version == 4)
+        {
+            MigrateVersionFour(project);
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -179,6 +236,11 @@ public static class EditorProjectSerialiser
     private static void MigrateVersionThree(EditorProject project)
     {
         project.Version = 4;
+    }
+
+    private static void MigrateVersionFour(EditorProject project)
+    {
+        project.Version = 5;
     }
 
 }
@@ -243,8 +305,11 @@ public static class InkAnimation
             return startStrokes;
         }
 
+        int startFramePosition = InkTimeline.GetStartFramePosition(frames, previousKeyframe);
+        int endFramePosition = InkTimeline.GetStartFramePosition(frames, nextKeyframe);
+        int currentFramePosition = InkTimeline.GetStartFramePosition(frames, frameIndex);
         double progress = ApplyInterpolation(
-            (double)(frameIndex - previousKeyframe) / (nextKeyframe - previousKeyframe),
+            (double)(currentFramePosition - startFramePosition) / (endFramePosition - startFramePosition),
             start.InterpolationMode);
         var interpolated = new List<List<InkPoint>>(startStrokes.Count);
         for (int i = 0; i < startStrokes.Count; i++)
@@ -449,7 +514,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 4)
+        if (project.Version != 5)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -504,6 +569,7 @@ internal static class EditorProjectValidation
         {
             if (frame is null ||
                 frame.Number != expectedFrameNumber++ ||
+                frame.ExposureFrames is < 1 or > 999 ||
                 !Enum.IsDefined(frame.InterpolationMode) ||
                 frame.Strokes is null ||
                 frame.LayerStrokes is null)

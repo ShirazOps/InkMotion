@@ -161,6 +161,32 @@ public sealed class InkAnimationTests
     }
 
     [Fact]
+    public void GetDisplayedStrokes_UsesExposureTimingForTweenProgress()
+    {
+        List<EditorFrame> frames =
+        [
+            new EditorFrame
+            {
+                Number = 1,
+                ExposureFrames = 3,
+                IsKeyframe = true,
+                Strokes = [Stroke((0.0, 0.5))],
+            },
+            new EditorFrame { Number = 2, ExposureFrames = 2 },
+            new EditorFrame
+            {
+                Number = 3,
+                IsKeyframe = true,
+                Strokes = [Stroke((1.0, 0.5))],
+            },
+        ];
+
+        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(frames, 1);
+
+        Assert.Equal(0.6, displayed[0][0].X, precision: 10);
+    }
+
+    [Fact]
     public void GetDisplayedStrokes_RejectsInvalidFrameIndex()
     {
         Assert.Throws<ArgumentOutOfRangeException>(

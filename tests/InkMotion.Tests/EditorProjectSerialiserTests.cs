@@ -31,7 +31,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(4, restored.Version);
+        Assert.Equal(5, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
         Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColour);
@@ -57,6 +57,7 @@ public sealed class EditorProjectSerialiserTests
                 new EditorFrame
                 {
                     Number = 2,
+                    ExposureFrames = 4,
                     IsKeyframe = true,
                     Strokes =
                     [
@@ -73,13 +74,14 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             EditorProjectSerialiser.Serialise(original));
 
-        Assert.Equal(4, restored.Version);
+        Assert.Equal(5, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
         Assert.Equal(original.AudioMuted, restored.AudioMuted);
         Assert.Equal(original.SelectedFrameIndex, restored.SelectedFrameIndex);
         Assert.Equal(30, restored.FrameRate);
+        Assert.Equal(4, restored.Frames[1].ExposureFrames);
         Assert.Collection(
             restored.Frames,
             frame => Assert.Equal(1, frame.Number),
@@ -155,7 +157,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(4, restored.Version);
+        Assert.Equal(5, restored.Version);
         Assert.Equal("ink-1", restored.ActiveInkLayerId);
         Assert.Equal("Ink 1", Assert.Single(restored.InkLayers).Name);
         Assert.Single(restored.Frames[0].Strokes);
@@ -167,8 +169,18 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"IsKeyframe":true,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(4, restored.Version);
+        Assert.Equal(5, restored.Version);
         Assert.Equal(InkInterpolationMode.Linear, restored.Frames[0].InterpolationMode);
+    }
+
+    [Fact]
+    public void Deserialise_VersionFourProject_MigratesWithDefaultCelExposure()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":4,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(5, restored.Version);
+        Assert.Equal(1, restored.Frames[0].ExposureFrames);
     }
 
     [Fact]
@@ -336,7 +348,9 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Theory]
-    [InlineData("""{"Version":5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":6,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":5,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":5,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":1}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]

@@ -33,11 +33,11 @@
                 <Button Content="Next frame" Click="NextFrame_Click" />
                 <Button x:Name="UndoButton" Content="Undo" Click="Undo_Click" IsEnabled="False" />
                 <Button x:Name="RedoButton" Content="Redo" Click="Redo_Click" IsEnabled="False" />
-                <TextBlock x:Name="FrameReadout" Text="F 001" MinWidth="64" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#D6DBE5" />
+                <TextBlock x:Name="FrameReadout" Text="F 001 · C001" MinWidth="112" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#D6DBE5" />
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="Duplicate frame" Click="DuplicateFrame_Click" />
-                <Button x:Name="DeleteFrameButton" Content="Delete frame" Click="DeleteFrame_Click" IsEnabled="False" />
+                <Button Content="Duplicate cel" Click="DuplicateFrame_Click" />
+                <Button x:Name="DeleteFrameButton" Content="Delete cel" Click="DeleteFrame_Click" IsEnabled="False" />
                 <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
             </StackPanel>
         </Grid>
@@ -159,6 +159,17 @@
                 </ComboBox>
                 <TextBlock Text="Choose the motion curve for drawings interpolated from this keyframe to the next." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
                 <TextBlock x:Name="KeyframeStatus" Text="No keyframe on this frame" TextWrapping="Wrap" Foreground="#AAB1BD" />
+                <TextBlock Text="CEL EXPOSURE" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                <NumberBox
+                    x:Name="ExposureFramesBox"
+                    Minimum="1"
+                    Maximum="999"
+                    Value="1"
+                    SmallChange="1"
+                    SpinButtonPlacementMode="Compact"
+                    ValueChanged="ExposureFrames_Changed"
+                    LostFocus="ExposureFrames_LostFocus" />
+                <TextBlock Text="Output frames to hold this cel before the next drawing." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
                 <TextBlock Text="Matching strokes interpolate between keyframes. Editing an in-between frame turns it into a new keyframe." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
                 </StackPanel>
             </ScrollViewer>
@@ -175,7 +186,7 @@
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <TextBlock Text="TIMELINE" FontSize="10" CharacterSpacing="100" FontWeight="SemiBold" Foreground="#AAB1BD" VerticalAlignment="Center" />
-                <Button Content="+" ToolTipService.ToolTip="Add frame" Click="AddFrame_Click" />
+                <Button Content="+" ToolTipService.ToolTip="Add cel" Click="AddFrame_Click" />
                 <Button Content="Audio track +" Click="AddAudioTrack_Click" />
             </StackPanel>
             <StackPanel Grid.Row="1" Spacing="4">
@@ -183,7 +194,7 @@
                     <TextBlock Text="V1  Video" VerticalAlignment="Center" Foreground="#C7CDD7" />
                 </Border>
                 <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
-                    <TextBlock Text="I1  Ink" VerticalAlignment="Center" Foreground="#C7CDD7" />
+                    <TextBlock Text="I1  Cels" VerticalAlignment="Center" Foreground="#C7CDD7" />
                 </Border>
                 <StackPanel x:Name="AudioTrackNamesPanel" Spacing="4" />
                 <Border Height="36" Background="#22262E" CornerRadius="4" Padding="10,0">
