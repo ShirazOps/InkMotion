@@ -2,10 +2,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Dispatching;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using System.Diagnostics;
 using System.IO;
+using System.Numerics;
 using System.Text.Json;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -20,17 +21,24 @@ public sealed partial class MainWindow : Window
 {
     private const double FramesPerSecond = 24;
     private const int MaximumHistoryEntries = 100;
+    private const string BaseInkLayerId = "ink-1";
     private readonly List<EditorFrame> _frames = [new()];
+    private readonly List<InkLayerProject> _inkLayers = [new()];
     private readonly List<Button> _timelineButtons = [];
     private readonly HashSet<int> _interpolatedFrameIndices = [];
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly DispatcherQueueTimer _playbackTimer;
     private readonly Stopwatch _audioOnlyClock = new();
     private int _selectedFrameIndex;
+    private int _playheadFramePosition;
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
+    private string _activeInkLayerId = BaseInkLayerId;
+    private uint _brushColour = 0xFFFFA500;
+    private double _brushWidth = 4;
     private uint? _activePointerId;
     private List<InkPoint>? _activeStroke;
     private EditorProject? _pendingEdit;
@@ -41,26 +49,145 @@ public sealed partial class MainWindow : Window
     private bool _hasVideo;
     private bool _isEraser;
     private bool _isRestoringProject;
-    private bool _isInitializing = true;
+    private bool _isInitialising = true;
     private TimeSpan _audioOnlyPosition;
     private TimeSpan _audioOnlyStartPosition;
 
     public MainWindow()
     {
         InitializeComponent();
-        _isInitializing = false;
+        _isInitialising = false;
         Title = "InkMotion";
         _playbackTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
         UpdateSelectedAudioTrack();
+        RefreshInkLayers();
         RefreshTimeline();
         RenderCurrentInk();
         UpdateFrameStatus();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
+    private InkLayerProject CurrentInkLayer => _inkLayers.First(layer => layer.Id == _activeInkLayerId);
+    private List<List<InkPoint>> CurrentStrokes => GetLayerStrokes(CurrentFrame, _activeInkLayerId, create: true);
+
+    private List<List<InkPoint>> GetLayerStrokes(EditorFrame frame, string layerId, bool create = false)
+    {
+        if (layerId == BaseInkLayerId)
+        {
+            return frame.Strokes;
+        }
+
+        if (frame.LayerStrokes.TryGetValue(layerId, out List<List<InkPoint>>? strokes))
+        {
+            return strokes;
+        }
+
+        if (!create)
+        {
+            return [];
+        }
+
+        strokes = [];
+        frame.LayerStrokes.Add(layerId, strokes);
+        return strokes;
+    }
+
+    private IReadOnlyList<List<InkPoint>> GetDisplayedLayerStrokes(int frameIndex, string layerId) =>
+        InkAnimation.GetDisplayedStrokes(_frames, frameIndex, frame => GetLayerStrokes(frame, layerId));
+
+    private void AddInkLayer_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        string id = $"ink-{Guid.NewGuid():N}";
+        var layer = new InkLayerProject { Id = id, Name = $"Ink {_inkLayers.Count + 1}" };
+        _inkLayers.Add(layer);
+        _activeInkLayerId = id;
+        MarkEditChanged();
+        CommitEdit();
+        RefreshInkLayers();
+        RefreshTimeline();
+        RenderCurrentInk();
+        UpdateFrameStatus();
+        StatusText.Text = $"{layer.Name} added.";
+    }
+
+    private void RefreshInkLayers()
+    {
+        _isRestoringProject = true;
+        InkLayerSelector.ItemsSource = null;
+        InkLayerSelector.ItemsSource = _inkLayers;
+        InkLayerSelector.SelectedItem = _inkLayers.FirstOrDefault(layer => layer.Id == _activeInkLayerId);
+        UpdateInkLayerControls();
+        _isRestoringProject = false;
+    }
+
+    private void UpdateInkLayerControls()
+    {
+        InkLayerVisibilityButton.IsChecked = CurrentInkLayer.IsVisible;
+        InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
+        InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
+        InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible;
+    }
+
+    private void InkLayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRestoringProject || InkLayerSelector.SelectedItem is not InkLayerProject layer)
+        {
+            return;
+        }
+
+        FinishActiveEdit();
+        _activeInkLayerId = layer.Id;
+        UpdateInkLayerControls();
+        RefreshTimeline();
+        RenderCurrentInk();
+        UpdateFrameStatus();
+    }
+
+    private void InkLayerVisibility_Click(object sender, RoutedEventArgs e)
+    {
+        bool visible = InkLayerVisibilityButton.IsChecked == true;
+        if (!visible && _inkLayers.Count(layer => layer.IsVisible) == 1)
+        {
+            _isRestoringProject = true;
+            InkLayerVisibilityButton.IsChecked = true;
+            _isRestoringProject = false;
+            StatusText.Text = "At least one ink layer must remain visible.";
+            return;
+        }
+
+        BeginEdit();
+        CurrentInkLayer.IsVisible = visible;
+        MarkEditChanged();
+        CommitEdit();
+        UpdateInkLayerControls();
+        RenderCurrentInk();
+    }
+
+    private void InkLayerOpacity_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_isRestoringProject || _isInitialising)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentInkLayer.Opacity = e.NewValue;
+        MarkEditChanged();
+        RenderCurrentInk();
+    }
+
+    private void InkLayerOpacity_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+    }
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
@@ -78,7 +205,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            EditorProject project = EditorProjectSerializer.Deserialize(await FileIO.ReadTextAsync(file));
+            EditorProject project = EditorProjectSerialiser.Deserialise(await FileIO.ReadTextAsync(file));
             ClearHistory();
             RestoreProjectState(project);
             string? audioWarning = await LoadAudioTracksAsync(project.AudioTracks);
@@ -140,7 +267,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await FileIO.WriteTextAsync(file, EditorProjectSerializer.Serialize(CreateProjectSnapshot()));
+            await FileIO.WriteTextAsync(file, EditorProjectSerialiser.Serialise(CreateProjectSnapshot()));
             _projectFile = file;
             UnsavedIndicator.Visibility = Visibility.Collapsed;
             StatusText.Text = $"Project saved  ·  {file.Name}";
@@ -156,9 +283,11 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".mp4");
-        picker.FileTypeFilter.Add(".mov");
-        picker.FileTypeFilter.Add(".m4v");
+        foreach (string extension in VideoFileTypes.SupportedExtensions)
+        {
+            picker.FileTypeFilter.Add(extension);
+        }
+
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
 
         StorageFile? file = await picker.PickSingleFileAsync();
@@ -198,10 +327,13 @@ public sealed partial class MainWindow : Window
             }
 
             LoadAudio(_audioTracks[_selectedAudioTrackIndex], file);
+            bool tagsLoaded = await LoadAudioTagsAsync(_audioTracks[_selectedAudioTrackIndex]);
             ClearHistory();
             UpdateSelectedAudioTrack();
             RefreshAudioTracks();
-            StatusText.Text = $"Loaded audio  ·  {file.Name}";
+            StatusText.Text = tagsLoaded
+                ? $"Loaded audio  ·  {file.Name}"
+                : $"Loaded audio, but could not read its tags  ·  {file.Name}";
         }
         catch (Exception ex) when (IsFileAccessException(ex))
         {
@@ -227,7 +359,7 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         track.Player.Source = MediaSource.CreateFromStorageFile(file);
         track.Project.AudioPath = file.Path;
-        track.Project.StartFrame = CurrentFrame.Number;
+        track.Project.StartFrame = _playheadFramePosition + 1;
         track.HasSource = true;
         track.Player.Volume = track.Project.Volume;
         track.Player.IsMuted = track.Project.Muted;
@@ -235,6 +367,136 @@ public sealed partial class MainWindow : Window
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
         UnsavedIndicator.Visibility = Visibility.Visible;
+    }
+
+    private void AudioTag_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isRestoringProject ||
+            _selectedAudioTrackIndex < 0 ||
+            _selectedAudioTrackIndex >= _audioTracks.Count)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(AudioYearBox.Text) &&
+            (!uint.TryParse(AudioYearBox.Text, out uint year) || year > 9999))
+        {
+            StatusText.Text = "Audio tag year must be between 1 and 9999.";
+            return;
+        }
+
+        AudioTrackProject project = _audioTracks[_selectedAudioTrackIndex].Project;
+        uint parsedYear = uint.TryParse(AudioYearBox.Text, out uint parsed) ? parsed : 0;
+        if (project.Title == AudioTitleBox.Text &&
+            project.Artist == AudioArtistBox.Text &&
+            project.Album == AudioAlbumBox.Text &&
+            project.Genre == AudioGenreBox.Text &&
+            project.Year == parsedYear &&
+            project.Comments == AudioCommentsBox.Text)
+        {
+            return;
+        }
+
+        BeginEdit();
+        project.Title = AudioTitleBox.Text;
+        project.Artist = AudioArtistBox.Text;
+        project.Album = AudioAlbumBox.Text;
+        project.Genre = AudioGenreBox.Text;
+        project.Year = parsedYear;
+        project.Comments = AudioCommentsBox.Text;
+        project.TagsInitialised = true;
+        MarkEditChanged();
+        StatusText.Text = "Audio tags edited in the project. Write tags to the audio file to update its metadata.";
+    }
+
+    private void AudioTag_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+    }
+
+    private async void WriteAudioTags_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
+        {
+            return;
+        }
+
+        AudioTrackProject project = _audioTracks[_selectedAudioTrackIndex].Project;
+        if (string.IsNullOrWhiteSpace(project.AudioPath) || !File.Exists(project.AudioPath))
+        {
+            StatusText.Text = "The audio file is unavailable. Relink it before writing tags.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(AudioYearBox.Text) &&
+            (!uint.TryParse(AudioYearBox.Text, out uint year) || year > 9999))
+        {
+            StatusText.Text = "Audio tag year must be between 1 and 9999.";
+            return;
+        }
+
+        try
+        {
+            StorageFile file = await StorageFile.GetFileFromPathAsync(project.AudioPath!);
+            Windows.Storage.FileProperties.MusicProperties music =
+                await file.Properties.GetMusicPropertiesAsync();
+            music.Title = project.Title;
+            music.Artist = project.Artist;
+            music.Album = project.Album;
+            music.Genre.Clear();
+            foreach (string genre in project.Genre.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                music.Genre.Add(genre);
+            }
+
+            music.Year = project.Year;
+            await music.SavePropertiesAsync();
+            StatusText.Text = "Audio tags written to the source file. Comments remain stored in the project.";
+        }
+        catch (Exception ex) when (IsFileAccessException(ex))
+        {
+            StatusText.Text = $"Could not write audio tags: {ex.Message}";
+        }
+    }
+
+    private async Task<bool> LoadAudioTagsAsync(AudioTrackRuntime track)
+    {
+        if (HasAudioTags(track.Project))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(track.Project.AudioPath) || !track.HasSource)
+        {
+            return false;
+        }
+
+        try
+        {
+            StorageFile file = await StorageFile.GetFileFromPathAsync(track.Project.AudioPath);
+            Windows.Storage.FileProperties.MusicProperties music =
+                await file.Properties.GetMusicPropertiesAsync();
+            track.Project.Title = music.Title ?? string.Empty;
+            track.Project.Artist = music.Artist ?? string.Empty;
+            track.Project.Album = music.Album ?? string.Empty;
+            track.Project.Genre = string.Join("; ", music.Genre);
+            track.Project.Year = music.Year;
+            track.Project.TagsInitialised = true;
+            if (_selectedAudioTrackIndex >= 0 &&
+                _selectedAudioTrackIndex < _audioTracks.Count &&
+                ReferenceEquals(_audioTracks[_selectedAudioTrackIndex], track))
+            {
+                UpdateSelectedAudioTrack();
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (IsFileAccessException(ex))
+        {
+            track.LoadError ??= "audio tags could not be read";
+            return false;
+        }
     }
 
     private void AddAudioTrack_Click(object sender, RoutedEventArgs e)
@@ -249,7 +511,7 @@ public sealed partial class MainWindow : Window
     {
         var track = new AudioTrackRuntime(new AudioTrackProject
         {
-            StartFrame = CurrentFrame.Number,
+            StartFrame = _playheadFramePosition + 1,
         });
         _audioTracks.Add(track);
         if (select)
@@ -281,9 +543,18 @@ public sealed partial class MainWindow : Window
         MoveAudioClipButton.IsEnabled = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         if (!hasSelection)
         {
+            _isRestoringProject = true;
             AudioTrackLabel.Text = "No audio track selected";
             AudioVolumeSlider.Value = 1;
             AudioMuteButton.IsChecked = false;
+            AudioTitleBox.Text = string.Empty;
+            AudioArtistBox.Text = string.Empty;
+            AudioAlbumBox.Text = string.Empty;
+            AudioGenreBox.Text = string.Empty;
+            AudioYearBox.Text = string.Empty;
+            AudioCommentsBox.Text = string.Empty;
+            WriteAudioTagsButton.IsEnabled = false;
+            _isRestoringProject = false;
             return;
         }
 
@@ -294,6 +565,13 @@ public sealed partial class MainWindow : Window
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
+        AudioTitleBox.Text = track.Project.Title;
+        AudioArtistBox.Text = track.Project.Artist;
+        AudioAlbumBox.Text = track.Project.Album;
+        AudioGenreBox.Text = track.Project.Genre;
+        AudioYearBox.Text = track.Project.Year == 0 ? string.Empty : track.Project.Year.ToString();
+        AudioCommentsBox.Text = track.Project.Comments;
+        WriteAudioTagsButton.IsEnabled = track.HasSource;
         _isRestoringProject = false;
     }
 
@@ -307,7 +585,8 @@ public sealed partial class MainWindow : Window
         }
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
-        if (track.Project.StartFrame == CurrentFrame.Number)
+        int playheadFrameNumber = _playheadFramePosition + 1;
+        if (track.Project.StartFrame == playheadFrameNumber)
         {
             StatusText.Text = "The audio clip already starts at the playhead.";
             return;
@@ -316,13 +595,13 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        track.Project.StartFrame = CurrentFrame.Number;
+        track.Project.StartFrame = playheadFrameNumber;
         MarkEditChanged();
         CommitEdit();
-        SyncAudioTracks(TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate), startPlayback: false);
+        SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
-        StatusText.Text = $"Audio clip moved to frame {CurrentFrame.Number}.";
+        StatusText.Text = $"Audio clip moved to frame {playheadFrameNumber}.";
     }
 
     private void RefreshAudioTracks()
@@ -420,6 +699,10 @@ public sealed partial class MainWindow : Window
                 runtime.HasSource = true;
                 runtime.Player.Volume = project.Volume;
                 runtime.Player.IsMuted = project.Muted;
+                if (!HasAudioTags(project))
+                {
+                    await LoadAudioTagsAsync(runtime);
+                }
             }
             catch (Exception ex) when (IsFileAccessException(ex))
             {
@@ -519,12 +802,24 @@ public sealed partial class MainWindow : Window
 
     private void PreviousFrame_Click(object sender, RoutedEventArgs e)
     {
-        SelectFrame(Math.Max(0, _selectedFrameIndex - 1));
+        SelectTimelineFrame(Math.Max(0, _playheadFramePosition - 1));
     }
 
     private void NextFrame_Click(object sender, RoutedEventArgs e)
     {
-        SelectFrame(Math.Min(_frames.Count - 1, _selectedFrameIndex + 1));
+        SelectTimelineFrame(_playheadFramePosition + 1);
+    }
+
+    private void SelectTimelineFrame(int framePosition)
+    {
+        EnsureFrameExists(framePosition);
+        _playheadFramePosition = framePosition;
+        SelectFrame(
+            InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
+            seekVideo: false,
+            preservePlayhead: true);
+        SeekToCurrentFrame();
+        UpdateFrameReadout();
     }
 
     private void AddFrame_Click(object sender, RoutedEventArgs e)
@@ -546,11 +841,15 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         BeginEdit();
         EditorFrame sourceFrame = CurrentFrame;
+        EditorFrame clonedSource = CloneFrame(sourceFrame);
         var duplicate = new EditorFrame
         {
             Number = sourceFrame.Number + 1,
+            ExposureFrames = sourceFrame.ExposureFrames,
             IsKeyframe = sourceFrame.IsKeyframe,
-            Strokes = CloneFrame(sourceFrame).Strokes,
+            InterpolationMode = sourceFrame.InterpolationMode,
+            Strokes = clonedSource.Strokes,
+            LayerStrokes = clonedSource.LayerStrokes,
         };
         _frames.Insert(_selectedFrameIndex + 1, duplicate);
         for (int i = _selectedFrameIndex + 2; i < _frames.Count; i++)
@@ -564,6 +863,26 @@ public sealed partial class MainWindow : Window
         SelectFrame(_selectedFrameIndex + 1);
     }
 
+    private void DeleteFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_frames.Count <= 1)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _selectedFrameIndex = InkTimeline.DeleteFrame(_frames, _selectedFrameIndex);
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        MarkEditChanged();
+        CommitEdit();
+        RefreshTimeline();
+        RenderCurrentInk();
+        SeekToCurrentFrame();
+        UpdateFrameStatus();
+    }
+
     private void ToggleKeyframe_Click(object sender, RoutedEventArgs e)
     {
         PausePlayback();
@@ -574,6 +893,70 @@ public sealed partial class MainWindow : Window
         CommitEdit();
         RefreshTimeline();
         UpdateFrameStatus();
+    }
+
+    private void InkInterpolation_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRestoringProject ||
+            !CurrentFrame.IsKeyframe ||
+            InkInterpolationSelector.SelectedItem is not ComboBoxItem { Tag: string modeText } ||
+            !Enum.TryParse(modeText, out InkInterpolationMode mode) ||
+            !Enum.IsDefined(mode))
+        {
+            return;
+        }
+
+        if (CurrentFrame.InterpolationMode == mode)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentFrame.InterpolationMode = mode;
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = $"Tween set to {modeText}.";
+    }
+
+    private void ExposureFrames_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e)
+    {
+        if (_isRestoringProject || !double.IsFinite(e.NewValue))
+        {
+            return;
+        }
+
+        int exposureFrames = (int)Math.Clamp(Math.Round(e.NewValue), 1, 999);
+        if (CurrentFrame.ExposureFrames == exposureFrames)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentFrame.ExposureFrames = exposureFrames;
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        MarkEditChanged();
+        RefreshTimeline();
+        SeekToCurrentFrame();
+    }
+
+    private void ExposureFrames_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        UpdateFrameReadout();
+    }
+
+    private void UpdateInterpolationSelector()
+    {
+        _isRestoringProject = true;
+        InkInterpolationSelector.IsEnabled = CurrentFrame.IsKeyframe &&
+            _frames.Skip(_selectedFrameIndex + 1).Any(frame => frame.IsKeyframe);
+        InkInterpolationSelector.SelectedItem = InkInterpolationSelector.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string value &&
+                Enum.TryParse(value, out InkInterpolationMode mode) &&
+                mode == CurrentFrame.InterpolationMode);
+        _isRestoringProject = false;
     }
 
     private void Undo_Click(object sender, RoutedEventArgs e)
@@ -646,18 +1029,18 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         BeginEdit();
         PromoteInterpolatedFrameForEditing();
-        Point point = e.GetCurrentPoint(InkSurface).Position;
+        var pointerPoint = e.GetCurrentPoint(InkSurface);
         _activePointerId = e.Pointer.PointerId;
         InkSurface.CapturePointer(e.Pointer);
         if (_isEraser)
         {
-            EraseAt(point);
+            EraseAt(pointerPoint.Position);
         }
         else
         {
             _activeStroke = [];
-            CurrentFrame.Strokes.Add(_activeStroke);
-            AddPoint(point);
+            CurrentStrokes.Add(_activeStroke);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
         }
 
         e.Handled = true;
@@ -665,14 +1048,14 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        Point point = e.GetCurrentPoint(InkSurface).Position;
+        var pointerPoint = e.GetCurrentPoint(InkSurface);
         if (_activePointerId == e.Pointer.PointerId && _isEraser)
         {
-            EraseAt(point);
+            EraseAt(pointerPoint.Position);
         }
         else if (_activePointerId == e.Pointer.PointerId)
         {
-            AddPoint(point);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
         }
 
         e.Handled = true;
@@ -682,7 +1065,8 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId == e.Pointer.PointerId)
         {
-            AddPoint(e.GetCurrentPoint(InkSurface).Position);
+            var pointerPoint = e.GetCurrentPoint(InkSurface);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
             InkSurface.ReleasePointerCapture(e.Pointer);
             FinishActiveEdit();
         }
@@ -700,7 +1084,7 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
     }
 
-    private void AddPoint(Point point)
+    private void AddPoint(Point point, double pressure)
     {
         if (_activeStroke is null || InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
         {
@@ -711,10 +1095,14 @@ public sealed partial class MainWindow : Window
         {
             X = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
             Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
+            Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
+            BrushWidth = _brushWidth,
+            BrushColour = _brushColour,
         };
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
-            _activeStroke[^1].Y != inkPoint.Y)
+            _activeStroke[^1].Y != inkPoint.Y ||
+            _activeStroke[^1].Pressure != inkPoint.Pressure)
         {
             _activeStroke.Add(inkPoint);
             MarkEditChanged();
@@ -731,12 +1119,12 @@ public sealed partial class MainWindow : Window
 
         double radiusX = 18 / Math.Max(1, InkSurface.ActualWidth);
         double radiusY = 18 / Math.Max(1, InkSurface.ActualHeight);
-        double normalizedX = point.X / InkSurface.ActualWidth;
-        double normalizedY = point.Y / InkSurface.ActualHeight;
-        bool changed = CurrentFrame.Strokes.RemoveAll(stroke =>
+        double normalisedX = point.X / InkSurface.ActualWidth;
+        double normalisedY = point.Y / InkSurface.ActualHeight;
+        bool changed = CurrentStrokes.RemoveAll(stroke =>
             stroke.Any(inkPoint =>
-                Math.Abs(inkPoint.X - normalizedX) <= radiusX &&
-                Math.Abs(inkPoint.Y - normalizedY) <= radiusY)) > 0;
+                Math.Abs(inkPoint.X - normalisedX) <= radiusX &&
+                Math.Abs(inkPoint.Y - normalisedY) <= radiusY)) > 0;
 
         if (changed)
         {
@@ -747,47 +1135,124 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
-        InkSurface.Children.Clear();
-        foreach (List<InkPoint> stroke in InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex))
+        _renderedStrokes.Clear();
+        if (OnionSkinToggle?.IsChecked == true)
         {
-            if (stroke.Count == 1)
+            double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
+            if (_selectedFrameIndex > 0)
             {
-                const double dotSize = 4;
-                var dot = new Ellipse
+                DrawVisibleLayers(_selectedFrameIndex - 1, 0xFF00BFFF, opacity);
+            }
+
+            if (_selectedFrameIndex + 1 < _frames.Count)
+            {
+                DrawVisibleLayers(_selectedFrameIndex + 1, 0xFFFF69B4, opacity);
+            }
+        }
+
+        DrawVisibleLayers(_selectedFrameIndex, null, 1);
+        InkSurface.Invalidate();
+    }
+
+    private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
+    {
+        foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
+        {
+            double opacity = layer.Opacity * opacityScale;
+            foreach (List<InkPoint> stroke in GetDisplayedLayerStrokes(frameIndex, layer.Id))
+            {
+                if (stroke.Count > 0)
                 {
-                    Width = dotSize,
-                    Height = dotSize,
-                    Fill = new SolidColorBrush(Microsoft.UI.Colors.Orange),
-                    IsHitTestVisible = false,
-                };
-                Canvas.SetLeft(dot, stroke[0].X * InkSurface.ActualWidth - dotSize / 2);
-                Canvas.SetTop(dot, stroke[0].Y * InkSurface.ActualHeight - dotSize / 2);
-                InkSurface.Children.Add(dot);
-                continue;
+                    _renderedStrokes.Add(new RenderedStroke(stroke, colour, opacity));
+                }
             }
-
-            var line = new Polyline
-            {
-                Stroke = new SolidColorBrush(Microsoft.UI.Colors.Orange),
-                StrokeThickness = 4,
-                IsHitTestVisible = false,
-            };
-            foreach (InkPoint point in stroke)
-            {
-                line.Points.Add(new Point(
-                    point.X * InkSurface.ActualWidth,
-                    point.Y * InkSurface.ActualHeight));
-            }
-
-            InkSurface.Children.Add(line);
         }
     }
 
-    private void SelectFrame(int index, bool seekVideo = true)
+    private void InkSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        foreach (RenderedStroke renderedStroke in _renderedStrokes)
+        {
+            List<InkPoint> stroke = renderedStroke.Points;
+            Windows.UI.Color baseColour = ToColour(renderedStroke.Colour ?? stroke[0].BrushColour);
+            var colour = Windows.UI.Color.FromArgb(
+                (byte)(baseColour.A * Math.Clamp(renderedStroke.Opacity, 0, 1)),
+                baseColour.R,
+                baseColour.G,
+                baseColour.B);
+            for (int i = 0; i < stroke.Count; i++)
+            {
+                InkPoint point = stroke[i];
+                float x = (float)(point.X * sender.ActualWidth);
+                float y = (float)(point.Y * sender.ActualHeight);
+                double width = GetInkWidth(point);
+                args.DrawingSession.FillCircle(new Vector2(x, y), (float)(width / 2), colour);
+                if (i == 0)
+                {
+                    continue;
+                }
+
+                InkPoint previous = stroke[i - 1];
+                args.DrawingSession.DrawLine(
+                    new Vector2((float)(previous.X * sender.ActualWidth), (float)(previous.Y * sender.ActualHeight)),
+                    new Vector2(x, y),
+                    colour,
+                    (float)((GetInkWidth(previous) + width) / 2));
+            }
+        }
+    }
+
+    private static double GetInkWidth(InkPoint point) =>
+        point.BrushWidth * (0.25 + (1.5 * point.Pressure));
+
+    private static Windows.UI.Color ToColour(uint argb) => Windows.UI.Color.FromArgb(
+        (byte)(argb >> 24),
+        (byte)(argb >> 16),
+        (byte)(argb >> 8),
+        (byte)argb);
+
+    private void InkColour_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (InkColourSelector.SelectedItem is ComboBoxItem { Tag: string colour } &&
+            uint.TryParse(colour, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out uint argb))
+        {
+            _brushColour = argb;
+        }
+    }
+
+    private void InkWidth_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_isInitialising)
+        {
+            _brushWidth = e.NewValue;
+        }
+    }
+
+    private void OnionSkin_Click(object sender, RoutedEventArgs e)
+    {
+        RenderCurrentInk();
+    }
+
+    private void OnionSkinOpacity_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        RenderCurrentInk();
+    }
+
+    private void SelectFrame(int index, bool seekVideo = true, bool preservePlayhead = false)
     {
         if (index < 0 || index >= _frames.Count)
         {
             return;
+        }
+
+        if (!preservePlayhead)
+        {
+            _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, index);
         }
 
         if (index == _selectedFrameIndex)
@@ -797,6 +1262,7 @@ public sealed partial class MainWindow : Window
                 SeekToCurrentFrame();
             }
 
+            UpdateFrameReadout();
             return;
         }
 
@@ -813,12 +1279,13 @@ public sealed partial class MainWindow : Window
         UpdateTimelineButton(_selectedFrameIndex);
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
+        UpdateInterpolationSelector();
         UpdateFrameStatus();
     }
 
     private void SeekToCurrentFrame()
     {
-        TimeSpan position = TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
+        TimeSpan position = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         if (_hasVideo)
         {
             PreviewPlayer.MediaPlayer.PlaybackSession.Position = position;
@@ -903,6 +1370,8 @@ public sealed partial class MainWindow : Window
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
             AudioMuted = firstLoadedTrack?.Muted ?? false,
             AudioTracks = tracks,
+            InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
+            ActiveInkLayerId = _activeInkLayerId,
             SelectedFrameIndex = _selectedFrameIndex,
             Frames = _frames.Select(CloneFrame).ToList(),
         };
@@ -914,15 +1383,59 @@ public sealed partial class MainWindow : Window
         StartFrame = track.StartFrame,
         Volume = track.Volume,
         Muted = track.Muted,
+        Title = track.Title,
+        Artist = track.Artist,
+        Album = track.Album,
+        Genre = track.Genre,
+        Comments = track.Comments,
+        Year = track.Year,
+        TagsInitialised = track.TagsInitialised,
     };
+
+    private static InkLayerProject CloneInkLayer(InkLayerProject layer) => new()
+    {
+        Id = layer.Id,
+        Name = layer.Name,
+        IsVisible = layer.IsVisible,
+        Opacity = layer.Opacity,
+    };
+
+    private static bool HasAudioTags(AudioTrackProject project) =>
+        project.TagsInitialised ||
+        !string.IsNullOrWhiteSpace(project.Title) ||
+        !string.IsNullOrWhiteSpace(project.Artist) ||
+        !string.IsNullOrWhiteSpace(project.Album) ||
+        !string.IsNullOrWhiteSpace(project.Genre) ||
+        !string.IsNullOrWhiteSpace(project.Comments) ||
+        project.Year > 0;
 
     private static EditorFrame CloneFrame(EditorFrame frame) => new()
     {
         Number = frame.Number,
+        ExposureFrames = frame.ExposureFrames,
         IsKeyframe = frame.IsKeyframe,
+        InterpolationMode = frame.InterpolationMode,
         Strokes = frame.Strokes
-            .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
+            .Select(stroke => stroke.Select(point => new InkPoint
+            {
+                X = point.X,
+                Y = point.Y,
+                Pressure = point.Pressure,
+                BrushWidth = point.BrushWidth,
+                BrushColour = point.BrushColour,
+            }).ToList())
             .ToList(),
+            LayerStrokes = frame.LayerStrokes.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Select(stroke => stroke.Select(point => new InkPoint
+                {
+                    X = point.X,
+                    Y = point.Y,
+                    Pressure = point.Pressure,
+                    BrushWidth = point.BrushWidth,
+                    BrushColour = point.BrushColour,
+                }).ToList()).ToList(),
+                StringComparer.Ordinal),
     };
 
     private void RestoreProjectState(EditorProject project)
@@ -931,16 +1444,21 @@ public sealed partial class MainWindow : Window
         _isRestoringProject = true;
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
+        _inkLayers.Clear();
+        _inkLayers.AddRange(project.InkLayers.Select(CloneInkLayer));
+        _activeInkLayerId = project.ActiveInkLayerId;
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         _videoPath = project.VideoPath;
         RestoreAudioTrackModels(project.AudioTracks);
+        RefreshInkLayers();
         _isRestoringProject = false;
         _activePointerId = null;
         _activeStroke = null;
         _pendingEdit = null;
         _pendingEditChanged = false;
-        _audioOnlyPosition = TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        _audioOnlyPosition = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         RenderCurrentInk();
         SeekToCurrentFrame();
         RefreshTimeline();
@@ -1015,7 +1533,7 @@ public sealed partial class MainWindow : Window
     {
         if (_activeStroke is { Count: 0 })
         {
-            CurrentFrame.Strokes.Remove(_activeStroke);
+            CurrentStrokes.Remove(_activeStroke);
         }
 
         _activePointerId = null;
@@ -1087,18 +1605,25 @@ public sealed partial class MainWindow : Window
         }
 
         SyncAudioTracks(position, startPlayback: true);
-        int frameIndex = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
-        EnsureFrameExists(frameIndex);
-        SelectFrame(frameIndex, seekVideo: false);
+        int framePosition = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
+        EnsureFrameExists(framePosition);
+        _playheadFramePosition = framePosition;
+        SelectFrame(
+            InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
+            seekVideo: false,
+            preservePlayhead: true);
+        UpdateFrameReadout();
     }
 
-    private void EnsureFrameExists(int frameIndex)
+    private void EnsureFrameExists(int framePosition)
     {
-        while (_frames.Count <= frameIndex)
+        int totalExposureFrames = InkTimeline.GetTotalExposureFrames(_frames);
+        while (totalExposureFrames <= framePosition)
         {
             var frame = new EditorFrame { Number = _frames.Count + 1 };
             _frames.Add(frame);
             AddTimelineButton(frame, _frames.Count - 1);
+            totalExposureFrames++;
             UnsavedIndicator.Visibility = Visibility.Visible;
         }
     }
@@ -1133,12 +1658,13 @@ public sealed partial class MainWindow : Window
 
     private void PromoteInterpolatedFrameForEditing()
     {
-        if (CurrentFrame.IsKeyframe || CurrentFrame.Strokes.Count > 0)
+        List<List<InkPoint>> currentStrokes = CurrentStrokes;
+        if (CurrentFrame.IsKeyframe || currentStrokes.Count > 0)
         {
             return;
         }
 
-        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex);
+        IReadOnlyList<List<InkPoint>> displayed = GetDisplayedLayerStrokes(_selectedFrameIndex, _activeInkLayerId);
         if (_isEraser && displayed.Count == 0)
         {
             return;
@@ -1146,9 +1672,16 @@ public sealed partial class MainWindow : Window
 
         if (displayed.Count > 0)
         {
-            CurrentFrame.Strokes = displayed
-                .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
-                .ToList();
+            currentStrokes.AddRange(displayed
+                .Select(stroke => stroke.Select(point => new InkPoint
+                {
+                    X = point.X,
+                    Y = point.Y,
+                    Pressure = point.Pressure,
+                    BrushWidth = point.BrushWidth,
+                    BrushColour = point.BrushColour,
+                }).ToList())
+                .ToList());
         }
 
         CurrentFrame.IsKeyframe = true;
@@ -1160,7 +1693,9 @@ public sealed partial class MainWindow : Window
     private void RefreshTimeline()
     {
         _interpolatedFrameIndices.Clear();
-        _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(_frames));
+        _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(
+            _frames,
+            frame => GetLayerStrokes(frame, _activeInkLayerId)));
         InkFramesPanel.Children.Clear();
         _timelineButtons.Clear();
         for (int i = 0; i < _frames.Count; i++)
@@ -1170,6 +1705,7 @@ public sealed partial class MainWindow : Window
 
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
+        UpdateInterpolationSelector();
         for (int i = 0; i < _frames.Count; i++)
         {
             UpdateTimelineButton(i);
@@ -1199,13 +1735,14 @@ public sealed partial class MainWindow : Window
 
         EditorFrame frame = _frames[index];
         Button button = _timelineButtons[index];
+        button.Width = Math.Min(220, 54 + ((frame.ExposureFrames - 1) * 4));
         bool isInterpolated = _interpolatedFrameIndices.Contains(index);
         string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
         button.Content = $"{prefix}{frame.Number:000}";
         ToolTipService.SetToolTip(
             button,
-            frame.IsKeyframe ? $"Keyframe {frame.Number}" :
-                isInterpolated ? $"Interpolated frame {frame.Number}" : $"Frame {frame.Number}");
+            $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
+            $"exposed for {frame.ExposureFrames} output frame(s)");
         button.Background = new SolidColorBrush(
             index == _selectedFrameIndex ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.DarkSlateGray);
     }
@@ -1220,7 +1757,7 @@ public sealed partial class MainWindow : Window
 
     private void AudioVolume_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_isInitializing || _isRestoringProject ||
+        if (_isInitialising || _isRestoringProject ||
             _selectedAudioTrackIndex < 0 ||
             _selectedAudioTrackIndex >= _audioTracks.Count)
         {
@@ -1235,7 +1772,7 @@ public sealed partial class MainWindow : Window
 
     private void AudioMute_Click(object sender, RoutedEventArgs e)
     {
-        if (_isInitializing || _isRestoringProject ||
+        if (_isInitialising || _isRestoringProject ||
             _selectedAudioTrackIndex < 0 ||
             _selectedAudioTrackIndex >= _audioTracks.Count)
         {
@@ -1262,20 +1799,30 @@ public sealed partial class MainWindow : Window
         public string? LoadError { get; set; }
     }
 
+    private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
+
     private void UpdateFrameStatus()
     {
         KeyframeStatus.Text = CurrentFrame.IsKeyframe
-            ? $"Keyframe set at frame {CurrentFrame.Number}."
-            : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex)
-                ? $"Interpolated drawing at frame {CurrentFrame.Number}."
-                : CurrentFrame.Strokes.Count > 0
-                    ? $"Hand-drawn exposure at frame {CurrentFrame.Number}."
+            ? $"Keyframe set at cel {CurrentFrame.Number}."
+            : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex, frame => GetLayerStrokes(frame, _activeInkLayerId))
+                ? $"Interpolated drawing at cel {CurrentFrame.Number}."
+                : CurrentStrokes.Count > 0
+                    ? $"Hand-drawn exposure on cel {CurrentFrame.Number}."
                     : "No ink on this frame";
     }
 
     private void UpdateFrameReadout()
     {
-        FrameReadout.Text = $"F {CurrentFrame.Number:000}";
+        FrameReadout.Text = $"F {_playheadFramePosition + 1:000} · C{CurrentFrame.Number:000}";
+        bool wasRestoringProject = _isRestoringProject;
+        if (ExposureFramesBox.FocusState == Microsoft.UI.Xaml.FocusState.Unfocused)
+        {
+            _isRestoringProject = true;
+            ExposureFramesBox.Value = CurrentFrame.ExposureFrames;
+            _isRestoringProject = wasRestoringProject;
+        }
+        DeleteFrameButton.IsEnabled = _frames.Count > 1;
     }
 
     private void UpdateFrameRateSelector()
