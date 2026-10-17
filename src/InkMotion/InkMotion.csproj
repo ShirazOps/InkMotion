@@ -21,6 +21,7 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <PublishProfile>Properties\PublishProfiles\win10-$(Platform).pubxml</PublishProfile>
     <AppxManifest>Package.appxmanifest</AppxManifest>
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(StorePackage)' == 'true'">
