@@ -2,12 +2,12 @@ using Xunit;
 
 namespace InkMotion.Tests;
 
-public sealed class EditorProjectSerializerTests
+public sealed class EditorProjectSerialiserTests
 {
     [Fact]
-    public void Deserialize_ProjectWithoutAudioMetadata_UsesAudioDefaults()
+    public void Deserialise_ProjectWithoutAudioMetadata_UsesAudioDefaults()
     {
-        EditorProject restored = EditorProjectSerializer.Deserialize(
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
         Assert.Null(restored.AudioPath);
@@ -16,15 +16,15 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Fact]
-    public void Deserialize_VersionOneProject_MigratesToCurrentVersion()
+    public void Deserialise_VersionOneProject_MigratesToCurrentVersion()
     {
-        EditorProject restored = EditorProjectSerializer.Deserialize(
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
         Assert.Equal(3, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
-        Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColor);
+        Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColour);
     }
 
     [Fact]
@@ -60,8 +60,8 @@ public sealed class EditorProjectSerializerTests
             FrameRate = 30,
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(original));
 
         Assert.Equal(3, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
@@ -101,8 +101,8 @@ public sealed class EditorProjectSerializerTests
             ],
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(original));
 
         Assert.Equal(0.15, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(0.95, restored.Frames[0].Strokes[0][1].Pressure);
@@ -123,24 +123,25 @@ public sealed class EditorProjectSerializerTests
                         X = 0.2,
                         Y = 0.3,
                         BrushWidth = 8.5,
-                        BrushColor = 0xFF00BFFF,
+                        BrushColour = 0xFF00BFFF,
                     }]],
                 },
             ],
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        string serialised = EditorProjectSerialiser.Serialise(original);
+        Assert.Contains("\"BrushColor\":", serialised);
+        EditorProject restored = EditorProjectSerialiser.Deserialise(serialised);
 
         InkPoint point = Assert.Single(Assert.Single(restored.Frames[0].Strokes));
         Assert.Equal(8.5, point.BrushWidth);
-        Assert.Equal(0xFF00BFFFu, point.BrushColor);
+        Assert.Equal(0xFF00BFFFu, point.BrushColour);
     }
 
     [Fact]
-    public void Deserialize_VersionTwoProject_MigratesToBaseInkLayer()
+    public void Deserialise_VersionTwoProject_MigratesToBaseInkLayer()
     {
-        EditorProject restored = EditorProjectSerializer.Deserialize(
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
         Assert.Equal(3, restored.Version);
@@ -157,9 +158,9 @@ public sealed class EditorProjectSerializerTests
             InkLayers =
             [
                 new InkLayerProject { Id = "ink-1", Name = "Sketch", Opacity = 0.8 },
-                new InkLayerProject { Id = "ink-color", Name = "Color", IsVisible = false, Opacity = 0.45 },
+                new InkLayerProject { Id = "ink-colour", Name = "Colour", IsVisible = false, Opacity = 0.45 },
             ],
-            ActiveInkLayerId = "ink-color",
+            ActiveInkLayerId = "ink-colour",
             Frames =
             [
                 new EditorFrame
@@ -168,27 +169,27 @@ public sealed class EditorProjectSerializerTests
                     Strokes = [[new InkPoint { X = 0.1, Y = 0.2 }]],
                     LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
                     {
-                        ["ink-color"] = [[new InkPoint { X = 0.7, Y = 0.8 }]],
+                        ["ink-colour"] = [[new InkPoint { X = 0.7, Y = 0.8 }]],
                     },
                 },
             ],
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(original));
 
-        Assert.Equal("ink-color", restored.ActiveInkLayerId);
+        Assert.Equal("ink-colour", restored.ActiveInkLayerId);
         Assert.Collection(restored.InkLayers,
             layer => Assert.Equal(("Sketch", true, 0.8), (layer.Name, layer.IsVisible, layer.Opacity)),
-            layer => Assert.Equal(("Color", false, 0.45), (layer.Name, layer.IsVisible, layer.Opacity)));
+            layer => Assert.Equal(("Colour", false, 0.45), (layer.Name, layer.IsVisible, layer.Opacity)));
         Assert.Equal(0.1, restored.Frames[0].Strokes[0][0].X);
-        Assert.Equal(0.7, restored.Frames[0].LayerStrokes["ink-color"][0][0].X);
+        Assert.Equal(0.7, restored.Frames[0].LayerStrokes["ink-colour"][0][0].X);
     }
 
     [Fact]
-    public void Deserialize_LegacyInkWithoutPressureUsesNeutralPressure()
+    public void Deserialise_LegacyInkWithoutPressureUsesNeutralPressure()
     {
-        EditorProject restored = EditorProjectSerializer.Deserialize(
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
@@ -212,7 +213,7 @@ public sealed class EditorProjectSerializerTests
                     Genre = "Ambient",
                     Comments = "Project-only comment",
                     Year = 2026,
-                    TagsInitialized = true,
+                    TagsInitialised = true,
                 },
                 new AudioTrackProject
                 {
@@ -224,8 +225,8 @@ public sealed class EditorProjectSerializerTests
             ],
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(original));
 
         Assert.Collection(
             restored.AudioTracks,
@@ -241,7 +242,7 @@ public sealed class EditorProjectSerializerTests
                 Assert.Equal("Ambient", track.Genre);
                 Assert.Equal("Project-only comment", track.Comments);
                 Assert.Equal(2026u, track.Year);
-                Assert.True(track.TagsInitialized);
+                Assert.True(track.TagsInitialised);
             },
             track =>
             {
@@ -262,24 +263,25 @@ public sealed class EditorProjectSerializerTests
                 new AudioTrackProject
                 {
                     AudioPath = @"C:\Media\music.wav",
-                    TagsInitialized = true,
+                    TagsInitialised = true,
                 },
             ],
         };
 
-        EditorProject restored = EditorProjectSerializer.Deserialize(
-            EditorProjectSerializer.Serialize(original));
+        string serialised = EditorProjectSerialiser.Serialise(original);
+        Assert.Contains("\"TagsInitialized\": true", serialised);
+        EditorProject restored = EditorProjectSerialiser.Deserialise(serialised);
 
         var track = Assert.Single(restored.AudioTracks);
-        Assert.True(track.TagsInitialized);
+        Assert.True(track.TagsInitialised);
         Assert.Empty(track.Title);
         Assert.Empty(track.Artist);
     }
 
     [Fact]
-    public void Deserialize_LegacyAudioPath_MigratesToFirstAudioTrack()
+    public void Deserialise_LegacyAudioPath_MigratesToFirstAudioTrack()
     {
-        EditorProject restored = EditorProjectSerializer.Deserialize(
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"AudioPath":"C:\\Media\\music.wav","AudioVolume":0.5,"AudioMuted":true,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
         var track = Assert.Single(restored.AudioTracks);
@@ -308,8 +310,8 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-2","Name":"Bad opacity","Opacity":1.1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"unknown":[]}}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-2","Name":"Ink 2"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"ink-2":null}}],"SelectedFrameIndex":0}""")]
-    public void Deserialize_RejectsInvalidProjectData(string json)
+    public void Deserialise_RejectsInvalidProjectData(string json)
     {
-        Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));
+        Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Deserialise(json));
     }
 }

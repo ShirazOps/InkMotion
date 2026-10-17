@@ -92,7 +92,7 @@ public sealed class InkAnimationTests
                 Strokes = [Stroke((0.9, 0.9))],
                 LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
                 {
-                    ["ink-color"] = [Stroke((0.1, 0.2))],
+                    ["ink-colour"] = [Stroke((0.1, 0.2))],
                 },
             },
             new EditorFrame { Number = 2 },
@@ -103,7 +103,7 @@ public sealed class InkAnimationTests
                 Strokes = [Stroke((0.8, 0.8))],
                 LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
                 {
-                    ["ink-color"] = [Stroke((0.5, 0.6))],
+                    ["ink-colour"] = [Stroke((0.5, 0.6))],
                 },
             },
         ];
@@ -111,14 +111,14 @@ public sealed class InkAnimationTests
         IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(
             frames,
             1,
-            frame => frame.LayerStrokes.TryGetValue("ink-color", out List<List<InkPoint>>? strokes)
+            frame => frame.LayerStrokes.TryGetValue("ink-colour", out List<List<InkPoint>>? strokes)
                 ? strokes
                 : []);
 
         Assert.True(InkAnimation.IsInterpolated(
             frames,
             1,
-            frame => frame.LayerStrokes.TryGetValue("ink-color", out List<List<InkPoint>>? strokes)
+            frame => frame.LayerStrokes.TryGetValue("ink-colour", out List<List<InkPoint>>? strokes)
                 ? strokes
                 : []));
         Assert.Equal(0.3, displayed[0][0].X, precision: 10);
