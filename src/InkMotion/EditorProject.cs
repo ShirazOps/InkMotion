@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace InkMotion;
 
@@ -37,7 +38,8 @@ public sealed class AudioTrackProject
     public string Genre { get; set; } = string.Empty;
     public string Comments { get; set; } = string.Empty;
     public uint Year { get; set; }
-    public bool TagsInitialized { get; set; }
+    [JsonPropertyName("TagsInitialized")]
+    public bool TagsInitialised { get; set; }
 }
 
 public sealed class EditorFrame
@@ -48,26 +50,53 @@ public sealed class EditorFrame
     public Dictionary<string, List<List<InkPoint>>> LayerStrokes { get; set; } = new(StringComparer.Ordinal);
 }
 
+public static class InkTimeline
+{
+    public static int DeleteFrame(IList<EditorFrame> frames, int frameIndex)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentOutOfRangeException.ThrowIfNegative(frameIndex);
+        if (frameIndex >= frames.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameIndex));
+        }
+
+        if (frames.Count == 1)
+        {
+            throw new InvalidOperationException("A project must contain at least one frame.");
+        }
+
+        frames.RemoveAt(frameIndex);
+        for (int index = frameIndex; index < frames.Count; index++)
+        {
+            frames[index].Number = index + 1;
+        }
+
+        return Math.Min(frameIndex, frames.Count - 1);
+    }
+}
+
 public sealed class InkPoint
 {
     public double X { get; set; }
     public double Y { get; set; }
     public double Pressure { get; set; } = 0.5;
     public double BrushWidth { get; set; } = 4;
-    public uint BrushColor { get; set; } = 0xFFFFA500;
+    [JsonPropertyName("BrushColor")]
+    public uint BrushColour { get; set; } = 0xFFFFA500;
 }
 
-public static class EditorProjectSerializer
+public static class EditorProjectSerialiser
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
-    public static string Serialize(EditorProject project)
+    public static string Serialise(EditorProject project)
     {
         EditorProjectValidation.Validate(project);
         return JsonSerializer.Serialize(project, Options);
     }
 
-    public static EditorProject Deserialize(string json)
+    public static EditorProject Deserialise(string json)
     {
         EditorProject project = JsonSerializer.Deserialize<EditorProject>(json)
             ?? throw new InvalidDataException("The project file is empty.");
@@ -201,7 +230,7 @@ public static class InkAnimation
                     Y = Lerp(first[pointIndex].Y, second[pointIndex].Y, progress),
                     Pressure = Lerp(first[pointIndex].Pressure, second[pointIndex].Pressure, progress),
                     BrushWidth = Lerp(first[pointIndex].BrushWidth, second[pointIndex].BrushWidth, progress),
-                    BrushColor = first[pointIndex].BrushColor,
+                    BrushColour = first[pointIndex].BrushColour,
                 });
             }
 
@@ -311,7 +340,7 @@ public static class InkAnimation
                     Y = stroke[0].Y,
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
-                    BrushColor = stroke[0].BrushColor,
+                    BrushColour = stroke[0].BrushColour,
                 })
                 .ToList();
         }
@@ -334,7 +363,7 @@ public static class InkAnimation
                     Y = stroke[0].Y,
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
-                    BrushColor = stroke[0].BrushColor,
+                    BrushColour = stroke[0].BrushColour,
                 })
                 .ToList();
         }
@@ -357,7 +386,7 @@ public static class InkAnimation
                 Y = Lerp(stroke[segment - 1].Y, stroke[segment].Y, progress),
                 Pressure = Lerp(stroke[segment - 1].Pressure, stroke[segment].Pressure, progress),
                 BrushWidth = Lerp(stroke[segment - 1].BrushWidth, stroke[segment].BrushWidth, progress),
-                BrushColor = stroke[segment - 1].BrushColor,
+                BrushColour = stroke[segment - 1].BrushColour,
             });
         }
 

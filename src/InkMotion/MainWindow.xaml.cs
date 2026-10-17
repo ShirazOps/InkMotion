@@ -34,7 +34,7 @@ public sealed partial class MainWindow : Window
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
     private string _activeInkLayerId = BaseInkLayerId;
-    private uint _brushColor = 0xFFFFA500;
+    private uint _brushColour = 0xFFFFA500;
     private double _brushWidth = 4;
     private uint? _activePointerId;
     private List<InkPoint>? _activeStroke;
@@ -46,14 +46,14 @@ public sealed partial class MainWindow : Window
     private bool _hasVideo;
     private bool _isEraser;
     private bool _isRestoringProject;
-    private bool _isInitializing = true;
+    private bool _isInitialising = true;
     private TimeSpan _audioOnlyPosition;
     private TimeSpan _audioOnlyStartPosition;
 
     public MainWindow()
     {
         InitializeComponent();
-        _isInitializing = false;
+        _isInitialising = false;
         Title = "InkMotion";
         _playbackTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -170,7 +170,7 @@ public sealed partial class MainWindow : Window
         object sender,
         Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_isRestoringProject || _isInitializing)
+        if (_isRestoringProject || _isInitialising)
         {
             return;
         }
@@ -202,7 +202,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            EditorProject project = EditorProjectSerializer.Deserialize(await FileIO.ReadTextAsync(file));
+            EditorProject project = EditorProjectSerialiser.Deserialise(await FileIO.ReadTextAsync(file));
             ClearHistory();
             RestoreProjectState(project);
             string? audioWarning = await LoadAudioTracksAsync(project.AudioTracks);
@@ -264,7 +264,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await FileIO.WriteTextAsync(file, EditorProjectSerializer.Serialize(CreateProjectSnapshot()));
+            await FileIO.WriteTextAsync(file, EditorProjectSerialiser.Serialise(CreateProjectSnapshot()));
             _projectFile = file;
             UnsavedIndicator.Visibility = Visibility.Collapsed;
             StatusText.Text = $"Project saved  ·  {file.Name}";
@@ -399,7 +399,7 @@ public sealed partial class MainWindow : Window
         project.Genre = AudioGenreBox.Text;
         project.Year = parsedYear;
         project.Comments = AudioCommentsBox.Text;
-        project.TagsInitialized = true;
+        project.TagsInitialised = true;
         MarkEditChanged();
         StatusText.Text = "Audio tags edited in the project. Write tags to the audio file to update its metadata.";
     }
@@ -477,7 +477,7 @@ public sealed partial class MainWindow : Window
             track.Project.Album = music.Album ?? string.Empty;
             track.Project.Genre = string.Join("; ", music.Genre);
             track.Project.Year = music.Year;
-            track.Project.TagsInitialized = true;
+            track.Project.TagsInitialised = true;
             if (_selectedAudioTrackIndex >= 0 &&
                 _selectedAudioTrackIndex < _audioTracks.Count &&
                 ReferenceEquals(_audioTracks[_selectedAudioTrackIndex], track))
@@ -843,6 +843,25 @@ public sealed partial class MainWindow : Window
         SelectFrame(_selectedFrameIndex + 1);
     }
 
+    private void DeleteFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_frames.Count <= 1)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _selectedFrameIndex = InkTimeline.DeleteFrame(_frames, _selectedFrameIndex);
+        MarkEditChanged();
+        CommitEdit();
+        RefreshTimeline();
+        RenderCurrentInk();
+        SeekToCurrentFrame();
+        UpdateFrameStatus();
+    }
+
     private void ToggleKeyframe_Click(object sender, RoutedEventArgs e)
     {
         PausePlayback();
@@ -993,7 +1012,7 @@ public sealed partial class MainWindow : Window
             Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
             BrushWidth = _brushWidth,
-            BrushColor = _brushColor,
+            BrushColour = _brushColour,
         };
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
@@ -1015,12 +1034,12 @@ public sealed partial class MainWindow : Window
 
         double radiusX = 18 / Math.Max(1, InkSurface.ActualWidth);
         double radiusY = 18 / Math.Max(1, InkSurface.ActualHeight);
-        double normalizedX = point.X / InkSurface.ActualWidth;
-        double normalizedY = point.Y / InkSurface.ActualHeight;
+        double normalisedX = point.X / InkSurface.ActualWidth;
+        double normalisedY = point.Y / InkSurface.ActualHeight;
         bool changed = CurrentStrokes.RemoveAll(stroke =>
             stroke.Any(inkPoint =>
-                Math.Abs(inkPoint.X - normalizedX) <= radiusX &&
-                Math.Abs(inkPoint.Y - normalizedY) <= radiusY)) > 0;
+                Math.Abs(inkPoint.X - normalisedX) <= radiusX &&
+                Math.Abs(inkPoint.Y - normalisedY) <= radiusY)) > 0;
 
         if (changed)
         {
@@ -1049,18 +1068,18 @@ public sealed partial class MainWindow : Window
         DrawVisibleLayers(_selectedFrameIndex, null, 1);
     }
 
-    private void DrawVisibleLayers(int frameIndex, uint? color, double opacityScale)
+    private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
     {
         foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
         {
             DrawStrokes(
                 GetDisplayedLayerStrokes(frameIndex, layer.Id),
-                color,
+                colour,
                 layer.Opacity * opacityScale);
         }
     }
 
-    private void DrawStrokes(IReadOnlyList<List<InkPoint>> strokes, uint? color, double opacity)
+    private void DrawStrokes(IReadOnlyList<List<InkPoint>> strokes, uint? colour, double opacity)
     {
         foreach (List<InkPoint> stroke in strokes)
         {
@@ -1069,7 +1088,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
-            var brush = new SolidColorBrush(ToColor(color ?? stroke[0].BrushColor)) { Opacity = opacity };
+            var brush = new SolidColorBrush(ToColour(colour ?? stroke[0].BrushColour)) { Opacity = opacity };
             for (int i = 0; i < stroke.Count; i++)
             {
                 InkPoint point = stroke[i];
@@ -1111,19 +1130,19 @@ public sealed partial class MainWindow : Window
     private static double GetInkWidth(InkPoint point) =>
         point.BrushWidth * (0.25 + (1.5 * point.Pressure));
 
-    private static Windows.UI.Color ToColor(uint argb) => Windows.UI.Color.FromArgb(
+    private static Windows.UI.Color ToColour(uint argb) => Windows.UI.Color.FromArgb(
         (byte)(argb >> 24),
         (byte)(argb >> 16),
         (byte)(argb >> 8),
         (byte)argb);
 
-    private void InkColor_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void InkColour_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (InkColorSelector.SelectedItem is ComboBoxItem { Tag: string color } &&
-            uint.TryParse(color, System.Globalization.NumberStyles.HexNumber,
+        if (InkColourSelector.SelectedItem is ComboBoxItem { Tag: string colour } &&
+            uint.TryParse(colour, System.Globalization.NumberStyles.HexNumber,
                 System.Globalization.CultureInfo.InvariantCulture, out uint argb))
         {
-            _brushColor = argb;
+            _brushColour = argb;
         }
     }
 
@@ -1131,7 +1150,7 @@ public sealed partial class MainWindow : Window
         object sender,
         Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (!_isInitializing)
+        if (!_isInitialising)
         {
             _brushWidth = e.NewValue;
         }
@@ -1288,7 +1307,7 @@ public sealed partial class MainWindow : Window
         Genre = track.Genre,
         Comments = track.Comments,
         Year = track.Year,
-        TagsInitialized = track.TagsInitialized,
+        TagsInitialised = track.TagsInitialised,
     };
 
     private static InkLayerProject CloneInkLayer(InkLayerProject layer) => new()
@@ -1300,7 +1319,7 @@ public sealed partial class MainWindow : Window
     };
 
     private static bool HasAudioTags(AudioTrackProject project) =>
-        project.TagsInitialized ||
+        project.TagsInitialised ||
         !string.IsNullOrWhiteSpace(project.Title) ||
         !string.IsNullOrWhiteSpace(project.Artist) ||
         !string.IsNullOrWhiteSpace(project.Album) ||
@@ -1319,7 +1338,7 @@ public sealed partial class MainWindow : Window
                 Y = point.Y,
                 Pressure = point.Pressure,
                 BrushWidth = point.BrushWidth,
-                BrushColor = point.BrushColor,
+                BrushColour = point.BrushColour,
             }).ToList())
             .ToList(),
             LayerStrokes = frame.LayerStrokes.ToDictionary(
@@ -1330,7 +1349,7 @@ public sealed partial class MainWindow : Window
                     Y = point.Y,
                     Pressure = point.Pressure,
                     BrushWidth = point.BrushWidth,
-                    BrushColor = point.BrushColor,
+                    BrushColour = point.BrushColour,
                 }).ToList()).ToList(),
                 StringComparer.Ordinal),
     };
@@ -1568,7 +1587,7 @@ public sealed partial class MainWindow : Window
                     Y = point.Y,
                     Pressure = point.Pressure,
                     BrushWidth = point.BrushWidth,
-                    BrushColor = point.BrushColor,
+                    BrushColour = point.BrushColour,
                 }).ToList())
                 .ToList());
         }
@@ -1644,7 +1663,7 @@ public sealed partial class MainWindow : Window
 
     private void AudioVolume_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_isInitializing || _isRestoringProject ||
+        if (_isInitialising || _isRestoringProject ||
             _selectedAudioTrackIndex < 0 ||
             _selectedAudioTrackIndex >= _audioTracks.Count)
         {
@@ -1659,7 +1678,7 @@ public sealed partial class MainWindow : Window
 
     private void AudioMute_Click(object sender, RoutedEventArgs e)
     {
-        if (_isInitializing || _isRestoringProject ||
+        if (_isInitialising || _isRestoringProject ||
             _selectedAudioTrackIndex < 0 ||
             _selectedAudioTrackIndex >= _audioTracks.Count)
         {
@@ -1700,6 +1719,7 @@ public sealed partial class MainWindow : Window
     private void UpdateFrameReadout()
     {
         FrameReadout.Text = $"F {CurrentFrame.Number:000}";
+        DeleteFrameButton.IsEnabled = _frames.Count > 1;
     }
 
     private void UpdateFrameRateSelector()

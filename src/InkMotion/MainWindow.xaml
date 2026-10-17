@@ -36,6 +36,7 @@
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Button Content="Duplicate frame" Click="DuplicateFrame_Click" />
+                <Button x:Name="DeleteFrameButton" Content="Delete frame" Click="DeleteFrame_Click" IsEnabled="False" />
                 <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
             </StackPanel>
         </Grid>
@@ -123,7 +124,7 @@
                         LostFocus="InkLayerOpacity_LostFocus" />
                 </StackPanel>
                 <TextBlock Text="BRUSH" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                <ComboBox x:Name="InkColorSelector" SelectedIndex="0" SelectionChanged="InkColor_SelectionChanged">
+                <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                     <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                     <ComboBoxItem Content="White" Tag="FFFFFFFF" />
                     <ComboBoxItem Content="Cyan" Tag="FF00BFFF" />
