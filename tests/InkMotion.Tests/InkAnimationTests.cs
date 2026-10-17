@@ -81,6 +81,52 @@ public sealed class InkAnimationTests
     }
 
     [Fact]
+    public void GetDisplayedStrokes_InterpolatesSelectedNonBaseInkLayer()
+    {
+        List<EditorFrame> frames =
+        [
+            new EditorFrame
+            {
+                Number = 1,
+                IsKeyframe = true,
+                Strokes = [Stroke((0.9, 0.9))],
+                LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
+                {
+                    ["ink-color"] = [Stroke((0.1, 0.2))],
+                },
+            },
+            new EditorFrame { Number = 2 },
+            new EditorFrame
+            {
+                Number = 3,
+                IsKeyframe = true,
+                Strokes = [Stroke((0.8, 0.8))],
+                LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
+                {
+                    ["ink-color"] = [Stroke((0.5, 0.6))],
+                },
+            },
+        ];
+
+        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(
+            frames,
+            1,
+            frame => frame.LayerStrokes.TryGetValue("ink-color", out List<List<InkPoint>>? strokes)
+                ? strokes
+                : []);
+
+        Assert.True(InkAnimation.IsInterpolated(
+            frames,
+            1,
+            frame => frame.LayerStrokes.TryGetValue("ink-color", out List<List<InkPoint>>? strokes)
+                ? strokes
+                : []));
+        Assert.Equal(0.3, displayed[0][0].X, precision: 10);
+        Assert.Equal(0.4, displayed[0][0].Y, precision: 10);
+        Assert.Empty(frames[1].LayerStrokes);
+    }
+
+    [Fact]
     public void GetDisplayedStrokes_RejectsInvalidFrameIndex()
     {
         Assert.Throws<ArgumentOutOfRangeException>(

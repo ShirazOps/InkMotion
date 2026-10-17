@@ -21,7 +21,7 @@ public sealed class EditorProjectSerializerTests
         EditorProject restored = EditorProjectSerializer.Deserialize(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(2, restored.Version);
+        Assert.Equal(3, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
         Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColor);
@@ -63,7 +63,7 @@ public sealed class EditorProjectSerializerTests
         EditorProject restored = EditorProjectSerializer.Deserialize(
             EditorProjectSerializer.Serialize(original));
 
-        Assert.Equal(2, restored.Version);
+        Assert.Equal(3, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
@@ -135,6 +135,54 @@ public sealed class EditorProjectSerializerTests
         InkPoint point = Assert.Single(Assert.Single(restored.Frames[0].Strokes));
         Assert.Equal(8.5, point.BrushWidth);
         Assert.Equal(0xFF00BFFFu, point.BrushColor);
+    }
+
+    [Fact]
+    public void Deserialize_VersionTwoProject_MigratesToBaseInkLayer()
+    {
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(3, restored.Version);
+        Assert.Equal("ink-1", restored.ActiveInkLayerId);
+        Assert.Equal("Ink 1", Assert.Single(restored.InkLayers).Name);
+        Assert.Single(restored.Frames[0].Strokes);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesIndependentInkLayersAndFrameStrokes()
+    {
+        var original = new EditorProject
+        {
+            InkLayers =
+            [
+                new InkLayerProject { Id = "ink-1", Name = "Sketch", Opacity = 0.8 },
+                new InkLayerProject { Id = "ink-color", Name = "Color", IsVisible = false, Opacity = 0.45 },
+            ],
+            ActiveInkLayerId = "ink-color",
+            Frames =
+            [
+                new EditorFrame
+                {
+                    Number = 1,
+                    Strokes = [[new InkPoint { X = 0.1, Y = 0.2 }]],
+                    LayerStrokes = new Dictionary<string, List<List<InkPoint>>>
+                    {
+                        ["ink-color"] = [[new InkPoint { X = 0.7, Y = 0.8 }]],
+                    },
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            EditorProjectSerializer.Serialize(original));
+
+        Assert.Equal("ink-color", restored.ActiveInkLayerId);
+        Assert.Collection(restored.InkLayers,
+            layer => Assert.Equal(("Sketch", true, 0.8), (layer.Name, layer.IsVisible, layer.Opacity)),
+            layer => Assert.Equal(("Color", false, 0.45), (layer.Name, layer.IsVisible, layer.Opacity)));
+        Assert.Equal(0.1, restored.Frames[0].Strokes[0][0].X);
+        Assert.Equal(0.7, restored.Frames[0].LayerStrokes["ink-color"][0][0].X);
     }
 
     [Fact]
@@ -242,7 +290,7 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Theory]
-    [InlineData("""{"Version":3,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":4,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":1}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":1.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""")]
@@ -255,6 +303,11 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"Pressure":-0.1}]]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"BrushWidth":0.1}]]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"AudioTracks":[{"Year":10000}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-1","Name":"Duplicate"}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"InkLayers":[{"Id":"other","Name":"No base layer"}],"ActiveInkLayerId":"other","Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-2","Name":"Bad opacity","Opacity":1.1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"unknown":[]}}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-2","Name":"Ink 2"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"ink-2":null}}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));

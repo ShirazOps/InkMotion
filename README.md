@@ -8,6 +8,7 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Draw with a mouse, pen, or touch directly over the preview.
 - Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
 - Set the ink brush color and size for new strokes; existing strokes keep their saved appearance.
+- Create independent ink layers, switch the active drawing layer, control visibility and opacity, and preserve each layer through save/load and undo/redo.
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
 - Use optional onion-skin guides for the previous and next drawings, with adjustable opacity.
 - Mark frames as keyframes to define the endpoints for in-between animation.
@@ -17,9 +18,9 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Play and scrub audio alongside video, or play an audio-only timeline.
 - Generate in-between frames by interpolating corresponding keyframe strokes, resampling point paths when their point counts differ. Edit an in-between frame to make it a new keyframe.
 - View Video, Ink, multiple Audio, and Effects track lanes, with each audio lane showing its clip and start frame.
-- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, and keyframe markers. Version 1 projects are migrated when opened.
+- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, ink layers, and keyframe markers. Versions 1 and 2 are migrated when opened.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
-- Undo and redo completed ink strokes, erasures, frame additions, frame duplications, and keyframe changes.
+- Undo and redo completed ink strokes, erasures, frame additions, frame duplications, keyframe changes, and ink-layer visibility/opacity changes.
 
 Project files store paths to the original video and audio rather than embedding the media. Keep the sources available or relink them with **Open video** and **Add audio** after opening the project.
 
