@@ -33,6 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherQueueTimer _playbackTimer;
     private readonly Stopwatch _audioOnlyClock = new();
     private int _selectedFrameIndex;
+    private int _playheadFramePosition;
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
     private string _activeInkLayerId = BaseInkLayerId;
@@ -358,7 +359,7 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         track.Player.Source = MediaSource.CreateFromStorageFile(file);
         track.Project.AudioPath = file.Path;
-        track.Project.StartFrame = CurrentFrame.Number;
+        track.Project.StartFrame = _playheadFramePosition + 1;
         track.HasSource = true;
         track.Player.Volume = track.Project.Volume;
         track.Player.IsMuted = track.Project.Muted;
@@ -510,7 +511,7 @@ public sealed partial class MainWindow : Window
     {
         var track = new AudioTrackRuntime(new AudioTrackProject
         {
-            StartFrame = CurrentFrame.Number,
+            StartFrame = _playheadFramePosition + 1,
         });
         _audioTracks.Add(track);
         if (select)
@@ -584,7 +585,8 @@ public sealed partial class MainWindow : Window
         }
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
-        if (track.Project.StartFrame == CurrentFrame.Number)
+        int playheadFrameNumber = _playheadFramePosition + 1;
+        if (track.Project.StartFrame == playheadFrameNumber)
         {
             StatusText.Text = "The audio clip already starts at the playhead.";
             return;
@@ -593,13 +595,13 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        track.Project.StartFrame = CurrentFrame.Number;
+        track.Project.StartFrame = playheadFrameNumber;
         MarkEditChanged();
         CommitEdit();
-        SyncAudioTracks(TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate), startPlayback: false);
+        SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
-        StatusText.Text = $"Audio clip moved to frame {CurrentFrame.Number}.";
+        StatusText.Text = $"Audio clip moved to frame {playheadFrameNumber}.";
     }
 
     private void RefreshAudioTracks()
@@ -800,12 +802,24 @@ public sealed partial class MainWindow : Window
 
     private void PreviousFrame_Click(object sender, RoutedEventArgs e)
     {
-        SelectFrame(Math.Max(0, _selectedFrameIndex - 1));
+        SelectTimelineFrame(Math.Max(0, _playheadFramePosition - 1));
     }
 
     private void NextFrame_Click(object sender, RoutedEventArgs e)
     {
-        SelectFrame(Math.Min(_frames.Count - 1, _selectedFrameIndex + 1));
+        SelectTimelineFrame(_playheadFramePosition + 1);
+    }
+
+    private void SelectTimelineFrame(int framePosition)
+    {
+        EnsureFrameExists(framePosition);
+        _playheadFramePosition = framePosition;
+        SelectFrame(
+            InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
+            seekVideo: false,
+            preservePlayhead: true);
+        SeekToCurrentFrame();
+        UpdateFrameReadout();
     }
 
     private void AddFrame_Click(object sender, RoutedEventArgs e)
@@ -831,6 +845,7 @@ public sealed partial class MainWindow : Window
         var duplicate = new EditorFrame
         {
             Number = sourceFrame.Number + 1,
+            ExposureFrames = sourceFrame.ExposureFrames,
             IsKeyframe = sourceFrame.IsKeyframe,
             InterpolationMode = sourceFrame.InterpolationMode,
             Strokes = clonedSource.Strokes,
@@ -859,6 +874,7 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         BeginEdit();
         _selectedFrameIndex = InkTimeline.DeleteFrame(_frames, _selectedFrameIndex);
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
         MarkEditChanged();
         CommitEdit();
         RefreshTimeline();
@@ -901,6 +917,33 @@ public sealed partial class MainWindow : Window
         CommitEdit();
         RenderCurrentInk();
         StatusText.Text = $"Tween set to {modeText}.";
+    }
+
+    private void ExposureFrames_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e)
+    {
+        if (_isRestoringProject || !double.IsFinite(e.NewValue))
+        {
+            return;
+        }
+
+        int exposureFrames = (int)Math.Clamp(Math.Round(e.NewValue), 1, 999);
+        if (CurrentFrame.ExposureFrames == exposureFrames)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentFrame.ExposureFrames = exposureFrames;
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        MarkEditChanged();
+        RefreshTimeline();
+        SeekToCurrentFrame();
+    }
+
+    private void ExposureFrames_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        UpdateFrameReadout();
     }
 
     private void UpdateInterpolationSelector()
@@ -1200,11 +1243,16 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
     }
 
-    private void SelectFrame(int index, bool seekVideo = true)
+    private void SelectFrame(int index, bool seekVideo = true, bool preservePlayhead = false)
     {
         if (index < 0 || index >= _frames.Count)
         {
             return;
+        }
+
+        if (!preservePlayhead)
+        {
+            _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, index);
         }
 
         if (index == _selectedFrameIndex)
@@ -1214,6 +1262,7 @@ public sealed partial class MainWindow : Window
                 SeekToCurrentFrame();
             }
 
+            UpdateFrameReadout();
             return;
         }
 
@@ -1236,7 +1285,7 @@ public sealed partial class MainWindow : Window
 
     private void SeekToCurrentFrame()
     {
-        TimeSpan position = TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
+        TimeSpan position = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         if (_hasVideo)
         {
             PreviewPlayer.MediaPlayer.PlaybackSession.Position = position;
@@ -1363,6 +1412,7 @@ public sealed partial class MainWindow : Window
     private static EditorFrame CloneFrame(EditorFrame frame) => new()
     {
         Number = frame.Number,
+        ExposureFrames = frame.ExposureFrames,
         IsKeyframe = frame.IsKeyframe,
         InterpolationMode = frame.InterpolationMode,
         Strokes = frame.Strokes
@@ -1407,7 +1457,8 @@ public sealed partial class MainWindow : Window
         _activeStroke = null;
         _pendingEdit = null;
         _pendingEditChanged = false;
-        _audioOnlyPosition = TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        _audioOnlyPosition = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         RenderCurrentInk();
         SeekToCurrentFrame();
         RefreshTimeline();
@@ -1554,18 +1605,25 @@ public sealed partial class MainWindow : Window
         }
 
         SyncAudioTracks(position, startPlayback: true);
-        int frameIndex = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
-        EnsureFrameExists(frameIndex);
-        SelectFrame(frameIndex, seekVideo: false);
+        int framePosition = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
+        EnsureFrameExists(framePosition);
+        _playheadFramePosition = framePosition;
+        SelectFrame(
+            InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
+            seekVideo: false,
+            preservePlayhead: true);
+        UpdateFrameReadout();
     }
 
-    private void EnsureFrameExists(int frameIndex)
+    private void EnsureFrameExists(int framePosition)
     {
-        while (_frames.Count <= frameIndex)
+        int totalExposureFrames = InkTimeline.GetTotalExposureFrames(_frames);
+        while (totalExposureFrames <= framePosition)
         {
             var frame = new EditorFrame { Number = _frames.Count + 1 };
             _frames.Add(frame);
             AddTimelineButton(frame, _frames.Count - 1);
+            totalExposureFrames++;
             UnsavedIndicator.Visibility = Visibility.Visible;
         }
     }
@@ -1677,13 +1735,14 @@ public sealed partial class MainWindow : Window
 
         EditorFrame frame = _frames[index];
         Button button = _timelineButtons[index];
+        button.Width = Math.Min(220, 54 + ((frame.ExposureFrames - 1) * 4));
         bool isInterpolated = _interpolatedFrameIndices.Contains(index);
         string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
         button.Content = $"{prefix}{frame.Number:000}";
         ToolTipService.SetToolTip(
             button,
-            frame.IsKeyframe ? $"Keyframe {frame.Number}" :
-                isInterpolated ? $"Interpolated frame {frame.Number}" : $"Frame {frame.Number}");
+            $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
+            $"exposed for {frame.ExposureFrames} output frame(s)");
         button.Background = new SolidColorBrush(
             index == _selectedFrameIndex ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.DarkSlateGray);
     }
@@ -1745,17 +1804,24 @@ public sealed partial class MainWindow : Window
     private void UpdateFrameStatus()
     {
         KeyframeStatus.Text = CurrentFrame.IsKeyframe
-            ? $"Keyframe set at frame {CurrentFrame.Number}."
+            ? $"Keyframe set at cel {CurrentFrame.Number}."
             : InkAnimation.IsInterpolated(_frames, _selectedFrameIndex, frame => GetLayerStrokes(frame, _activeInkLayerId))
-                ? $"Interpolated drawing at frame {CurrentFrame.Number}."
+                ? $"Interpolated drawing at cel {CurrentFrame.Number}."
                 : CurrentStrokes.Count > 0
-                    ? $"Hand-drawn exposure at frame {CurrentFrame.Number}."
+                    ? $"Hand-drawn exposure on cel {CurrentFrame.Number}."
                     : "No ink on this frame";
     }
 
     private void UpdateFrameReadout()
     {
-        FrameReadout.Text = $"F {CurrentFrame.Number:000}";
+        FrameReadout.Text = $"F {_playheadFramePosition + 1:000} · C{CurrentFrame.Number:000}";
+        bool wasRestoringProject = _isRestoringProject;
+        if (ExposureFramesBox.FocusState == Microsoft.UI.Xaml.FocusState.Unfocused)
+        {
+            _isRestoringProject = true;
+            ExposureFramesBox.Value = CurrentFrame.ExposureFrames;
+            _isRestoringProject = wasRestoringProject;
+        }
         DeleteFrameButton.IsEnabled = _frames.Count > 1;
     }
 

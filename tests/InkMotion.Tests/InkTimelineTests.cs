@@ -5,6 +5,57 @@ namespace InkMotion.Tests;
 public sealed class InkTimelineTests
 {
     [Fact]
+    public void GetStartFramePosition_UsesCumulativeCelExposures()
+    {
+        List<EditorFrame> frames =
+        [
+            new EditorFrame
+            {
+                Number = 1,
+                ExposureFrames = 2,
+                Strokes = [[new InkPoint { X = 0.1, Y = 0.5 }]],
+            },
+            new EditorFrame
+            {
+                Number = 2,
+                ExposureFrames = 3,
+                Strokes = [[new InkPoint { X = 0.2, Y = 0.5 }]],
+            },
+            Frame(3, 0.3),
+        ];
+
+        Assert.Equal(0, InkTimeline.GetStartFramePosition(frames, 0));
+        Assert.Equal(2, InkTimeline.GetStartFramePosition(frames, 1));
+        Assert.Equal(5, InkTimeline.GetStartFramePosition(frames, 2));
+        Assert.Equal(6, InkTimeline.GetTotalExposureFrames(frames));
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    [InlineData(4, 1)]
+    [InlineData(5, 2)]
+    [InlineData(6, 2)]
+    public void GetFrameIndexAtPosition_MapsOutputFrameToCel(int framePosition, int expectedIndex)
+    {
+        List<EditorFrame> frames =
+        [
+            new EditorFrame { Number = 1, ExposureFrames = 2 },
+            new EditorFrame { Number = 2, ExposureFrames = 3 },
+            new EditorFrame { Number = 3, ExposureFrames = 1 },
+        ];
+
+        Assert.Equal(expectedIndex, InkTimeline.GetFrameIndexAtPosition(frames, framePosition));
+    }
+
+    [Fact]
+    public void GetFrameIndexAtPosition_RejectsAnEmptyTimeline()
+    {
+        Assert.Throws<ArgumentException>(() => InkTimeline.GetFrameIndexAtPosition([], 0));
+    }
+
+    [Fact]
     public void DeleteFrame_RemovesSelectedFrameAndRenumbersFollowingFrames()
     {
         List<EditorFrame> frames =
