@@ -86,6 +86,12 @@ public sealed class InkPoint
     public uint BrushColour { get; set; } = 0xFFFFA500;
 }
 
+public static class VideoFileTypes
+{
+    public static IReadOnlyList<string> SupportedExtensions { get; } =
+        Array.AsReadOnly(new[] { ".mp4", ".mov", ".m4v", ".wmv", ".avi", ".av1", ".mkv", ".webm" });
+}
+
 public static class EditorProjectSerialiser
 {
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
