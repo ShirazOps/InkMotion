@@ -2,10 +2,11 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Dispatching;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using System.Diagnostics;
 using System.IO;
+using System.Numerics;
 using System.Text.Json;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -28,6 +29,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly DispatcherQueueTimer _playbackTimer;
     private readonly Stopwatch _audioOnlyClock = new();
     private int _selectedFrameIndex;
@@ -830,6 +832,7 @@ public sealed partial class MainWindow : Window
         {
             Number = sourceFrame.Number + 1,
             IsKeyframe = sourceFrame.IsKeyframe,
+            InterpolationMode = sourceFrame.InterpolationMode,
             Strokes = clonedSource.Strokes,
             LayerStrokes = clonedSource.LayerStrokes,
         };
@@ -874,6 +877,43 @@ public sealed partial class MainWindow : Window
         CommitEdit();
         RefreshTimeline();
         UpdateFrameStatus();
+    }
+
+    private void InkInterpolation_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRestoringProject ||
+            !CurrentFrame.IsKeyframe ||
+            InkInterpolationSelector.SelectedItem is not ComboBoxItem { Tag: string modeText } ||
+            !Enum.TryParse(modeText, out InkInterpolationMode mode) ||
+            !Enum.IsDefined(mode))
+        {
+            return;
+        }
+
+        if (CurrentFrame.InterpolationMode == mode)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentFrame.InterpolationMode = mode;
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = $"Tween set to {modeText}.";
+    }
+
+    private void UpdateInterpolationSelector()
+    {
+        _isRestoringProject = true;
+        InkInterpolationSelector.IsEnabled = CurrentFrame.IsKeyframe &&
+            _frames.Skip(_selectedFrameIndex + 1).Any(frame => frame.IsKeyframe);
+        InkInterpolationSelector.SelectedItem = InkInterpolationSelector.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string value &&
+                Enum.TryParse(value, out InkInterpolationMode mode) &&
+                mode == CurrentFrame.InterpolationMode);
+        _isRestoringProject = false;
     }
 
     private void Undo_Click(object sender, RoutedEventArgs e)
@@ -1052,7 +1092,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
-        InkSurface.Children.Clear();
+        _renderedStrokes.Clear();
         if (OnionSkinToggle?.IsChecked == true)
         {
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
@@ -1068,63 +1108,53 @@ public sealed partial class MainWindow : Window
         }
 
         DrawVisibleLayers(_selectedFrameIndex, null, 1);
+        InkSurface.Invalidate();
     }
 
     private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
     {
         foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
         {
-            DrawStrokes(
-                GetDisplayedLayerStrokes(frameIndex, layer.Id),
-                colour,
-                layer.Opacity * opacityScale);
+            double opacity = layer.Opacity * opacityScale;
+            foreach (List<InkPoint> stroke in GetDisplayedLayerStrokes(frameIndex, layer.Id))
+            {
+                if (stroke.Count > 0)
+                {
+                    _renderedStrokes.Add(new RenderedStroke(stroke, colour, opacity));
+                }
+            }
         }
     }
 
-    private void DrawStrokes(IReadOnlyList<List<InkPoint>> strokes, uint? colour, double opacity)
+    private void InkSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        foreach (List<InkPoint> stroke in strokes)
+        foreach (RenderedStroke renderedStroke in _renderedStrokes)
         {
-            if (stroke.Count == 0)
-            {
-                continue;
-            }
-
-            var brush = new SolidColorBrush(ToColour(colour ?? stroke[0].BrushColour)) { Opacity = opacity };
+            List<InkPoint> stroke = renderedStroke.Points;
+            Windows.UI.Color baseColour = ToColour(renderedStroke.Colour ?? stroke[0].BrushColour);
+            var colour = Windows.UI.Color.FromArgb(
+                (byte)(baseColour.A * Math.Clamp(renderedStroke.Opacity, 0, 1)),
+                baseColour.R,
+                baseColour.G,
+                baseColour.B);
             for (int i = 0; i < stroke.Count; i++)
             {
                 InkPoint point = stroke[i];
-                double x = point.X * InkSurface.ActualWidth;
-                double y = point.Y * InkSurface.ActualHeight;
+                float x = (float)(point.X * sender.ActualWidth);
+                float y = (float)(point.Y * sender.ActualHeight);
                 double width = GetInkWidth(point);
-                var dot = new Ellipse
-                {
-                    Width = width,
-                    Height = width,
-                    Fill = brush,
-                    IsHitTestVisible = false,
-                };
-                Canvas.SetLeft(dot, x - width / 2);
-                Canvas.SetTop(dot, y - width / 2);
-                InkSurface.Children.Add(dot);
-
+                args.DrawingSession.FillCircle(new Vector2(x, y), (float)(width / 2), colour);
                 if (i == 0)
                 {
                     continue;
                 }
 
                 InkPoint previous = stroke[i - 1];
-                var segment = new Line
-                {
-                    X1 = previous.X * InkSurface.ActualWidth,
-                    Y1 = previous.Y * InkSurface.ActualHeight,
-                    X2 = x,
-                    Y2 = y,
-                    Stroke = brush,
-                    StrokeThickness = (GetInkWidth(previous) + width) / 2,
-                    IsHitTestVisible = false,
-                };
-                InkSurface.Children.Add(segment);
+                args.DrawingSession.DrawLine(
+                    new Vector2((float)(previous.X * sender.ActualWidth), (float)(previous.Y * sender.ActualHeight)),
+                    new Vector2(x, y),
+                    colour,
+                    (float)((GetInkWidth(previous) + width) / 2));
             }
         }
     }
@@ -1200,6 +1230,7 @@ public sealed partial class MainWindow : Window
         UpdateTimelineButton(_selectedFrameIndex);
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
+        UpdateInterpolationSelector();
         UpdateFrameStatus();
     }
 
@@ -1333,6 +1364,7 @@ public sealed partial class MainWindow : Window
     {
         Number = frame.Number,
         IsKeyframe = frame.IsKeyframe,
+        InterpolationMode = frame.InterpolationMode,
         Strokes = frame.Strokes
             .Select(stroke => stroke.Select(point => new InkPoint
             {
@@ -1615,6 +1647,7 @@ public sealed partial class MainWindow : Window
 
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
+        UpdateInterpolationSelector();
         for (int i = 0; i < _frames.Count; i++)
         {
             UpdateTimelineButton(i);
@@ -1706,6 +1739,8 @@ public sealed partial class MainWindow : Window
         public bool HasSource { get; set; }
         public string? LoadError { get; set; }
     }
+
+    private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
 
     private void UpdateFrameStatus()
     {

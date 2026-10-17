@@ -126,6 +126,40 @@ public sealed class InkAnimationTests
         Assert.Empty(frames[1].LayerStrokes);
     }
 
+    [Theory]
+    [InlineData(InkInterpolationMode.Linear, 0.25)]
+    [InlineData(InkInterpolationMode.EaseIn, 0.0625)]
+    [InlineData(InkInterpolationMode.EaseOut, 0.4375)]
+    [InlineData(InkInterpolationMode.EaseInOut, 0.125)]
+    public void GetDisplayedStrokes_AppliesSelectedTweenMode(
+        InkInterpolationMode mode,
+        double expectedX)
+    {
+        List<EditorFrame> frames =
+        [
+            new EditorFrame
+            {
+                Number = 1,
+                IsKeyframe = true,
+                InterpolationMode = mode,
+                Strokes = [Stroke((0.0, 0.5))],
+            },
+            Frame(2, false),
+            Frame(3, false),
+            Frame(4, false),
+            new EditorFrame
+            {
+                Number = 5,
+                IsKeyframe = true,
+                Strokes = [Stroke((1.0, 0.5))],
+            },
+        ];
+
+        IReadOnlyList<List<InkPoint>> displayed = InkAnimation.GetDisplayedStrokes(frames, 1);
+
+        Assert.Equal(expectedX, displayed[0][0].X, precision: 10);
+    }
+
     [Fact]
     public void GetDisplayedStrokes_RejectsInvalidFrameIndex()
     {
