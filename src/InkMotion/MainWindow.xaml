@@ -95,6 +95,7 @@
                 </StackPanel>
                 <TextBlock x:Name="AudioTrackLabel" Text="No audio clip" TextWrapping="Wrap" Foreground="#AAB1BD" />
                 <TextBlock Text="Select an audio lane to edit its volume and mute state." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
+                <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                 <TextBlock Text="INK LAYER" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                 <Border Background="#22262E" CornerRadius="6" Padding="12">
                     <StackPanel Spacing="8">
