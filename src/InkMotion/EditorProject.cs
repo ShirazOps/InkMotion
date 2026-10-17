@@ -10,8 +10,17 @@ public sealed class EditorProject
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
+    public List<AudioTrackProject> AudioTracks { get; set; } = [];
     public int SelectedFrameIndex { get; set; }
     public List<EditorFrame> Frames { get; set; } = [new()];
+}
+
+public sealed class AudioTrackProject
+{
+    public string? AudioPath { get; set; }
+    public int StartFrame { get; set; } = 1;
+    public double Volume { get; set; } = 1;
+    public bool Muted { get; set; }
 }
 
 public sealed class EditorFrame
@@ -41,6 +50,16 @@ public static class EditorProjectSerializer
     {
         EditorProject project = JsonSerializer.Deserialize<EditorProject>(json)
             ?? throw new InvalidDataException("The project file is empty.");
+        if (project.AudioTracks is { Count: 0 } && !string.IsNullOrWhiteSpace(project.AudioPath))
+        {
+            project.AudioTracks.Add(new AudioTrackProject
+            {
+                AudioPath = project.AudioPath,
+                Volume = project.AudioVolume,
+                Muted = project.AudioMuted,
+            });
+        }
+
         EditorProjectValidation.Validate(project);
         return project;
     }
@@ -265,6 +284,16 @@ internal static class EditorProjectValidation
         if (!double.IsFinite(project.AudioVolume) || project.AudioVolume is < 0 or > 1)
         {
             throw new InvalidDataException("Audio volume must be between 0 and 1.");
+        }
+
+        if (project.AudioTracks is null ||
+            project.AudioTracks.Any(track =>
+                track is null ||
+                track.StartFrame < 1 ||
+                !double.IsFinite(track.Volume) ||
+                track.Volume is < 0 or > 1))
+        {
+            throw new InvalidDataException("Audio tracks must have a valid start frame and volume.");
         }
 
         if (project.Frames is null || project.Frames.Count == 0)
