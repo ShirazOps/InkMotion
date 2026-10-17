@@ -31,6 +31,8 @@ public sealed partial class MainWindow : Window
     private int _selectedFrameIndex;
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
+    private uint _brushColor = 0xFFFFA500;
+    private double _brushWidth = 4;
     private uint? _activePointerId;
     private List<InkPoint>? _activeStroke;
     private EditorProject? _pendingEdit;
@@ -198,10 +200,13 @@ public sealed partial class MainWindow : Window
             }
 
             LoadAudio(_audioTracks[_selectedAudioTrackIndex], file);
+            bool tagsLoaded = await LoadAudioTagsAsync(_audioTracks[_selectedAudioTrackIndex]);
             ClearHistory();
             UpdateSelectedAudioTrack();
             RefreshAudioTracks();
-            StatusText.Text = $"Loaded audio  ·  {file.Name}";
+            StatusText.Text = tagsLoaded
+                ? $"Loaded audio  ·  {file.Name}"
+                : $"Loaded audio, but could not read its tags  ·  {file.Name}";
         }
         catch (Exception ex) when (IsFileAccessException(ex))
         {
@@ -235,6 +240,136 @@ public sealed partial class MainWindow : Window
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
         UnsavedIndicator.Visibility = Visibility.Visible;
+    }
+
+    private void AudioTag_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isRestoringProject ||
+            _selectedAudioTrackIndex < 0 ||
+            _selectedAudioTrackIndex >= _audioTracks.Count)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(AudioYearBox.Text) &&
+            (!uint.TryParse(AudioYearBox.Text, out uint year) || year > 9999))
+        {
+            StatusText.Text = "Audio tag year must be between 1 and 9999.";
+            return;
+        }
+
+        AudioTrackProject project = _audioTracks[_selectedAudioTrackIndex].Project;
+        uint parsedYear = uint.TryParse(AudioYearBox.Text, out uint parsed) ? parsed : 0;
+        if (project.Title == AudioTitleBox.Text &&
+            project.Artist == AudioArtistBox.Text &&
+            project.Album == AudioAlbumBox.Text &&
+            project.Genre == AudioGenreBox.Text &&
+            project.Year == parsedYear &&
+            project.Comments == AudioCommentsBox.Text)
+        {
+            return;
+        }
+
+        BeginEdit();
+        project.Title = AudioTitleBox.Text;
+        project.Artist = AudioArtistBox.Text;
+        project.Album = AudioAlbumBox.Text;
+        project.Genre = AudioGenreBox.Text;
+        project.Year = parsedYear;
+        project.Comments = AudioCommentsBox.Text;
+        project.TagsInitialized = true;
+        MarkEditChanged();
+        StatusText.Text = "Audio tags edited in the project. Write tags to the audio file to update its metadata.";
+    }
+
+    private void AudioTag_LostFocus(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+    }
+
+    private async void WriteAudioTags_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
+        {
+            return;
+        }
+
+        AudioTrackProject project = _audioTracks[_selectedAudioTrackIndex].Project;
+        if (string.IsNullOrWhiteSpace(project.AudioPath) || !File.Exists(project.AudioPath))
+        {
+            StatusText.Text = "The audio file is unavailable. Relink it before writing tags.";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(AudioYearBox.Text) &&
+            (!uint.TryParse(AudioYearBox.Text, out uint year) || year > 9999))
+        {
+            StatusText.Text = "Audio tag year must be between 1 and 9999.";
+            return;
+        }
+
+        try
+        {
+            StorageFile file = await StorageFile.GetFileFromPathAsync(project.AudioPath!);
+            Windows.Storage.FileProperties.MusicProperties music =
+                await file.Properties.GetMusicPropertiesAsync();
+            music.Title = project.Title;
+            music.Artist = project.Artist;
+            music.Album = project.Album;
+            music.Genre.Clear();
+            foreach (string genre in project.Genre.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                music.Genre.Add(genre);
+            }
+
+            music.Year = project.Year;
+            await music.SavePropertiesAsync();
+            StatusText.Text = "Audio tags written to the source file. Comments remain stored in the project.";
+        }
+        catch (Exception ex) when (IsFileAccessException(ex))
+        {
+            StatusText.Text = $"Could not write audio tags: {ex.Message}";
+        }
+    }
+
+    private async Task<bool> LoadAudioTagsAsync(AudioTrackRuntime track)
+    {
+        if (HasAudioTags(track.Project))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(track.Project.AudioPath) || !track.HasSource)
+        {
+            return false;
+        }
+
+        try
+        {
+            StorageFile file = await StorageFile.GetFileFromPathAsync(track.Project.AudioPath);
+            Windows.Storage.FileProperties.MusicProperties music =
+                await file.Properties.GetMusicPropertiesAsync();
+            track.Project.Title = music.Title ?? string.Empty;
+            track.Project.Artist = music.Artist ?? string.Empty;
+            track.Project.Album = music.Album ?? string.Empty;
+            track.Project.Genre = string.Join("; ", music.Genre);
+            track.Project.Year = music.Year;
+            track.Project.TagsInitialized = true;
+            if (_selectedAudioTrackIndex >= 0 &&
+                _selectedAudioTrackIndex < _audioTracks.Count &&
+                ReferenceEquals(_audioTracks[_selectedAudioTrackIndex], track))
+            {
+                UpdateSelectedAudioTrack();
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (IsFileAccessException(ex))
+        {
+            track.LoadError ??= "audio tags could not be read";
+            return false;
+        }
     }
 
     private void AddAudioTrack_Click(object sender, RoutedEventArgs e)
@@ -281,9 +416,18 @@ public sealed partial class MainWindow : Window
         MoveAudioClipButton.IsEnabled = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         if (!hasSelection)
         {
+            _isRestoringProject = true;
             AudioTrackLabel.Text = "No audio track selected";
             AudioVolumeSlider.Value = 1;
             AudioMuteButton.IsChecked = false;
+            AudioTitleBox.Text = string.Empty;
+            AudioArtistBox.Text = string.Empty;
+            AudioAlbumBox.Text = string.Empty;
+            AudioGenreBox.Text = string.Empty;
+            AudioYearBox.Text = string.Empty;
+            AudioCommentsBox.Text = string.Empty;
+            WriteAudioTagsButton.IsEnabled = false;
+            _isRestoringProject = false;
             return;
         }
 
@@ -294,6 +438,13 @@ public sealed partial class MainWindow : Window
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
+        AudioTitleBox.Text = track.Project.Title;
+        AudioArtistBox.Text = track.Project.Artist;
+        AudioAlbumBox.Text = track.Project.Album;
+        AudioGenreBox.Text = track.Project.Genre;
+        AudioYearBox.Text = track.Project.Year == 0 ? string.Empty : track.Project.Year.ToString();
+        AudioCommentsBox.Text = track.Project.Comments;
+        WriteAudioTagsButton.IsEnabled = track.HasSource;
         _isRestoringProject = false;
     }
 
@@ -420,6 +571,10 @@ public sealed partial class MainWindow : Window
                 runtime.HasSource = true;
                 runtime.Player.Volume = project.Volume;
                 runtime.Player.IsMuted = project.Muted;
+                if (!HasAudioTags(project))
+                {
+                    await LoadAudioTagsAsync(runtime);
+                }
             }
             catch (Exception ex) when (IsFileAccessException(ex))
             {
@@ -713,6 +868,8 @@ public sealed partial class MainWindow : Window
             X = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
             Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
+            BrushWidth = _brushWidth,
+            BrushColor = _brushColor,
         };
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
@@ -751,20 +908,53 @@ public sealed partial class MainWindow : Window
     private void RenderCurrentInk()
     {
         InkSurface.Children.Clear();
-        var inkBrush = new SolidColorBrush(Microsoft.UI.Colors.Orange);
-        foreach (List<InkPoint> stroke in InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex))
+        if (OnionSkinToggle?.IsChecked == true)
         {
+            double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
+            if (_selectedFrameIndex > 0)
+            {
+                DrawStrokes(
+                    InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex - 1),
+                    0xFF00BFFF,
+                    opacity);
+            }
+
+            if (_selectedFrameIndex + 1 < _frames.Count)
+            {
+                DrawStrokes(
+                    InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex + 1),
+                    0xFFFF69B4,
+                    opacity);
+            }
+        }
+
+        DrawStrokes(
+            InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex),
+            null,
+            1);
+    }
+
+    private void DrawStrokes(IReadOnlyList<List<InkPoint>> strokes, uint? color, double opacity)
+    {
+        foreach (List<InkPoint> stroke in strokes)
+        {
+            if (stroke.Count == 0)
+            {
+                continue;
+            }
+
+            var brush = new SolidColorBrush(ToColor(color ?? stroke[0].BrushColor)) { Opacity = opacity };
             for (int i = 0; i < stroke.Count; i++)
             {
                 InkPoint point = stroke[i];
                 double x = point.X * InkSurface.ActualWidth;
                 double y = point.Y * InkSurface.ActualHeight;
-                double width = GetInkWidth(point.Pressure);
+                double width = GetInkWidth(point);
                 var dot = new Ellipse
                 {
                     Width = width,
                     Height = width,
-                    Fill = inkBrush,
+                    Fill = brush,
                     IsHitTestVisible = false,
                 };
                 Canvas.SetLeft(dot, x - width / 2);
@@ -783,8 +973,8 @@ public sealed partial class MainWindow : Window
                     Y1 = previous.Y * InkSurface.ActualHeight,
                     X2 = x,
                     Y2 = y,
-                    Stroke = inkBrush,
-                    StrokeThickness = (GetInkWidth(previous.Pressure) + width) / 2,
+                    Stroke = brush,
+                    StrokeThickness = (GetInkWidth(previous) + width) / 2,
                     IsHitTestVisible = false,
                 };
                 InkSurface.Children.Add(segment);
@@ -792,7 +982,46 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static double GetInkWidth(double pressure) => 4 * (0.25 + (1.5 * pressure));
+    private static double GetInkWidth(InkPoint point) =>
+        point.BrushWidth * (0.25 + (1.5 * point.Pressure));
+
+    private static Windows.UI.Color ToColor(uint argb) => Windows.UI.Color.FromArgb(
+        (byte)(argb >> 24),
+        (byte)(argb >> 16),
+        (byte)(argb >> 8),
+        (byte)argb);
+
+    private void InkColor_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (InkColorSelector.SelectedItem is ComboBoxItem { Tag: string color } &&
+            uint.TryParse(color, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out uint argb))
+        {
+            _brushColor = argb;
+        }
+    }
+
+    private void InkWidth_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (!_isInitializing)
+        {
+            _brushWidth = e.NewValue;
+        }
+    }
+
+    private void OnionSkin_Click(object sender, RoutedEventArgs e)
+    {
+        RenderCurrentInk();
+    }
+
+    private void OnionSkinOpacity_Changed(
+        object sender,
+        Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        RenderCurrentInk();
+    }
 
     private void SelectFrame(int index, bool seekVideo = true)
     {
@@ -925,7 +1154,23 @@ public sealed partial class MainWindow : Window
         StartFrame = track.StartFrame,
         Volume = track.Volume,
         Muted = track.Muted,
+        Title = track.Title,
+        Artist = track.Artist,
+        Album = track.Album,
+        Genre = track.Genre,
+        Comments = track.Comments,
+        Year = track.Year,
+        TagsInitialized = track.TagsInitialized,
     };
+
+    private static bool HasAudioTags(AudioTrackProject project) =>
+        project.TagsInitialized ||
+        !string.IsNullOrWhiteSpace(project.Title) ||
+        !string.IsNullOrWhiteSpace(project.Artist) ||
+        !string.IsNullOrWhiteSpace(project.Album) ||
+        !string.IsNullOrWhiteSpace(project.Genre) ||
+        !string.IsNullOrWhiteSpace(project.Comments) ||
+        project.Year > 0;
 
     private static EditorFrame CloneFrame(EditorFrame frame) => new()
     {
@@ -937,6 +1182,8 @@ public sealed partial class MainWindow : Window
                 X = point.X,
                 Y = point.Y,
                 Pressure = point.Pressure,
+                BrushWidth = point.BrushWidth,
+                BrushColor = point.BrushColor,
             }).ToList())
             .ToList(),
     };
@@ -1168,6 +1415,8 @@ public sealed partial class MainWindow : Window
                     X = point.X,
                     Y = point.Y,
                     Pressure = point.Pressure,
+                    BrushWidth = point.BrushWidth,
+                    BrushColor = point.BrushColor,
                 }).ToList())
                 .ToList();
         }

@@ -9,10 +9,10 @@ public sealed class InkAnimationTests
     {
         List<EditorFrame> frames =
         [
-            Frame(1, true, Stroke((0.1, 0.2, 0.3), (0.3, 0.2, 0.3))),
+            Frame(1, true, Stroke((0.1, 0.2, 0.3, 3.0), (0.3, 0.2, 0.3, 3.0))),
             Frame(2, false),
             Frame(3, false),
-            Frame(4, true, Stroke((0.5, 0.6, 0.9), (0.7, 0.6, 0.9), (0.9, 0.6, 0.9))),
+            Frame(4, true, Stroke((0.5, 0.6, 0.9, 9.0), (0.7, 0.6, 0.9, 9.0), (0.9, 0.6, 0.9, 9.0))),
         ];
 
         IReadOnlyList<List<InkPoint>> strokes = InkAnimation.GetDisplayedStrokes(frames, 1);
@@ -25,6 +25,7 @@ public sealed class InkAnimationTests
         Assert.Equal(0.5, strokes[0][^1].X, precision: 10);
         Assert.Equal(0.3333333333333333, strokes[0][^1].Y, precision: 10);
         Assert.Equal(0.5, strokes[0][0].Pressure, precision: 10);
+        Assert.Equal(5.0, strokes[0][0].BrushWidth, precision: 10);
         Assert.Empty(frames[1].Strokes);
     }
 
@@ -98,5 +99,14 @@ public sealed class InkAnimationTests
             X = point.X,
             Y = point.Y,
             Pressure = point.Pressure,
+        }).ToList();
+
+    private static List<InkPoint> Stroke(params (double X, double Y, double Pressure, double BrushWidth)[] points) =>
+        points.Select(point => new InkPoint
+        {
+            X = point.X,
+            Y = point.Y,
+            Pressure = point.Pressure,
+            BrushWidth = point.BrushWidth,
         }).ToList();
 }

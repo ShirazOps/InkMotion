@@ -7,14 +7,17 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Open a local MP4, MOV, or M4V video in the preview.
 - Draw with a mouse, pen, or touch directly over the preview.
 - Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
+- Set the ink brush color and size for new strokes; existing strokes keep their saved appearance.
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
+- Use optional onion-skin guides for the previous and next drawings, with adjustable opacity.
 - Mark frames as keyframes to define the endpoints for in-between animation.
 - Play and scrub to synchronise the drawing exposure with video playback at 12, 24, 30, or 60 fps. Playback extends the ink timeline as needed.
 - Add audio clips to separate tracks (MP3, WAV, M4A, AAC, WMA, or FLAC). Clips start at the playhead and can be repositioned to it later; each track has independent volume and mute controls.
+- Edit audio title, artist, album, genre, and year tags for the selected source. Write supported metadata back to the source only with **Write tags to audio file**; project comments remain project-only.
 - Play and scrub audio alongside video, or play an audio-only timeline.
 - Generate in-between frames by interpolating corresponding keyframe strokes, resampling point paths when their point counts differ. Edit an in-between frame to make it a new keyframe.
 - View Video, Ink, multiple Audio, and Effects track lanes, with each audio lane showing its clip and start frame.
-- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings, frame drawings, and keyframe markers. Older single-audio projects are upgraded when opened.
+- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, and keyframe markers. Version 1 projects are migrated when opened.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
 - Undo and redo completed ink strokes, erasures, frame additions, frame duplications, and keyframe changes.
 
@@ -32,3 +35,5 @@ dotnet run --project src/InkMotion/InkMotion.csproj
 ```
 
 The app currently targets x64. Native media capabilities depend on the codecs installed on Windows.
+
+GitHub Actions builds the x64 solution and runs its tests on Windows for every branch push and pull requests targeting `main` or `master`.
