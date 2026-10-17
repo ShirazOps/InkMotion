@@ -9,13 +9,14 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
 - Mark frames as keyframes to define the endpoints for in-between animation.
 - Play and scrub to synchronize the drawing exposure with video playback at 12, 24, 30, or 60 fps. Playback extends the ink timeline as needed.
+- Add a linked audio clip (MP3, WAV, M4A, AAC, WMA, or FLAC), adjust volume or mute it, and play/scrub it in sync with video.
 - Generate in-between frames by interpolating corresponding keyframe strokes, resampling point paths when their point counts differ. Edit an in-between frame to make it a new keyframe.
-- View the initial Video, Ink, Audio, and Effects track lanes.
-- Save and reopen `.inkmotion` project files, including the linked video path, frame drawings, and keyframe markers.
+- View Video, Ink, Audio, and Effects track lanes, with the audio lane showing the linked clip.
+- Save and reopen `.inkmotion` project files, including linked video/audio paths, audio volume and mute state, frame drawings, and keyframe markers.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
 - Undo and redo completed ink strokes, erasures, frame additions, frame duplications, and keyframe changes.
 
-Project files store a path to the original video rather than embedding the media. Keep the source video available or relink it with **Open video** after opening the project.
+Project files store paths to the original video and audio rather than embedding the media. Keep both sources available or relink them with **Open video** and **Add audio** after opening the project.
 
 ## Build
 

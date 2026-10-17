@@ -7,6 +7,7 @@ using Microsoft.UI.Dispatching;
 using System.IO;
 using System.Text.Json;
 using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.Foundation;
@@ -24,6 +25,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly DispatcherQueueTimer _playbackTimer;
+    private readonly MediaPlayer _audioPlayer = new() { AudioCategory = MediaPlayerAudioCategory.Media };
     private int _selectedFrameIndex;
     private double _frameRate = FramesPerSecond;
     private uint? _activePointerId;
@@ -32,17 +34,24 @@ public sealed partial class MainWindow : Window
     private bool _pendingEditChanged;
     private StorageFile? _projectFile;
     private string? _videoPath;
+    private string? _audioPath;
     private bool _isPlaying;
     private bool _hasVideo;
+    private bool _hasAudio;
     private bool _isEraser;
+    private bool _isRestoringProject;
+    private bool _isInitializing = true;
 
     public MainWindow()
     {
         InitializeComponent();
+        _isInitializing = false;
         Title = "InkMotion";
         _playbackTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _playbackTimer.Tick += PlaybackTimer_Tick;
+        _audioPlayer.Volume = AudioVolumeSlider.Value;
+        Closed += MainWindow_Closed;
         RefreshTimeline();
         RenderCurrentInk();
         UpdateFrameStatus();
@@ -91,6 +100,24 @@ public sealed partial class MainWindow : Window
                 StatusText.Text = string.IsNullOrWhiteSpace(_videoPath)
                     ? $"Project opened  ·  {file.Name}"
                     : "Project opened; source video is missing. Use Open video to relink it.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
+            {
+                try
+                {
+                    LoadAudio(await StorageFile.GetFileFromPathAsync(_audioPath), markDirty: false);
+                }
+                catch (Exception ex) when (IsFileAccessException(ex))
+                {
+                    ClearAudioSource();
+                    StatusText.Text += $"  ·  Source audio is unavailable: {ex.Message}";
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(_audioPath))
+            {
+                ClearAudioSource();
+                StatusText.Text += "  ·  Source audio is missing. Use Add audio to relink it.";
             }
         }
         catch (Exception ex) when (IsProjectFileException(ex))
@@ -155,6 +182,36 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"Loaded  ·  {file.Name}";
     }
 
+    private async void OpenAudio_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        var picker = new FileOpenPicker();
+        foreach (string extension in new[] { ".mp3", ".wav", ".m4a", ".aac", ".wma", ".flac" })
+        {
+            picker.FileTypeFilter.Add(extension);
+        }
+
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            LoadAudio(file);
+            ClearHistory();
+            SeekAudioToCurrentFrame();
+            StatusText.Text = $"Loaded audio  ·  {file.Name}";
+        }
+        catch (Exception ex) when (IsFileAccessException(ex))
+        {
+            StatusText.Text = $"Could not load audio: {ex.Message}";
+        }
+    }
+
     private void LoadVideo(StorageFile file, bool markDirty = true)
     {
         PausePlayback();
@@ -166,6 +223,32 @@ public sealed partial class MainWindow : Window
         _hasVideo = true;
         UnsavedIndicator.Visibility = markDirty ? Visibility.Visible : Visibility.Collapsed;
         SeekToCurrentFrame();
+    }
+
+    private void LoadAudio(StorageFile file, bool markDirty = true)
+    {
+        PausePlayback();
+        _audioPlayer.Pause();
+        _audioPlayer.Source = MediaSource.CreateFromStorageFile(file);
+        _audioPath = file.Path;
+        _hasAudio = true;
+        AudioTrackLabel.Text = file.Name;
+        AudioClipLabel.Text = file.Name;
+        ApplyAudioSettings();
+        SeekAudioToCurrentFrame();
+        if (markDirty)
+        {
+            UnsavedIndicator.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void ClearAudioSource()
+    {
+        _audioPlayer.Pause();
+        _audioPlayer.Source = null;
+        _hasAudio = false;
+        AudioTrackLabel.Text = "No audio clip";
+        AudioClipLabel.Text = "Add an audio clip";
     }
 
     private void ClearVideoSource()
@@ -189,9 +272,9 @@ public sealed partial class MainWindow : Window
 
     private void Play_Click(object sender, RoutedEventArgs e)
     {
-        if (!_hasVideo)
+        if (!_hasVideo && !_hasAudio)
         {
-            StatusText.Text = "Open a video before playback.";
+            StatusText.Text = "Open a video or add an audio clip before playback.";
             return;
         }
 
@@ -202,15 +285,25 @@ public sealed partial class MainWindow : Window
         else
         {
             FinishActiveEdit();
-            TimeSpan duration = PreviewPlayer.MediaPlayer.PlaybackSession.NaturalDuration;
-            if (duration > TimeSpan.Zero &&
-                PreviewPlayer.MediaPlayer.PlaybackSession.Position >= duration)
+            if (_hasVideo)
             {
-                PreviewPlayer.MediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
-                SelectFrame(0, seekVideo: false);
+                TimeSpan duration = PreviewPlayer.MediaPlayer.PlaybackSession.NaturalDuration;
+                if (duration > TimeSpan.Zero &&
+                    PreviewPlayer.MediaPlayer.PlaybackSession.Position >= duration)
+                {
+                    PreviewPlayer.MediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
+                    SelectFrame(0, seekVideo: false);
+                }
+
+                PreviewPlayer.MediaPlayer.Play();
             }
 
-            PreviewPlayer.MediaPlayer.Play();
+            if (_hasAudio)
+            {
+                SeekAudioToCurrentFrame();
+                _audioPlayer.Play();
+            }
+
             _playbackTimer.Start();
             _isPlaying = true;
             PlayButton.Content = "Pause";
@@ -518,10 +611,23 @@ public sealed partial class MainWindow : Window
 
     private void SeekToCurrentFrame()
     {
+        TimeSpan position = TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
         if (_hasVideo)
         {
-            PreviewPlayer.MediaPlayer.PlaybackSession.Position =
-                TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate);
+            PreviewPlayer.MediaPlayer.PlaybackSession.Position = position;
+        }
+
+        SeekAudioToCurrentFrame(position);
+    }
+
+    private void SeekAudioToCurrentFrame() =>
+        SeekAudioToCurrentFrame(TimeSpan.FromSeconds((CurrentFrame.Number - 1) / _frameRate));
+
+    private void SeekAudioToCurrentFrame(TimeSpan position)
+    {
+        if (_hasAudio)
+        {
+            _audioPlayer.PlaybackSession.Position = position;
         }
     }
 
@@ -529,6 +635,9 @@ public sealed partial class MainWindow : Window
     {
         FrameRate = _frameRate,
         VideoPath = _videoPath,
+        AudioPath = _audioPath,
+        AudioVolume = AudioVolumeSlider.Value,
+        AudioMuted = AudioMuteButton.IsChecked == true,
         SelectedFrameIndex = _selectedFrameIndex,
         Frames = _frames.Select(CloneFrame).ToList(),
     };
@@ -545,11 +654,17 @@ public sealed partial class MainWindow : Window
     private void RestoreProjectState(EditorProject project)
     {
         PausePlayback();
+        _isRestoringProject = true;
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         _videoPath = project.VideoPath;
+        _audioPath = project.AudioPath;
+        AudioVolumeSlider.Value = project.AudioVolume;
+        AudioMuteButton.IsChecked = project.AudioMuted;
+        ApplyAudioSettings();
+        _isRestoringProject = false;
         _activePointerId = null;
         _activeStroke = null;
         _pendingEdit = null;
@@ -634,18 +749,42 @@ public sealed partial class MainWindow : Window
 
     private void PlaybackTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (!_isPlaying || !_hasVideo)
+        if (!_isPlaying)
         {
             return;
         }
 
-        var session = PreviewPlayer.MediaPlayer.PlaybackSession;
-        TimeSpan position = session.Position;
-        TimeSpan duration = session.NaturalDuration;
-        if (duration > TimeSpan.Zero && position >= duration)
+        TimeSpan position;
+        if (_hasVideo)
         {
-            PausePlayback();
-            return;
+            var session = PreviewPlayer.MediaPlayer.PlaybackSession;
+            position = session.Position;
+            TimeSpan duration = session.NaturalDuration;
+            if (duration > TimeSpan.Zero && position >= duration)
+            {
+                PausePlayback();
+                return;
+            }
+
+            if (_hasAudio)
+            {
+                TimeSpan audioPosition = _audioPlayer.PlaybackSession.Position;
+                if (_audioPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing &&
+                    Math.Abs((audioPosition - position).TotalMilliseconds) > 120)
+                {
+                    _audioPlayer.PlaybackSession.Position = position;
+                }
+            }
+        }
+        else
+        {
+            position = _audioPlayer.PlaybackSession.Position;
+            TimeSpan duration = _audioPlayer.PlaybackSession.NaturalDuration;
+            if (duration > TimeSpan.Zero && position >= duration)
+            {
+                PausePlayback();
+                return;
+            }
         }
 
         int frameIndex = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
@@ -671,7 +810,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        PreviewPlayer.MediaPlayer.Pause();
+        if (_hasVideo)
+        {
+            PreviewPlayer.MediaPlayer.Pause();
+        }
+
+        if (_hasAudio)
+        {
+            _audioPlayer.Pause();
+        }
+
         _playbackTimer.Stop();
         _isPlaying = false;
         PlayButton.Content = "Play";
@@ -762,6 +910,41 @@ public sealed partial class MainWindow : Window
         {
             SelectFrame(index);
         }
+    }
+
+    private void AudioVolume_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_isInitializing)
+        {
+            return;
+        }
+
+        _audioPlayer.Volume = e.NewValue;
+        if (!_isRestoringProject)
+        {
+            UnsavedIndicator.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void AudioMute_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyAudioSettings();
+        if (!_isInitializing && !_isRestoringProject)
+        {
+            UnsavedIndicator.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void ApplyAudioSettings()
+    {
+        _audioPlayer.Volume = AudioVolumeSlider.Value;
+        _audioPlayer.IsMuted = AudioMuteButton.IsChecked == true;
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs e)
+    {
+        _playbackTimer.Stop();
+        _audioPlayer.Dispose();
     }
 
     private void UpdateFrameStatus()
