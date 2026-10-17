@@ -69,6 +69,43 @@ public sealed class EditorProjectSerializerTests
     }
 
     [Fact]
+    public void RoundTrip_PreservesInkPressure()
+    {
+        var original = new EditorProject
+        {
+            Frames =
+            [
+                new EditorFrame
+                {
+                    Number = 1,
+                    Strokes =
+                    [
+                        [
+                            new InkPoint { X = 0.2, Y = 0.3, Pressure = 0.15 },
+                            new InkPoint { X = 0.8, Y = 0.9, Pressure = 0.95 },
+                        ],
+                    ],
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            EditorProjectSerializer.Serialize(original));
+
+        Assert.Equal(0.15, restored.Frames[0].Strokes[0][0].Pressure);
+        Assert.Equal(0.95, restored.Frames[0].Strokes[0][1].Pressure);
+    }
+
+    [Fact]
+    public void Deserialize_LegacyInkWithoutPressureUsesNeutralPressure()
+    {
+        EditorProject restored = EditorProjectSerializer.Deserialize(
+            """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesMultipleAudioTracks()
     {
         var original = new EditorProject
@@ -135,6 +172,8 @@ public sealed class EditorProjectSerializerTests
     [InlineData("""{"Version":1,"AudioVolume":1.5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"AudioTracks":[{"StartFrame":0}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":1,"AudioTracks":[{"Volume":-0.1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"Pressure":1.5}]]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5,"Pressure":-0.1}]]}],"SelectedFrameIndex":0}""")]
     public void Deserialize_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerializer.Deserialize(json));
