@@ -6,6 +6,7 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 
 - Open a local MP4, MOV, or M4V video in the preview.
 - Draw with a mouse, pen, or touch directly over the preview.
+- Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
 - Mark frames as keyframes to define the endpoints for in-between animation.
 - Play and scrub to synchronise the drawing exposure with video playback at 12, 24, 30, or 60 fps. Playback extends the ink timeline as needed.

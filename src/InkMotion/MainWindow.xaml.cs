@@ -646,18 +646,18 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         BeginEdit();
         PromoteInterpolatedFrameForEditing();
-        Point point = e.GetCurrentPoint(InkSurface).Position;
+        var pointerPoint = e.GetCurrentPoint(InkSurface);
         _activePointerId = e.Pointer.PointerId;
         InkSurface.CapturePointer(e.Pointer);
         if (_isEraser)
         {
-            EraseAt(point);
+            EraseAt(pointerPoint.Position);
         }
         else
         {
             _activeStroke = [];
             CurrentFrame.Strokes.Add(_activeStroke);
-            AddPoint(point);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
         }
 
         e.Handled = true;
@@ -665,14 +665,14 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        Point point = e.GetCurrentPoint(InkSurface).Position;
+        var pointerPoint = e.GetCurrentPoint(InkSurface);
         if (_activePointerId == e.Pointer.PointerId && _isEraser)
         {
-            EraseAt(point);
+            EraseAt(pointerPoint.Position);
         }
         else if (_activePointerId == e.Pointer.PointerId)
         {
-            AddPoint(point);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
         }
 
         e.Handled = true;
@@ -682,7 +682,8 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId == e.Pointer.PointerId)
         {
-            AddPoint(e.GetCurrentPoint(InkSurface).Position);
+            var pointerPoint = e.GetCurrentPoint(InkSurface);
+            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
             InkSurface.ReleasePointerCapture(e.Pointer);
             FinishActiveEdit();
         }
@@ -700,7 +701,7 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
     }
 
-    private void AddPoint(Point point)
+    private void AddPoint(Point point, double pressure)
     {
         if (_activeStroke is null || InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
         {
@@ -711,10 +712,12 @@ public sealed partial class MainWindow : Window
         {
             X = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
             Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
+            Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
         };
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
-            _activeStroke[^1].Y != inkPoint.Y)
+            _activeStroke[^1].Y != inkPoint.Y ||
+            _activeStroke[^1].Pressure != inkPoint.Pressure)
         {
             _activeStroke.Add(inkPoint);
             MarkEditChanged();
@@ -748,40 +751,48 @@ public sealed partial class MainWindow : Window
     private void RenderCurrentInk()
     {
         InkSurface.Children.Clear();
+        var inkBrush = new SolidColorBrush(Microsoft.UI.Colors.Orange);
         foreach (List<InkPoint> stroke in InkAnimation.GetDisplayedStrokes(_frames, _selectedFrameIndex))
         {
-            if (stroke.Count == 1)
+            for (int i = 0; i < stroke.Count; i++)
             {
-                const double dotSize = 4;
+                InkPoint point = stroke[i];
+                double x = point.X * InkSurface.ActualWidth;
+                double y = point.Y * InkSurface.ActualHeight;
+                double width = GetInkWidth(point.Pressure);
                 var dot = new Ellipse
                 {
-                    Width = dotSize,
-                    Height = dotSize,
-                    Fill = new SolidColorBrush(Microsoft.UI.Colors.Orange),
+                    Width = width,
+                    Height = width,
+                    Fill = inkBrush,
                     IsHitTestVisible = false,
                 };
-                Canvas.SetLeft(dot, stroke[0].X * InkSurface.ActualWidth - dotSize / 2);
-                Canvas.SetTop(dot, stroke[0].Y * InkSurface.ActualHeight - dotSize / 2);
+                Canvas.SetLeft(dot, x - width / 2);
+                Canvas.SetTop(dot, y - width / 2);
                 InkSurface.Children.Add(dot);
-                continue;
-            }
 
-            var line = new Polyline
-            {
-                Stroke = new SolidColorBrush(Microsoft.UI.Colors.Orange),
-                StrokeThickness = 4,
-                IsHitTestVisible = false,
-            };
-            foreach (InkPoint point in stroke)
-            {
-                line.Points.Add(new Point(
-                    point.X * InkSurface.ActualWidth,
-                    point.Y * InkSurface.ActualHeight));
-            }
+                if (i == 0)
+                {
+                    continue;
+                }
 
-            InkSurface.Children.Add(line);
+                InkPoint previous = stroke[i - 1];
+                var segment = new Line
+                {
+                    X1 = previous.X * InkSurface.ActualWidth,
+                    Y1 = previous.Y * InkSurface.ActualHeight,
+                    X2 = x,
+                    Y2 = y,
+                    Stroke = inkBrush,
+                    StrokeThickness = (GetInkWidth(previous.Pressure) + width) / 2,
+                    IsHitTestVisible = false,
+                };
+                InkSurface.Children.Add(segment);
+            }
         }
     }
+
+    private static double GetInkWidth(double pressure) => 4 * (0.25 + (1.5 * pressure));
 
     private void SelectFrame(int index, bool seekVideo = true)
     {
@@ -921,7 +932,12 @@ public sealed partial class MainWindow : Window
         Number = frame.Number,
         IsKeyframe = frame.IsKeyframe,
         Strokes = frame.Strokes
-            .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
+            .Select(stroke => stroke.Select(point => new InkPoint
+            {
+                X = point.X,
+                Y = point.Y,
+                Pressure = point.Pressure,
+            }).ToList())
             .ToList(),
     };
 
@@ -1147,7 +1163,12 @@ public sealed partial class MainWindow : Window
         if (displayed.Count > 0)
         {
             CurrentFrame.Strokes = displayed
-                .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
+                .Select(stroke => stroke.Select(point => new InkPoint
+                {
+                    X = point.X,
+                    Y = point.Y,
+                    Pressure = point.Pressure,
+                }).ToList())
                 .ToList();
         }
 
