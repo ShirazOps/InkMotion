@@ -17,8 +17,11 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <TextBlock Text="INKMOTION" FontSize="16" FontWeight="Bold" Foreground="#F2F4F8" />
+                <TextBlock x:Name="UnsavedIndicator" Text="Unsaved" FontSize="11" Foreground="#F3B562" VerticalAlignment="Center" Visibility="Collapsed" />
+                <Button Content="Open project" Click="OpenProject_Click" />
+                <Button Content="Save project" Click="SaveProject_Click" />
                 <Border Width="1" Height="22" Background="#353A44" />
                 <Button Content="Open video" Click="OpenVideo_Click" />
             </StackPanel>
@@ -26,6 +29,8 @@
                 <Button x:Name="PlayButton" Content="Play" Click="Play_Click" />
                 <Button Content="Previous frame" Click="PreviousFrame_Click" />
                 <Button Content="Next frame" Click="NextFrame_Click" />
+                <Button x:Name="UndoButton" Content="Undo" Click="Undo_Click" IsEnabled="False" />
+                <Button x:Name="RedoButton" Content="Redo" Click="Redo_Click" IsEnabled="False" />
                 <TextBlock x:Name="FrameReadout" Text="F 001" MinWidth="64" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#D6DBE5" />
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

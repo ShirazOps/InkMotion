@@ -3,6 +3,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using System.IO;
+using System.Text.Json;
 using Windows.Media.Core;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -14,10 +16,17 @@ namespace InkMotion;
 public sealed partial class MainWindow : Window
 {
     private const double FramesPerSecond = 24;
-    private readonly List<AnimationFrame> _frames = [new(1)];
+    private const int MaximumHistoryEntries = 100;
+    private readonly List<EditorFrame> _frames = [new()];
+    private readonly Stack<EditorProject> _undoHistory = [];
+    private readonly Stack<EditorProject> _redoHistory = [];
     private int _selectedFrameIndex;
     private uint? _activePointerId;
     private List<InkPoint>? _activeStroke;
+    private EditorProject? _pendingEdit;
+    private bool _pendingEditChanged;
+    private StorageFile? _projectFile;
+    private string? _videoPath;
     private bool _isPlaying;
     private bool _hasVideo;
     private bool _isEraser;
@@ -30,10 +39,92 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
     }
 
-    private AnimationFrame CurrentFrame => _frames[_selectedFrameIndex];
+    private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
+
+    private async void OpenProject_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".inkmotion");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+
+        StorageFile? file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            EditorProject project = EditorProjectSerializer.Deserialize(await FileIO.ReadTextAsync(file));
+            ClearHistory();
+            RestoreProjectState(project);
+            _projectFile = file;
+            UnsavedIndicator.Visibility = Visibility.Collapsed;
+
+            if (!string.IsNullOrWhiteSpace(_videoPath) && File.Exists(_videoPath))
+            {
+                try
+                {
+                    LoadVideo(await StorageFile.GetFileFromPathAsync(_videoPath));
+                    StatusText.Text = $"Project opened  ·  {file.Name}";
+                }
+                catch (Exception ex) when (IsFileAccessException(ex))
+                {
+                    ClearVideoSource();
+                    StatusText.Text = $"Project opened; source video is unavailable: {ex.Message}";
+                }
+            }
+            else
+            {
+                ClearVideoSource();
+                StatusText.Text = string.IsNullOrWhiteSpace(_videoPath)
+                    ? $"Project opened  ·  {file.Name}"
+                    : "Project opened; source video is missing. Use Open video to relink it.";
+            }
+        }
+        catch (Exception ex) when (IsProjectFileException(ex))
+        {
+            StatusText.Text = $"Could not open project: {ex.Message}";
+        }
+    }
+
+    private async void SaveProject_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        StorageFile? file = _projectFile;
+        if (file is null)
+        {
+            var picker = new FileSavePicker
+            {
+                SuggestedFileName = "Untitled.inkmotion",
+                DefaultFileExtension = ".inkmotion",
+            };
+            picker.FileTypeChoices.Add("InkMotion project", [".inkmotion"]);
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            file = await picker.PickSaveFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await FileIO.WriteTextAsync(file, EditorProjectSerializer.Serialize(CreateProjectSnapshot()));
+            _projectFile = file;
+            UnsavedIndicator.Visibility = Visibility.Collapsed;
+            StatusText.Text = $"Project saved  ·  {file.Name}";
+        }
+        catch (Exception ex) when (IsProjectFileException(ex))
+        {
+            StatusText.Text = $"Could not save project: {ex.Message}";
+        }
+    }
 
     private async void OpenVideo_Click(object sender, RoutedEventArgs e)
     {
+        FinishActiveEdit();
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".mp4");
         picker.FileTypeFilter.Add(".mov");
@@ -46,14 +137,41 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        LoadVideo(file);
+        ClearHistory();
+        SeekToCurrentFrame();
+        StatusText.Text = $"Loaded  ·  {file.Name}";
+    }
+
+    private void LoadVideo(StorageFile file)
+    {
         PreviewPlayer.Source = MediaSource.CreateFromStorageFile(file);
         PreviewPlayer.MediaPlayer.IsLoopingEnabled = false;
         EmptyState.Visibility = Visibility.Collapsed;
         VideoTrackLabel.Text = file.Name;
+        _videoPath = file.Path;
         _hasVideo = true;
+        UnsavedIndicator.Visibility = Visibility.Visible;
         SeekToCurrentFrame();
-        StatusText.Text = $"Loaded  ·  {file.Name}";
     }
+
+    private void ClearVideoSource()
+    {
+        PreviewPlayer.Source = null;
+        EmptyState.Visibility = Visibility.Visible;
+        VideoTrackLabel.Text = "Drop a video here or use Open video";
+        _hasVideo = false;
+        _isPlaying = false;
+        PlayButton.Content = "Play";
+    }
+
+    private static bool IsProjectFileException(Exception exception) =>
+        exception is JsonException or InvalidDataException or IOException or
+            UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException;
+
+    private static bool IsFileAccessException(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or
+            ArgumentException or System.Runtime.InteropServices.COMException;
 
     private void Play_Click(object sender, RoutedEventArgs e)
     {
@@ -89,17 +207,25 @@ public sealed partial class MainWindow : Window
 
     private void AddFrame_Click(object sender, RoutedEventArgs e)
     {
-        int number = _frames[^1].Number + 1;
-        _frames.Add(new AnimationFrame(number));
+        FinishActiveEdit();
+        BeginEdit();
+        int number = _frames.Max(frame => frame.Number) + 1;
+        _frames.Add(new EditorFrame { Number = number });
+        MarkEditChanged();
+        CommitEdit();
         SelectFrame(_frames.Count - 1);
     }
 
     private void DuplicateFrame_Click(object sender, RoutedEventArgs e)
     {
-        AnimationFrame sourceFrame = CurrentFrame;
-        var duplicate = new AnimationFrame(sourceFrame.Number + 1)
+        FinishActiveEdit();
+        BeginEdit();
+        EditorFrame sourceFrame = CurrentFrame;
+        var duplicate = new EditorFrame
         {
-            Strokes = sourceFrame.Strokes.Select(stroke => new List<InkPoint>(stroke)).ToList(),
+            Number = sourceFrame.Number + 1,
+            IsKeyframe = sourceFrame.IsKeyframe,
+            Strokes = CloneFrame(sourceFrame).Strokes,
         };
         _frames.Insert(_selectedFrameIndex + 1, duplicate);
         for (int i = _selectedFrameIndex + 2; i < _frames.Count; i++)
@@ -107,30 +233,70 @@ public sealed partial class MainWindow : Window
             _frames[i].Number++;
         }
 
+        MarkEditChanged();
+        CommitEdit();
         SelectFrame(_selectedFrameIndex + 1);
     }
 
     private void ToggleKeyframe_Click(object sender, RoutedEventArgs e)
     {
+        FinishActiveEdit();
+        BeginEdit();
         CurrentFrame.IsKeyframe = !CurrentFrame.IsKeyframe;
+        MarkEditChanged();
+        CommitEdit();
         RefreshTimeline();
         UpdateFrameStatus();
     }
 
+    private void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        if (_undoHistory.Count == 0)
+        {
+            return;
+        }
+
+        PushHistory(_redoHistory, CreateProjectSnapshot());
+        RestoreProjectState(_undoHistory.Pop());
+        UpdateHistoryButtons();
+    }
+
+    private void Redo_Click(object sender, RoutedEventArgs e)
+    {
+        FinishActiveEdit();
+        if (_redoHistory.Count == 0)
+        {
+            return;
+        }
+
+        PushHistory(_undoHistory, CreateProjectSnapshot());
+        RestoreProjectState(_redoHistory.Pop());
+        UpdateHistoryButtons();
+    }
+
     private void SelectPen_Click(object sender, RoutedEventArgs e)
     {
+        FinishActiveEdit();
         _isEraser = false;
         StatusText.Text = "Pen tool selected.";
     }
 
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
     {
+        FinishActiveEdit();
         _isEraser = true;
         StatusText.Text = "Erase mode selected.";
     }
 
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (_activePointerId is not null)
+        {
+            return;
+        }
+
+        BeginEdit();
         Point point = e.GetCurrentPoint(InkSurface).Position;
         _activePointerId = e.Pointer.PointerId;
         InkSurface.CapturePointer(e.Pointer);
@@ -169,8 +335,7 @@ public sealed partial class MainWindow : Window
         {
             AddPoint(e.GetCurrentPoint(InkSurface).Position);
             InkSurface.ReleasePointerCapture(e.Pointer);
-            _activePointerId = null;
-            _activeStroke = null;
+            FinishActiveEdit();
         }
 
         e.Handled = true;
@@ -178,8 +343,7 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
-        _activePointerId = null;
-        _activeStroke = null;
+        FinishActiveEdit();
     }
 
     private void InkSurface_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -194,12 +358,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var inkPoint = new InkPoint(
-            Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
-            Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1));
-        if (_activeStroke.Count == 0 || _activeStroke[^1] != inkPoint)
+        var inkPoint = new InkPoint
+        {
+            X = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
+            Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
+        };
+        if (_activeStroke.Count == 0 ||
+            _activeStroke[^1].X != inkPoint.X ||
+            _activeStroke[^1].Y != inkPoint.Y)
         {
             _activeStroke.Add(inkPoint);
+            MarkEditChanged();
             RenderCurrentInk();
         }
     }
@@ -222,6 +391,7 @@ public sealed partial class MainWindow : Window
 
         if (changed)
         {
+            MarkEditChanged();
             RenderCurrentInk();
         }
     }
@@ -271,9 +441,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        FinishActiveEdit();
         _selectedFrameIndex = index;
-        _activePointerId = null;
-        _activeStroke = null;
         RenderCurrentInk();
         SeekToCurrentFrame();
         RefreshTimeline();
@@ -289,12 +458,115 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private EditorProject CreateProjectSnapshot() => new()
+    {
+        VideoPath = _videoPath,
+        SelectedFrameIndex = _selectedFrameIndex,
+        Frames = _frames.Select(CloneFrame).ToList(),
+    };
+
+    private static EditorFrame CloneFrame(EditorFrame frame) => new()
+    {
+        Number = frame.Number,
+        IsKeyframe = frame.IsKeyframe,
+        Strokes = frame.Strokes
+            .Select(stroke => stroke.Select(point => new InkPoint { X = point.X, Y = point.Y }).ToList())
+            .ToList(),
+    };
+
+    private void RestoreProjectState(EditorProject project)
+    {
+        _frames.Clear();
+        _frames.AddRange(project.Frames.Select(CloneFrame));
+        _selectedFrameIndex = project.SelectedFrameIndex;
+        _videoPath = project.VideoPath;
+        _activePointerId = null;
+        _activeStroke = null;
+        _pendingEdit = null;
+        _pendingEditChanged = false;
+        RenderCurrentInk();
+        SeekToCurrentFrame();
+        RefreshTimeline();
+        UpdateFrameStatus();
+    }
+
+    private void BeginEdit()
+    {
+        if (_pendingEdit is null)
+        {
+            _pendingEdit = CreateProjectSnapshot();
+            _pendingEditChanged = false;
+        }
+    }
+
+    private void MarkEditChanged()
+    {
+        _pendingEditChanged = true;
+        UnsavedIndicator.Visibility = Visibility.Visible;
+    }
+
+    private void CommitEdit()
+    {
+        if (_pendingEdit is not null && _pendingEditChanged)
+        {
+            PushHistory(_undoHistory, _pendingEdit);
+            _redoHistory.Clear();
+            UpdateHistoryButtons();
+        }
+
+        _pendingEdit = null;
+        _pendingEditChanged = false;
+    }
+
+    private void FinishActiveEdit()
+    {
+        if (_activeStroke is { Count: 0 })
+        {
+            CurrentFrame.Strokes.Remove(_activeStroke);
+        }
+
+        _activePointerId = null;
+        _activeStroke = null;
+        CommitEdit();
+    }
+
+    private void ClearHistory()
+    {
+        _undoHistory.Clear();
+        _redoHistory.Clear();
+        _pendingEdit = null;
+        _pendingEditChanged = false;
+        UpdateHistoryButtons();
+    }
+
+    private static void PushHistory(Stack<EditorProject> history, EditorProject project)
+    {
+        history.Push(project);
+        if (history.Count <= MaximumHistoryEntries)
+        {
+            return;
+        }
+
+        EditorProject[] retainedSnapshots = history.Take(MaximumHistoryEntries).Reverse().ToArray();
+        history.Clear();
+        foreach (EditorProject snapshot in retainedSnapshots)
+        {
+            history.Push(snapshot);
+        }
+    }
+
+    private void UpdateHistoryButtons()
+    {
+        UndoButton.IsEnabled = _undoHistory.Count > 0;
+        RedoButton.IsEnabled = _redoHistory.Count > 0;
+    }
+
     private void RefreshTimeline()
     {
         InkFramesPanel.Children.Clear();
         for (int i = 0; i < _frames.Count; i++)
         {
-            AnimationFrame frame = _frames[i];
+            EditorFrame frame = _frames[i];
             var button = new Button
             {
                 Width = 54,
@@ -328,12 +600,4 @@ public sealed partial class MainWindow : Window
             : "No keyframe on this frame";
     }
 
-    private sealed class AnimationFrame(int number)
-    {
-        public int Number { get; set; } = number;
-        public List<List<InkPoint>> Strokes { get; set; } = [];
-        public bool IsKeyframe { get; set; }
-    }
-
-    private readonly record struct InkPoint(double X, double Y);
 }
