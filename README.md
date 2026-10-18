@@ -45,7 +45,7 @@ Project files store paths to the original video and audio rather than embedding 
 
 ## Windows builds and Microsoft Store packaging
 
-Build either desktop architecture with `dotnet build InkMotion.sln -c Release -p:Platform=x86` or `-p:Platform=x64`. The Windows CI workflow builds and tests both configurations.
+Build either desktop architecture with `dotnet build InkMotion.sln -c Release -p:Platform=x86` or `-p:Platform=x64`. The Windows CI workflow builds and tests both configurations. After both pass on a push to `main`, it publishes self-contained x86 and x64 builds and creates a GitHub release tagged `build-<run number>` with `InkMotion-build-<n>-win-x64.zip` and `InkMotion-build-<n>-win-x86.zip`. Download the latest from the repository's **Releases** page, extract it, and run `InkMotion.exe`; no separate .NET or Windows App SDK installation is needed. These builds are unsigned, so Windows SmartScreen may ask for confirmation on first run.
 
 Microsoft Store details are kept out of source control. `src/InkMotion/Package.appxmanifest` holds placeholder identity values, and the **Microsoft Store package** workflow applies the Partner Centre identity from these repository secrets (**Settings → Secrets and variables → Actions**) with `build/Set-StoreIdentity.ps1`:
 
