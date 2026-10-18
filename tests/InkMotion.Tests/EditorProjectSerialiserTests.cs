@@ -31,7 +31,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
         Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColour);
@@ -74,7 +74,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             EditorProjectSerialiser.Serialise(original));
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Equal(original.VideoPath, restored.VideoPath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
@@ -157,7 +157,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Equal("ink-1", restored.ActiveInkLayerId);
         Assert.Equal("Ink 1", Assert.Single(restored.InkLayers).Name);
         Assert.Single(restored.Frames[0].Strokes);
@@ -169,7 +169,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"IsKeyframe":true,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Equal(InkInterpolationMode.Linear, restored.Frames[0].InterpolationMode);
     }
 
@@ -179,7 +179,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":4,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Equal(1, restored.Frames[0].ExposureFrames);
     }
 
@@ -189,7 +189,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(6, restored.Version);
+        Assert.Equal(7, restored.Version);
         Assert.Empty(restored.Frames[0].TextOverlays);
     }
 
@@ -392,7 +392,7 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Theory]
-    [InlineData("""{"Version":7,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":8,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"TextOverlays":[{"Text":"","FontFamily":"Segoe UI","FontSize":24}],"Strokes":[]}],"SelectedFrameIndex":0}""")]
@@ -415,8 +415,55 @@ public sealed class EditorProjectSerialiserTests
     [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"unknown":[]}}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"},{"Id":"ink-2","Name":"Ink 2"}],"Frames":[{"Number":1,"Strokes":[],"LayerStrokes":{"ink-2":null}}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":4,"Frames":[{"Number":1,"InterpolationMode":99,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"AudioTracks":[{"SourceInSeconds":-1}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"AudioTracks":[{"SourceInSeconds":2,"SourceOutSeconds":2}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"AudioTracks":[{"FadeInSeconds":-0.5}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"AudioTracks":[{"FadeOutSeconds":601}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":7,"AudioTracks":[{"GainDecibels":25}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialise_RejectsInvalidProjectData(string json)
     {
         Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Deserialise(json));
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsAudioClipEdits()
+    {
+        var project = new EditorProject
+        {
+            AudioTracks =
+            [
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\voice.wav",
+                    StartFrame = 12,
+                    SourceInSeconds = 1.5,
+                    SourceOutSeconds = 4.25,
+                    FadeInSeconds = 0.5,
+                    FadeOutSeconds = 0.75,
+                    GainDecibels = 3.2,
+                },
+            ],
+        };
+
+        AudioTrackProject track = Assert.Single(EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project)).AudioTracks);
+
+        Assert.Equal(1.5, track.SourceInSeconds);
+        Assert.Equal(4.25, track.SourceOutSeconds);
+        Assert.Equal(0.5, track.FadeInSeconds);
+        Assert.Equal(0.75, track.FadeOutSeconds);
+        Assert.Equal(3.2, track.GainDecibels);
+    }
+
+    [Fact]
+    public void Deserialise_VersionSixAudioTrack_DefaultsToUntrimmedClip()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":6,"AudioTracks":[{"AudioPath":"C:\\Media\\music.wav","StartFrame":3}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        AudioTrackProject track = Assert.Single(restored.AudioTracks);
+        Assert.Equal(7, restored.Version);
+        Assert.Equal(0, track.SourceInSeconds);
+        Assert.Null(track.SourceOutSeconds);
+        Assert.Equal(0, track.GainDecibels);
     }
 }

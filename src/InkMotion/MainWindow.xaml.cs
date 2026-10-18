@@ -330,6 +330,15 @@ public sealed partial class MainWindow : Window
             }
 
             LoadAudio(_audioTracks[_selectedAudioTrackIndex], file);
+            if (_audioTracks[_selectedAudioTrackIndex].LoadError is string loadError)
+            {
+                ClearHistory();
+                UpdateSelectedAudioTrack();
+                RefreshAudioTracks();
+                StatusText.Text = $"Could not load audio: {loadError}";
+                return;
+            }
+
             await LoadAudioWaveformAsync(_audioTracks[_selectedAudioTrackIndex]);
             bool tagsLoaded = await LoadAudioTagsAsync(_audioTracks[_selectedAudioTrackIndex]);
             ClearHistory();
@@ -398,13 +407,15 @@ public sealed partial class MainWindow : Window
     private void LoadAudio(AudioTrackRuntime track, StorageFile file)
     {
         PausePlayback();
-        track.Player.Source = MediaSource.CreateFromStorageFile(file);
         track.Project.AudioPath = file.Path;
         track.Project.StartFrame = _playheadFramePosition + 1;
-        track.HasSource = true;
-        track.Player.Volume = track.Project.Volume;
-        track.Player.IsMuted = track.Project.Muted;
-        track.Player.PlaybackSession.Position = TimeSpan.Zero;
+        track.Project.SourceInSeconds = 0;
+        track.Project.SourceOutSeconds = null;
+        track.Project.FadeInSeconds = 0;
+        track.Project.FadeOutSeconds = 0;
+        track.Project.GainDecibels = 0;
+        track.WaveformPeaks = [];
+        OpenAudioPlayer(track);
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
         UnsavedIndicator.Visibility = Visibility.Visible;
@@ -579,13 +590,25 @@ public sealed partial class MainWindow : Window
     private void UpdateSelectedAudioTrack()
     {
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
+        bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
-        MoveAudioClipButton.IsEnabled = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        MoveAudioClipButton.IsEnabled = hasClip;
+        TrimAudioStartButton.IsEnabled = hasClip;
+        TrimAudioEndButton.IsEnabled = hasClip;
+        SplitAudioButton.IsEnabled = hasClip;
+        AudioFadeInBox.IsEnabled = hasClip;
+        AudioFadeOutBox.IsEnabled = hasClip;
+        NormaliseAudioButton.IsEnabled = hasClip;
+        ResetAudioGainButton.IsEnabled = hasClip;
         if (!hasSelection)
         {
             _isRestoringProject = true;
             AudioTrackLabel.Text = "No audio track selected";
+            AudioClipRangeText.Text = "No clip selected";
+            AudioGainText.Text = "Clip gain: 0.0 dB";
+            AudioFadeInBox.Value = 0;
+            AudioFadeOutBox.Value = 0;
             AudioVolumeSlider.Value = 1;
             AudioMuteButton.IsChecked = false;
             AudioTitleBox.Text = string.Empty;
@@ -606,6 +629,14 @@ public sealed partial class MainWindow : Window
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
+        AudioFadeInBox.Value = track.Project.FadeInSeconds;
+        AudioFadeOutBox.Value = track.Project.FadeOutSeconds;
+        AudioGainText.Text = $"Clip gain: {track.Project.GainDecibels:+0.0;-0.0;0.0} dB";
+        AudioClipRangeText.Text = track.Player is AudioClipPlayer player
+            ? $"Source {FormatSeconds(track.Project.SourceInSeconds)} – " +
+              $"{FormatSeconds(AudioClipEditing.GetClipEnd(track.Project.SourceInSeconds, track.Project.SourceOutSeconds, player.DurationSeconds))}" +
+              $" · {player.ChannelCount} channel{(player.ChannelCount == 1 ? string.Empty : "s")}"
+            : track.LoadError ?? "No clip on this track";
         AudioTitleBox.Text = track.Project.Title;
         AudioArtistBox.Text = track.Project.Artist;
         AudioAlbumBox.Text = track.Project.Album;
@@ -644,6 +675,176 @@ public sealed partial class MainWindow : Window
         RefreshAudioTracks();
         StatusText.Text = $"Audio clip moved to frame {playheadFrameNumber}.";
     }
+
+    private bool TryGetSelectedAudioClip([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out AudioTrackRuntime? track)
+    {
+        track = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count
+            ? _audioTracks[_selectedAudioTrackIndex]
+            : null;
+        return track?.HasSource == true;
+    }
+
+    private void ApplyAudioClipEdit(Func<AudioTrackRuntime, bool> edit, string successMessage, string failureMessage)
+    {
+        if (!TryGetSelectedAudioClip(out AudioTrackRuntime? track))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        if (edit(track))
+        {
+            MarkEditChanged();
+            StatusText.Text = successMessage;
+        }
+        else
+        {
+            StatusText.Text = failureMessage;
+        }
+
+        CommitEdit();
+        track.Player?.Update(track.Project);
+        SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
+        UpdateSelectedAudioTrack();
+        RefreshAudioTracks();
+    }
+
+    private void TrimAudioStart_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(
+            track => AudioClipEditing.TryTrimStart(track.Project, _playheadFramePosition + 1, _frameRate, track.SourceDurationSeconds),
+            $"Audio clip start trimmed to frame {_playheadFramePosition + 1}.",
+            "Move the playhead inside the audio clip to trim its start.");
+
+    private void TrimAudioEnd_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(
+            track => AudioClipEditing.TryTrimEnd(track.Project, _playheadFramePosition + 1, _frameRate, track.SourceDurationSeconds),
+            $"Audio clip end trimmed at frame {_playheadFramePosition + 1}.",
+            "Move the playhead inside the audio clip to trim its end.");
+
+    private void SplitAudio_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(
+            track =>
+            {
+                AudioTrackProject? right = AudioClipEditing.Split(
+                    track.Project,
+                    _playheadFramePosition + 1,
+                    _frameRate,
+                    track.SourceDurationSeconds);
+                if (right is null)
+                {
+                    return false;
+                }
+
+                var runtime = new AudioTrackRuntime(right) { WaveformPeaks = track.WaveformPeaks };
+                OpenAudioPlayer(runtime);
+                _audioTracks.Insert(_selectedAudioTrackIndex + 1, runtime);
+                return true;
+            },
+            $"Audio clip split at frame {_playheadFramePosition + 1}; the second part is on the next track.",
+            "Move the playhead inside the audio clip to split it.");
+
+    private void AudioFade_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject || !TryGetSelectedAudioClip(out AudioTrackRuntime? track))
+        {
+            return;
+        }
+
+        double seconds = double.IsFinite(args.NewValue) ? args.NewValue : 0;
+        bool isFadeIn = ReferenceEquals(sender, AudioFadeInBox);
+        double current = isFadeIn ? track.Project.FadeInSeconds : track.Project.FadeOutSeconds;
+        if (Math.Abs(current - seconds) < 0.0001)
+        {
+            return;
+        }
+
+        ApplyAudioClipEdit(
+            clip =>
+            {
+                if (isFadeIn)
+                {
+                    clip.Project.FadeInSeconds = seconds;
+                }
+                else
+                {
+                    clip.Project.FadeOutSeconds = seconds;
+                }
+
+                AudioClipEditing.ClampFades(clip.Project, clip.SourceDurationSeconds);
+                return true;
+            },
+            isFadeIn ? $"Fade in set to {seconds:0.0#} s." : $"Fade out set to {seconds:0.0#} s.",
+            string.Empty);
+    }
+
+    private async void NormaliseAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedAudioClip(out AudioTrackRuntime? track) || track.Project.AudioPath is not string path)
+        {
+            return;
+        }
+
+        double start = track.Project.SourceInSeconds;
+        double end = AudioClipEditing.GetClipEnd(start, track.Project.SourceOutSeconds, track.SourceDurationSeconds);
+        NormaliseAudioButton.IsEnabled = false;
+        StatusText.Text = "Analysing clip peak level…";
+        float peak;
+        try
+        {
+            peak = await Task.Run(() => AudioWaveformReader.ReadPeak(path, start, end));
+        }
+        catch (Exception ex) when (
+            IsFileAccessException(ex) ||
+            ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
+        {
+            StatusText.Text = $"Could not analyse the clip: {ex.Message}";
+            UpdateSelectedAudioTrack();
+            return;
+        }
+
+        if (!_audioTracks.Contains(track) || _audioTracks.IndexOf(track) != _selectedAudioTrackIndex)
+        {
+            UpdateSelectedAudioTrack();
+            return;
+        }
+
+        if (peak <= 0)
+        {
+            StatusText.Text = "The clip is silent, so it cannot be normalised.";
+            UpdateSelectedAudioTrack();
+            return;
+        }
+
+        double gain = AudioClipEditing.CalculateNormalisationGain(peak);
+        ApplyAudioClipEdit(
+            clip =>
+            {
+                clip.Project.GainDecibels = gain;
+                return true;
+            },
+            $"Clip normalised to {AudioClipEditing.NormalisationTargetDecibels:0} dBFS ({gain:+0.0;-0.0;0.0} dB).",
+            string.Empty);
+    }
+
+    private void ResetAudioGain_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(
+            track =>
+            {
+                if (track.Project.GainDecibels == 0)
+                {
+                    return false;
+                }
+
+                track.Project.GainDecibels = 0;
+                return true;
+            },
+            "Clip gain reset to 0 dB.",
+            "Clip gain is already 0 dB.");
+
+    private static string FormatSeconds(double seconds) =>
+        double.IsFinite(seconds) ? TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.ff") : "end";
 
     private void RefreshAudioTracks()
     {
@@ -735,11 +936,25 @@ public sealed partial class MainWindow : Window
 
         float centre = (float)sender.ActualHeight / 2;
         float halfHeight = centre * 0.82f;
-        float columnWidth = (float)sender.ActualWidth / track.WaveformPeaks.Length;
-        Windows.UI.Color colour = ToColour(0xFF64C8FF);
-        for (int i = 0; i < track.WaveformPeaks.Length; i++)
+        double sourceDuration = track.SourceDurationSeconds;
+        int firstPeak = 0;
+        int lastPeak = track.WaveformPeaks.Length;
+        double clipDuration = AudioClipEditing.GetClipDuration(track.Project, sourceDuration);
+        if (sourceDuration > 0)
         {
-            float amplitude = track.WaveformPeaks[i] * halfHeight;
+            double clipEnd = track.Project.SourceInSeconds + clipDuration;
+            firstPeak = Math.Clamp((int)Math.Floor(track.Project.SourceInSeconds / sourceDuration * lastPeak), 0, lastPeak - 1);
+            lastPeak = Math.Clamp((int)Math.Ceiling(clipEnd / sourceDuration * lastPeak), firstPeak + 1, lastPeak);
+        }
+
+        int visiblePeaks = lastPeak - firstPeak;
+        float width = (float)sender.ActualWidth;
+        float columnWidth = width / visiblePeaks;
+        float gain = (float)Math.Clamp(AudioClipEditing.DecibelsToLinear(track.Project.GainDecibels), 0, 4);
+        Windows.UI.Color colour = ToColour(0xFF64C8FF);
+        for (int i = 0; i < visiblePeaks; i++)
+        {
+            float amplitude = Math.Min(1, track.WaveformPeaks[firstPeak + i] * gain) * halfHeight;
             if (amplitude <= 0)
             {
                 continue;
@@ -753,6 +968,26 @@ public sealed partial class MainWindow : Window
                 centre + amplitude,
                 colour,
                 Math.Max(1, columnWidth * 0.7f));
+        }
+
+        if (clipDuration <= 0 || !double.IsFinite(clipDuration))
+        {
+            return;
+        }
+
+        Windows.UI.Color fadeColour = ToColour(0xFFFFC857);
+        float top = 2;
+        float bottom = (float)sender.ActualHeight - 2;
+        if (track.Project.FadeInSeconds > 0)
+        {
+            float fadeEnd = (float)(track.Project.FadeInSeconds / clipDuration) * width;
+            args.DrawingSession.DrawLine(0, bottom, fadeEnd, top, fadeColour, 1.5f);
+        }
+
+        if (track.Project.FadeOutSeconds > 0)
+        {
+            float fadeStart = width - (float)(track.Project.FadeOutSeconds / clipDuration) * width;
+            args.DrawingSession.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
         }
     }
 
@@ -845,22 +1080,14 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
-            try
+            OpenAudioPlayer(runtime);
+            if (runtime.HasSource)
             {
-                StorageFile file = await StorageFile.GetFileFromPathAsync(project.AudioPath);
-                runtime.Player.Source = MediaSource.CreateFromStorageFile(file);
-                runtime.HasSource = true;
-                runtime.Player.Volume = project.Volume;
-                runtime.Player.IsMuted = project.Muted;
                 await LoadAudioWaveformAsync(runtime);
                 if (!HasAudioTags(project))
                 {
                     await LoadAudioTagsAsync(runtime);
                 }
-            }
-            catch (Exception ex) when (IsFileAccessException(ex))
-            {
-                runtime.LoadError = "source audio is unavailable";
             }
         }
 
@@ -876,12 +1103,39 @@ public sealed partial class MainWindow : Window
     {
         foreach (AudioTrackRuntime track in _audioTracks)
         {
-            track.Player.Pause();
-            track.Player.Dispose();
+            track.Dispose();
         }
 
         _audioTracks.Clear();
         _selectedAudioTrackIndex = -1;
+    }
+
+    private static void OpenAudioPlayer(AudioTrackRuntime track)
+    {
+        track.Dispose();
+        track.LoadError = null;
+        string? path = track.Project.AudioPath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        if (!File.Exists(path))
+        {
+            track.LoadError = "source audio is missing";
+            return;
+        }
+
+        try
+        {
+            track.Player = new AudioClipPlayer(path, track.Project);
+        }
+        catch (Exception ex) when (
+            IsFileAccessException(ex) ||
+            ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
+        {
+            track.LoadError = $"source audio is unavailable: {ex.Message}";
+        }
     }
 
     private void ClearVideoSource()
@@ -1559,39 +1813,38 @@ public sealed partial class MainWindow : Window
     {
         foreach (AudioTrackRuntime track in _audioTracks)
         {
-            if (!track.HasSource)
+            if (track.Player is not AudioClipPlayer player)
             {
                 continue;
             }
 
-            TimeSpan clipStart = TimeSpan.FromSeconds((track.Project.StartFrame - 1) / _frameRate);
-            TimeSpan clipPosition = timelinePosition - clipStart;
-            TimeSpan duration = track.Player.PlaybackSession.NaturalDuration;
-            if (clipPosition < TimeSpan.Zero || (duration > TimeSpan.Zero && clipPosition >= duration))
+            double clipOffset = timelinePosition.TotalSeconds - AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate);
+            double clipDuration = AudioClipEditing.GetClipDuration(track.Project, player.DurationSeconds);
+            if (clipOffset < 0 || clipOffset >= clipDuration)
             {
-                track.Player.Pause();
-                if (clipPosition < TimeSpan.Zero)
+                player.Pause();
+                if (clipOffset < 0)
                 {
-                    track.Player.PlaybackSession.Position = TimeSpan.Zero;
+                    player.Seek(track.Project.SourceInSeconds);
                 }
 
                 continue;
             }
 
+            double sourcePosition = track.Project.SourceInSeconds + clipOffset;
             if (startPlayback)
             {
-                if (track.Player.PlaybackSession.PlaybackState != MediaPlaybackState.Playing ||
-                    Math.Abs((track.Player.PlaybackSession.Position - clipPosition).TotalMilliseconds) > 120)
+                if (!player.IsPlaying || Math.Abs(player.AudiblePositionSeconds - sourcePosition) > 0.25)
                 {
-                    track.Player.PlaybackSession.Position = clipPosition;
+                    player.Seek(sourcePosition);
                 }
 
-                track.Player.Play();
+                player.Play();
             }
             else
             {
-                track.Player.PlaybackSession.Position = clipPosition;
-                track.Player.Pause();
+                player.Pause();
+                player.Seek(sourcePosition);
             }
         }
     }
@@ -1600,18 +1853,14 @@ public sealed partial class MainWindow : Window
 
     private TimeSpan? GetAudioTimelineEnd()
     {
-        TimeSpan[] ends = _audioTracks
-            .Where(track => track.HasSource)
+        double[] ends = _audioTracks
+            .Where(track => track.HasSource && track.SourceDurationSeconds > 0)
             .Select(track =>
-            {
-                TimeSpan duration = track.Player.PlaybackSession.NaturalDuration;
-                return duration > TimeSpan.Zero
-                    ? TimeSpan.FromSeconds((track.Project.StartFrame - 1) / _frameRate) + duration
-                    : TimeSpan.Zero;
-            })
-            .Where(end => end > TimeSpan.Zero)
+                AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) +
+                AudioClipEditing.GetClipDuration(track.Project, track.SourceDurationSeconds))
+            .Where(end => end > 0)
             .ToArray();
-        return ends.Length == 0 ? null : ends.Max();
+        return ends.Length == 0 ? null : TimeSpan.FromSeconds(ends.Max());
     }
 
     private EditorProject CreateProjectSnapshot()
@@ -1633,20 +1882,7 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    private static AudioTrackProject CloneAudioTrack(AudioTrackProject track) => new()
-    {
-        AudioPath = track.AudioPath,
-        StartFrame = track.StartFrame,
-        Volume = track.Volume,
-        Muted = track.Muted,
-        Title = track.Title,
-        Artist = track.Artist,
-        Album = track.Album,
-        Genre = track.Genre,
-        Comments = track.Comments,
-        Year = track.Year,
-        TagsInitialised = track.TagsInitialised,
-    };
+    private static AudioTrackProject CloneAudioTrack(AudioTrackProject track) => AudioClipEditing.Clone(track);
 
     private static InkLayerProject CloneInkLayer(InkLayerProject layer) => new()
     {
@@ -1743,20 +1979,24 @@ public sealed partial class MainWindow : Window
             {
                 AudioTrackRuntime reused = previousTracks[index];
                 reused.Project = CloneAudioTrack(project);
-                reused.Player.Volume = project.Volume;
-                reused.Player.IsMuted = project.Muted;
+                reused.Player?.Update(reused.Project);
                 restoredTracks.Add(reused);
             }
             else
             {
-                restoredTracks.Add(new AudioTrackRuntime(CloneAudioTrack(project)));
+                var restored = new AudioTrackRuntime(CloneAudioTrack(project));
+                OpenAudioPlayer(restored);
+                AudioTrackRuntime? sameSource = previousTracks.FirstOrDefault(previous =>
+                    previous.WaveformPeaks.Length > 0 &&
+                    string.Equals(previous.Project.AudioPath, project.AudioPath, StringComparison.OrdinalIgnoreCase));
+                restored.WaveformPeaks = sameSource?.WaveformPeaks ?? [];
+                restoredTracks.Add(restored);
             }
         }
 
         foreach (AudioTrackRuntime removed in previousTracks.Except(restoredTracks))
         {
-            removed.Player.Pause();
-            removed.Player.Dispose();
+            removed.Dispose();
         }
 
         _audioTracks.Clear();
@@ -1907,7 +2147,7 @@ public sealed partial class MainWindow : Window
 
         foreach (AudioTrackRuntime track in _audioTracks)
         {
-            track.Player.Pause();
+            track.Player?.Pause();
         }
 
         if (!_hasVideo)
@@ -2031,7 +2271,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Volume = e.NewValue;
-        track.Player.Volume = e.NewValue;
+        track.Player?.Update(track.Project);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
@@ -2046,7 +2286,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Muted = AudioMuteButton.IsChecked == true;
-        track.Player.IsMuted = track.Project.Muted;
+        track.Player?.Update(track.Project);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
@@ -2056,15 +2296,22 @@ public sealed partial class MainWindow : Window
         DisposeAudioTracks();
     }
 
-    private sealed class AudioTrackRuntime(AudioTrackProject project)
+    private sealed class AudioTrackRuntime(AudioTrackProject project) : IDisposable
     {
         public AudioTrackProject Project { get; set; } = project;
-        public MediaPlayer Player { get; } = new() { AudioCategory = MediaPlayerAudioCategory.Media };
-        public bool HasSource { get; set; }
+        public AudioClipPlayer? Player { get; set; }
+        public bool HasSource => Player is not null;
+        public double SourceDurationSeconds => Player?.DurationSeconds ?? 0;
         public string? LoadError { get; set; }
         public float[] WaveformPeaks { get; set; } = [];
         public string? WaveformError { get; set; }
         public bool WaveformLoading { get; set; }
+
+        public void Dispose()
+        {
+            Player?.Dispose();
+            Player = null;
+        }
     }
 
     private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
