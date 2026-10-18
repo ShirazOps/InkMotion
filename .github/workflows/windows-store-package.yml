@@ -24,13 +24,14 @@ jobs:
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Require Microsoft Store identity
+      - name: Apply Microsoft Store identity from secrets
         shell: pwsh
-        run: |
-          $manifest = Get-Content src\InkMotion\Package.appxmanifest -Raw
-          if ($manifest.Contains('InkMotion.StoreIdentityRequired') -or $manifest.Contains('CN=STORE_PUBLISHER_REQUIRED')) {
-            throw "Associate InkMotion with its reserved Partner Center app identity before creating a Store upload."
-          }
+        env:
+          STORE_PACKAGE_NAME: ${{ secrets.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.STORE_PUBLISHER_DISPLAY_NAME }}
+          STORE_DISPLAY_NAME: ${{ secrets.STORE_DISPLAY_NAME }}
+        run: ./build/Set-StoreIdentity.ps1
 
       - name: Restore
         run: msbuild src\InkMotion\InkMotion.csproj /t:Restore /p:Configuration=Release /p:Platform=x86 /p:StorePackage=true /p:AppxBundlePlatforms="x86|x64"
@@ -49,6 +50,42 @@ jobs:
           /p:AppxPackageDir=Packages\
           /p:AppxPackageSigningEnabled=false
           /p:GenerateAppxPackageOnBuild=true
+
+      - name: Verify packaged identity
+        shell: pwsh
+        env:
+          STORE_PACKAGE_NAME: ${{ secrets.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $upload = Get-ChildItem -Recurse -Filter *.msixupload | Where-Object FullName -like '*\Packages\*' | Select-Object -First 1
+          if (-not $upload) { throw "No .msixupload was produced." }
+          $work = Join-Path $env:RUNNER_TEMP 'store-verify'
+          New-Item -ItemType Directory -Force $work | Out-Null
+          [IO.Compression.ZipFile]::ExtractToDirectory($upload.FullName, $work, $true)
+          $bundle = Get-ChildItem $work -Filter *.msixbundle | Select-Object -First 1
+          [IO.Compression.ZipFile]::ExtractToDirectory($bundle.FullName, (Join-Path $work 'bundle'), $true)
+          $packages = Get-ChildItem (Join-Path $work 'bundle') -Filter *.msix
+          $architectures = @()
+          foreach ($package in $packages) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+            try {
+              $reader = New-Object IO.StreamReader(($zip.Entries | Where-Object FullName -eq 'AppxManifest.xml').Open())
+              [xml]$manifest = $reader.ReadToEnd()
+              $reader.Dispose()
+            }
+            finally { $zip.Dispose() }
+            $identity = $manifest.Package.Identity
+            if ($identity.Name -ne $env:STORE_PACKAGE_NAME -or $identity.Publisher -ne $env:STORE_PUBLISHER) {
+              throw "$($package.Name) does not carry the Store identity from the repository secrets."
+            }
+            if ($manifest.OuterXml -notmatch 'runFullTrust') { throw "$($package.Name) is missing runFullTrust." }
+            $architectures += $identity.ProcessorArchitecture
+          }
+          if (($architectures | Sort-Object) -join ',' -ne 'x64,x86') {
+            throw "Expected x86 and x64 packages, found $($architectures -join ', ')."
+          }
+          Write-Host "Verified $($upload.Name): $($architectures -join ', ')"
 
       - name: Upload Store package
         uses: actions/upload-artifact@v4

@@ -34,6 +34,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 5. **Windows distribution**
    - Build and test x86 and x64 configurations on Windows runners.
    - Produce a Store-upload MSIX bundle for both architectures after the Partner Center package identity is associated.
+   - Done: the Store workflow applies the Partner Center identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification.
 
 ## Important decisions and constraints
 
@@ -42,7 +43,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 - Use NAudio for waveform decoding and future Windows audio-processing work rather than introducing custom codec interop.
 - Keep editing non-destructive where practical and retain backward compatibility for `.inkmotion` projects.
 - Support formats and channel layouts according to available Windows codecs and verified processing capabilities; do not claim unsupported 12.1 processing or export.
-- Keep Store identity values tied to Partner Center; never guess or commit signing certificates.
+- Keep Store identity values in repository secrets, tied to Partner Center; never guess them or commit them or signing certificates.
 - Add focused tests for project models, timeline operations, migrations, and export-profile validation as each phase lands.
 
 ## Initial implementation increment

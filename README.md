@@ -5,7 +5,7 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 ## First milestone
 
 - Provide separate Video Editor, Audio Editor, and Ink Editor workspaces with shared project and transport controls.
-- Build native x86 and x64 Windows targets, and create an x86/x64 MSIX upload bundle for the Microsoft Store after Partner Center identity association.
+- Build native x86 and x64 Windows targets, and create an x86/x64 MSIX upload bundle for the Microsoft Store with the Partner Centre identity supplied from repository secrets.
 - Use the Video Editor for video preview and playback, the Audio Editor for multitrack clip placement, waveform previews, mixing, and tag editing, and the Ink Editor for pen-first drawing and cel animation.
 - Add typed text overlays centred in animation cels, with selectable font family, size, and brush colour, separate from pressure-sensitive freehand ink.
 - Select an export profile for 720p, 1080p, 1440p, or 4K UHD while retaining the project's supported 12, 24, 30, or 60 fps setting.
@@ -46,7 +46,16 @@ Project files store paths to the original video and audio rather than embedding 
 
 Build either desktop architecture with `dotnet build InkMotion.sln -c Release -p:Platform=x86` or `-p:Platform=x64`. The Windows CI workflow builds and tests both configurations.
 
-To make a Store upload, reserve the app in Partner Center and use Visual Studio's **Package and Publish → Associate App with the Store** to obtain its exact package identity. Replace both the `Identity` name and publisher in `src/InkMotion/Package.appxmanifest` with the values assigned by Partner Center, and increment its four-part version for each release. Then run the **Microsoft Store package** workflow manually or push a `v*` tag; it creates an unsigned x86/x64 `.msixupload` bundle for Partner Center, where Microsoft signs Store submissions. Store packaging restores both runtime identifiers and retains the required `runFullTrust` capability in the upload manifest. The checked-in name and publisher are deliberately placeholders, and the workflow refuses to package until both are replaced. Do not commit signing certificates.
+Microsoft Store details are kept out of source control. `src/InkMotion/Package.appxmanifest` holds placeholder identity values, and the **Microsoft Store package** workflow applies the Partner Centre identity from these repository secrets (**Settings → Secrets and variables → Actions**) with `build/Set-StoreIdentity.ps1`:
+
+| Secret | Partner Centre value |
+| --- | --- |
+| `STORE_PACKAGE_NAME` | Package/Identity/Name |
+| `STORE_PUBLISHER` | Package/Identity/Publisher (the full `CN=...` value) |
+| `STORE_PUBLISHER_DISPLAY_NAME` | Package/Properties/PublisherDisplayName |
+| `STORE_DISPLAY_NAME` | The reserved app name |
+
+Increment the manifest's four-part version for each release (the fourth part must stay 0), then run the workflow manually or push a `v*` tag. It creates an unsigned x86/x64 `.msixupload` bundle for Partner Centre, where Microsoft signs Store submissions, after checking that both packages carry the identity from the secrets and keep the required `runFullTrust` capability. For a local Store build, set the same names as environment variables, run `build/Set-StoreIdentity.ps1`, build with the workflow's MSBuild arguments, and then run `git checkout -- src/InkMotion/Package.appxmanifest` so the identity is never committed. Do not commit signing certificates.
 
 ## Build
 
