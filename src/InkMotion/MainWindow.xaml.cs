@@ -59,6 +59,8 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         _isInitialising = false;
         Title = "InkMotion";
+        ConfigureTitleBar();
+        ShowWorkspace("Video");
         _playbackTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _playbackTimer.Tick += PlaybackTimer_Tick;
@@ -316,26 +318,41 @@ public sealed partial class MainWindow : Window
 
     private void Workspace_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string workspace })
+        if (sender is FrameworkElement { Tag: string workspace })
         {
-            return;
+            ShowWorkspace(workspace);
         }
+    }
 
-        VideoWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Video");
-        AudioWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Audio");
-        InkWorkspaceButton.Background = WorkspaceButtonBackground(workspace == "Ink");
+    private void ShowWorkspace(string workspace)
+    {
+        SetPageButtonState(VideoWorkspaceButton, workspace == "Video");
+        SetPageButtonState(AudioWorkspaceButton, workspace == "Audio");
+        SetPageButtonState(InkWorkspaceButton, workspace == "Ink");
+        SetPageButtonState(ExportWorkspaceButton, workspace == "Export");
 
+        bool isVideoWorkspace = workspace == "Video";
         bool isAudioWorkspace = workspace == "Audio";
         bool isInkWorkspace = workspace == "Ink";
+        bool isExportWorkspace = workspace == "Export";
         PreviewStage.Visibility = isAudioWorkspace ? Visibility.Collapsed : Visibility.Visible;
         AudioWorkspacePanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        VideoInspectorPanel.Visibility = workspace == "Video" ? Visibility.Visible : Visibility.Collapsed;
+        VideoInspectorPanel.Visibility = isVideoWorkspace ? Visibility.Visible : Visibility.Collapsed;
         AudioInspectorPanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkInspectorPanel.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        VideoTimelineWorkspace.Visibility = workspace == "Video" ? Visibility.Visible : Visibility.Collapsed;
+        ExportInspectorPanel.Visibility = isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoTimelineWorkspace.Visibility = isVideoWorkspace || isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
         AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkSurface.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        PreviewCaption.Text = isInkWorkspace ? "PROGRAM  ·  DRAWING ON INK LAYER" : isExportWorkspace ? "EXPORT PREVIEW" : "PROGRAM";
+        WorkspaceStatusText.Text = workspace switch
+        {
+            "Audio" => "Audio Editor",
+            "Ink" => "Ink Editor",
+            "Export" => "Export",
+            _ => "Video Editor",
+        };
 
         if (isAudioWorkspace)
         {
@@ -345,10 +362,18 @@ public sealed partial class MainWindow : Window
         {
             RenderCurrentInk();
         }
+
+        UpdateTitleBarPassthrough();
     }
 
-    private static SolidColorBrush WorkspaceButtonBackground(bool selected) =>
-        new(selected ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.Transparent);
+    private static void SetPageButtonState(Button button, bool selected)
+    {
+        button.Background = selected
+            ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+            : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        button.Foreground = (Brush)Application.Current.Resources[
+            selected ? "TextOnAccentFillColorPrimaryBrush" : "TextSecondaryBrush"];
+    }
 
     private void LoadAudio(AudioTrackRuntime track, StorageFile file)
     {
@@ -926,7 +951,7 @@ public sealed partial class MainWindow : Window
         if (_audioTracks.Count == 0)
         {
             AudioTrackNamesPanel.Children.Add(CreateAudioTrackName("A1  Audio"));
-            AudioTracksPanel.Children.Add(CreateAudioTrackLane("Add an audio clip with Add audio"));
+            AudioTracksPanel.Children.Add(CreateAudioTrackLane("Add an audio clip with File > Add audio clip…"));
             return;
         }
 
@@ -1248,7 +1273,7 @@ public sealed partial class MainWindow : Window
             SyncAudioTracks(_timelineStartPosition, startPlayback: true);
             SyncVideoPreview(_timelineStartPosition.TotalSeconds, forceSeek: true);
             _playbackTimer.Start();
-            PlayButton.Content = "Pause";
+            SetPlayButtonState(isPlaying: true);
         }
     }
 
@@ -2149,7 +2174,7 @@ public sealed partial class MainWindow : Window
 
         _playbackTimer.Stop();
         _isPlaying = false;
-        PlayButton.Content = "Play";
+        SetPlayButtonState(isPlaying: false);
     }
 
     private void PromoteInterpolatedFrameForEditing()
@@ -2239,8 +2264,9 @@ public sealed partial class MainWindow : Window
             button,
             $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
             $"exposed for {frame.ExposureFrames} output frame(s)");
-        button.Background = new SolidColorBrush(
-            index == _selectedFrameIndex ? Microsoft.UI.Colors.DodgerBlue : Microsoft.UI.Colors.DarkSlateGray);
+        bool isSelected = index == _selectedFrameIndex;
+        button.Background = (Brush)Application.Current.Resources[isSelected ? "AccentFillColorDefaultBrush" : "PanelRaisedBrush"];
+        button.Foreground = (Brush)Application.Current.Resources[isSelected ? "TextOnAccentFillColorPrimaryBrush" : "TextPrimaryBrush"];
     }
 
     private void TimelineFrame_Click(object sender, RoutedEventArgs e)

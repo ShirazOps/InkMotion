@@ -11,6 +11,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
    - Model timeline lanes explicitly for video, audio, ink, images, and text; only expose operations that are wired to real behaviour.
    - Preserve current video playback, cel/ink animation, audio clips, audio tags, project save/load, and undo/redo.
+   - Done: four top-level pages (Video Editor, Audio Editor, Ink Editor, Export) switched from buttons in a custom dark title bar with File and Edit menus; each page shares the preview and transport bar and shows its own inspector and timeline.
    - Done: project version 9 stores ordered video, image, and title tracks with clips (source in/out, fades, opacity, volume, position, scale, title styling); version 8 projects migrate their video into a clip. The timeline supports drag, trim, split, ripple delete, and track hide/lock/mute/reorder with undo/redo. Preview shows the topmost visible video clip; multi-video blending is deferred to the export compositor.
 
 2. **Ink Editor**
@@ -33,8 +34,8 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 
 5. **Windows distribution**
    - Build and test x86 and x64 configurations on Windows runners.
-   - Produce a Store-upload MSIX bundle for both architectures after the Partner Center package identity is associated.
-   - Done: the Store workflow applies the Partner Center identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification.
+   - Produce a Store-upload MSIX bundle for both architectures after the Partner Centre package identity is associated.
+   - Done: the Store workflow applies the Partner Centre identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification.
 
 ## Important decisions and constraints
 
@@ -43,7 +44,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 - Use NAudio for waveform decoding and future Windows audio-processing work rather than introducing custom codec interop.
 - Keep editing non-destructive where practical and retain backward compatibility for `.inkmotion` projects.
 - Support formats and channel layouts according to available Windows codecs and verified processing capabilities; do not claim unsupported 12.1 processing or export.
-- Keep Store identity values in repository secrets, tied to Partner Center; never guess them or commit them or signing certificates.
+- Keep Store identity values in repository secrets, tied to Partner Centre; never guess them or commit them or signing certificates.
 - Add focused tests for project models, timeline operations, migrations, and export-profile validation as each phase lands.
 
 ## Initial implementation increment
