@@ -129,6 +129,21 @@
                         </StackPanel>
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Height="1" Background="#353A44" />
+                        <TextBlock Text="CLIP EDITING" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Foreground="#AAB1BD" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="TrimAudioStartButton" Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio before the playhead" />
+                            <Button x:Name="TrimAudioEndButton" Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio after the playhead" />
+                            <Button x:Name="SplitAudioButton" Content="Split" Click="SplitAudio_Click" IsEnabled="False" ToolTipService.ToolTip="Split the clip at the playhead onto a new track" />
+                        </StackPanel>
+                        <NumberBox x:Name="AudioFadeInBox" Header="Fade in (seconds)" Minimum="0" Maximum="600" SmallChange="0.1" LargeChange="1" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioFade_ValueChanged" IsEnabled="False" />
+                        <NumberBox x:Name="AudioFadeOutBox" Header="Fade out (seconds)" Minimum="0" Maximum="600" SmallChange="0.1" LargeChange="1" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioFade_ValueChanged" IsEnabled="False" />
+                        <TextBlock x:Name="AudioGainText" Text="Clip gain: 0.0 dB" Foreground="#AAB1BD" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="NormaliseAudioButton" Content="Normalise to −1 dBFS" Click="NormaliseAudio_Click" IsEnabled="False" />
+                            <Button x:Name="ResetAudioGainButton" Content="Reset gain" Click="ResetAudioGain_Click" IsEnabled="False" />
+                        </StackPanel>
+                        <Border Height="1" Background="#353A44" />
                         <TextBlock Text="AUDIO TAGS" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioArtistBox" PlaceholderText="Artist" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />

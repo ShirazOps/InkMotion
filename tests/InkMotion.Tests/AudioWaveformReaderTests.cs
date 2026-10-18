@@ -27,6 +27,27 @@ public sealed class AudioWaveformReaderTests
         }
     }
 
+    [Fact]
+    public void ReadPeak_ReadsOnlyTheRequestedClipRange()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.wav");
+        try
+        {
+            short[] samples = new short[16000];
+            samples[100] = 32767;
+            samples[12000] = 8192;
+            WritePcmWave(path, channels: 1, samples);
+
+            Assert.InRange(AudioWaveformReader.ReadPeak(path), 0.99f, 1f);
+            Assert.InRange(AudioWaveformReader.ReadPeak(path, startSeconds: 1, endSeconds: 2), 0.24f, 0.26f);
+            Assert.Equal(0, AudioWaveformReader.ReadPeak(path, startSeconds: 0.5, endSeconds: 1));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static void WritePcmWave(string path, short channels, short[] samples)
     {
         const int sampleRate = 8000;

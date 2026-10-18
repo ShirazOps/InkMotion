@@ -19,7 +19,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 
 3. **Audio Editor**
    - Show decoded waveform previews for audio clips; the first waveform increment uses NAudio and reports decoding failures in the track UI.
-   - Establish a non-destructive multitrack audio model with clip selection, trim, split, and fades.
+   - Establish a non-destructive multitrack audio model with clip selection, trim, split, and fades. Done: clips store source in/out points, fades, and gain; an NAudio playback pipeline applies them, and normalisation targets a -1 dBFS peak.
    - Add normalisation and audio metadata editing/writing, with explicit source-file write actions.
    - Add mono, stereo, and supported surround layouts up to 12.1; provide tempo and pitch processing controls only when a real processing implementation is available.
    - Preserve existing audio playback and project compatibility through versioned migrations.

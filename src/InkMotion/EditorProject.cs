@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 6;
+    public int Version { get; set; } = 7;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
@@ -32,6 +32,11 @@ public sealed class AudioTrackProject
     public int StartFrame { get; set; } = 1;
     public double Volume { get; set; } = 1;
     public bool Muted { get; set; }
+    public double SourceInSeconds { get; set; }
+    public double? SourceOutSeconds { get; set; }
+    public double FadeInSeconds { get; set; }
+    public double FadeOutSeconds { get; set; }
+    public double GainDecibels { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Artist { get; set; } = string.Empty;
     public string Album { get; set; } = string.Empty;
@@ -237,6 +242,10 @@ public static class EditorProjectSerialiser
         if (project.Version == 5)
         {
             MigrateVersionFive(project);
+        }
+        if (project.Version == 6)
+        {
+            project.Version = 7;
         }
 
         EditorProjectValidation.Validate(project);
@@ -569,7 +578,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 6)
+        if (project.Version != 7)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -593,6 +602,11 @@ internal static class EditorProjectValidation
                 track.Year > 9999))
         {
             throw new InvalidDataException("Audio tracks must have a valid start frame, volume, and year.");
+        }
+
+        if (project.AudioTracks.Any(track => !AudioClipEditing.HasValidClipSettings(track)))
+        {
+            throw new InvalidDataException("Audio clips must have valid in and out points, fades, and gain.");
         }
 
         if (project.InkLayers is null || project.InkLayers.Count == 0 ||

@@ -52,4 +52,40 @@ public static class AudioWaveformReader
 
         return peaks;
     }
+
+    public static float ReadPeak(string audioPath, double startSeconds = 0, double? endSeconds = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(audioPath);
+        using var reader = new AudioFileReader(audioPath);
+        int channels = reader.WaveFormat.Channels;
+        int sampleRate = reader.WaveFormat.SampleRate;
+        if (channels < 1 || sampleRate < 1)
+        {
+            throw new InvalidDataException("The audio source has an invalid sample format.");
+        }
+
+        double start = Math.Clamp(startSeconds, 0, reader.TotalTime.TotalSeconds);
+        reader.CurrentTime = TimeSpan.FromSeconds(start);
+        long remainingFrames = endSeconds is double end
+            ? (long)Math.Ceiling(Math.Max(0, end - start) * sampleRate)
+            : long.MaxValue;
+        var buffer = new float[channels * 4096];
+        float peak = 0;
+        int samplesRead;
+        while (remainingFrames > 0 && (samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            int frames = (int)Math.Min(samplesRead / channels, remainingFrames);
+            for (int sample = 0; sample < frames * channels; sample++)
+            {
+                if (float.IsFinite(buffer[sample]))
+                {
+                    peak = Math.Max(peak, Math.Abs(buffer[sample]));
+                }
+            }
+
+            remainingFrames -= frames;
+        }
+
+        return peak;
+    }
 }
