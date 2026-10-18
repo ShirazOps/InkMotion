@@ -34,4 +34,11 @@
     <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
+
+  <!-- Unpackaged publish omits the app's compiled XAML resources, so the window never loads without this. -->
+  <Target Name="PublishAppResourceIndex" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(WindowsPackageType)' == 'None'">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(TargetDir)$(TargetName).pri" RelativePath="$(TargetName).pri" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(TargetDir)$(TargetName).pri')" />
+    </ItemGroup>
+  </Target>
 </Project>

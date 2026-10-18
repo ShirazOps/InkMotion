@@ -53,3 +53,64 @@ jobs:
       - name: Test x64
         if: matrix.platform == 'x64'
         run: dotnet test InkMotion.sln -c Release -p:Platform=${{ matrix.platform }} --no-build --no-restore
+
+      - name: Publish portable build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "InkMotion-win-${{ matrix.platform }}"
+          dotnet publish src\InkMotion\InkMotion.csproj -c Release -p:Platform=${{ matrix.platform }} -r win-${{ matrix.platform }} --self-contained -o $output
+          if (-not (Test-Path (Join-Path $output 'InkMotion.pri'))) { throw "The published app is missing InkMotion.pri." }
+          7z a -tzip -mx=7 "InkMotion-win-${{ matrix.platform }}.zip" "$output\*" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not create the release archive." }
+
+      - name: Upload portable build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: InkMotion-win-${{ matrix.platform }}
+          path: InkMotion-win-${{ matrix.platform }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: github-release
+      cancel-in-progress: false
+    steps:
+      - name: Download portable builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: InkMotion-win-*
+          merge-multiple: true
+          path: release
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: build-${{ github.run_number }}
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            exit 0
+          fi
+          for platform in x64 x86; do
+            mv "release/InkMotion-win-${platform}.zip" "release/InkMotion-${TAG}-win-${platform}.zip"
+          done
+          cat > notes.md <<EOF
+          Automatic build of \`main\` at ${short_sha}, created after the x86 and x64 builds and tests passed.
+
+          Download the zip for your PC (**x64** for most PCs, **x86** for 32-bit Windows), extract it, and run \`InkMotion.exe\`. The builds are self-contained and unsigned, so Windows SmartScreen may ask you to confirm before the first run.
+          EOF
+          gh release create "$TAG" release/*.zip \
+            --target "$GITHUB_SHA" \
+            --title "InkMotion build ${{ github.run_number }} (${short_sha})" \
+            --notes-file notes.md \
+            --latest
