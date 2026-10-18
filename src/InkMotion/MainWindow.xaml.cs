@@ -1489,8 +1489,9 @@ public sealed partial class MainWindow : Window
         }
 
         VideoExportProfile profile = VideoExportProfile.Create(resolution, _frameRate);
+        double megabits = ExportPlanning.GetVideoBitRate(profile, GetSelectedExportCodec()) / 1_000_000d;
         ExportProfileReadout.Text =
-            $"{profile.Width} × {profile.Height} · {profile.FrameRate:0} fps";
+            $"{profile.Width} × {profile.Height} · {profile.FrameRate:0} fps · {megabits:0.#} Mbps";
     }
 
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -1705,66 +1706,24 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
+        float width = (float)sender.ActualWidth;
+        float height = (float)sender.ActualHeight;
         foreach (RenderedStroke renderedStroke in _renderedStrokes)
         {
             List<InkPoint> stroke = renderedStroke.Points;
-            Windows.UI.Color baseColour = ToColour(renderedStroke.Colour ?? stroke[0].BrushColour);
-            var colour = Windows.UI.Color.FromArgb(
-                (byte)(baseColour.A * Math.Clamp(renderedStroke.Opacity, 0, 1)),
-                baseColour.R,
-                baseColour.G,
-                baseColour.B);
-            for (int i = 0; i < stroke.Count; i++)
-            {
-                InkPoint point = stroke[i];
-                float x = (float)(point.X * sender.ActualWidth);
-                float y = (float)(point.Y * sender.ActualHeight);
-                double width = GetInkWidth(point);
-                args.DrawingSession.FillCircle(new Vector2(x, y), (float)(width / 2), colour);
-                if (i == 0)
-                {
-                    continue;
-                }
-
-                InkPoint previous = stroke[i - 1];
-                args.DrawingSession.DrawLine(
-                    new Vector2((float)(previous.X * sender.ActualWidth), (float)(previous.Y * sender.ActualHeight)),
-                    new Vector2(x, y),
-                    colour,
-                    (float)((GetInkWidth(previous) + width) / 2));
-            }
+            Windows.UI.Color colour = TimelineCompositor.WithOpacity(
+                ToColour(renderedStroke.Colour ?? stroke[0].BrushColour),
+                renderedStroke.Opacity);
+            TimelineCompositor.DrawInkStroke(args.DrawingSession, stroke, colour, width, height, 1);
         }
 
         foreach (RenderedText renderedText in _renderedText)
         {
-            InkTextOverlay overlay = renderedText.Overlay;
-            Windows.UI.Color colour = ToColour(overlay.Colour);
-            colour.A = (byte)(colour.A * Math.Clamp(renderedText.Opacity, 0, 1));
-            using var format = new CanvasTextFormat
-            {
-                FontFamily = overlay.FontFamily,
-                FontSize = (float)overlay.FontSize,
-                HorizontalAlignment = CanvasHorizontalAlignment.Center,
-                VerticalAlignment = CanvasVerticalAlignment.Center,
-            };
-            args.DrawingSession.DrawText(
-                overlay.Text,
-                new Vector2(
-                    (float)(overlay.X * sender.ActualWidth),
-                    (float)(overlay.Y * sender.ActualHeight)),
-                colour,
-                format);
+            TimelineCompositor.DrawInkText(args.DrawingSession, renderedText.Overlay, renderedText.Opacity, width, height, 1);
         }
     }
 
-    private static double GetInkWidth(InkPoint point) =>
-        point.BrushWidth * (0.25 + (1.5 * point.Pressure));
-
-    private static Windows.UI.Color ToColour(uint argb) => Windows.UI.Color.FromArgb(
-        (byte)(argb >> 24),
-        (byte)(argb >> 16),
-        (byte)(argb >> 8),
-        (byte)argb);
+    private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
 
     private void InkColour_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

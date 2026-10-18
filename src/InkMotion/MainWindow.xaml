@@ -213,9 +213,22 @@
                             <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
                         </ComboBox>
                         <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Foreground="#AAB1BD" />
-                        <Button Content="Video export encoder not available yet" IsEnabled="False" />
+                        <ComboBox x:Name="ExportCodecSelector" Header="Codec" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="ExportResolution_SelectionChanged">
+                            <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
+                            <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
+                        </ComboBox>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="ExportVideoButton" Content="Export video…" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="ExportVideo_Click" ToolTipService.ToolTip="Render every visible track, ink layer and the audio mix to an MP4 file" />
+                            <Button x:Name="CancelExportButton" Grid.Column="1" Content="Cancel" Visibility="Collapsed" Click="CancelExport_Click" />
+                        </Grid>
+                        <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
+                        <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Foreground="#AAB1BD" Visibility="Collapsed" />
                         <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="The profile selector defines the requested output size and uses the project frame rate. Preview shows the top visible video track with image and title overlays; encoded export is planned." TextWrapping="Wrap" FontSize="12" Foreground="#8992A1" />
+                        <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="#8992A1" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

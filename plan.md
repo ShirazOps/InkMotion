@@ -29,6 +29,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
    - Add export profiles for 720p, 1080p, 1440p, and 4K UHD, using the current project frame rates (12, 24, 30, or 60 fps).
    - Implement export through a Windows-supported encoding pipeline, with clear validation for unsupported codecs, dimensions, or frame-rate combinations.
    - Verify exported media dimensions, frame rate, audio handling, and project-state preservation.
+   - Done: Media Foundation MP4 export (H.264/HEVC, hardware encoder with software fallback) of a Win2D timeline-order composite with ink, a 48 kHz mix into stereo or 5.1 AAC plus a 24-bit multichannel WAV stem for larger layouts, progress, cancellation, and partial-file clean-up; round-trip tests verify dimensions, frame count, channels, and ink pixels.
 
 5. **Windows distribution**
    - Build and test x86 and x64 configurations on Windows runners.
