@@ -24,17 +24,19 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Play and scrub to synchronise the drawing exposure with video playback at 12, 24, 30, or 60 fps. Playback extends the ink timeline as needed.
 - Add audio clips to separate tracks (MP3, WAV, M4A, AAC, WMA, or FLAC). Clips start at the playhead and can be repositioned to it later; each track has independent volume and mute controls.
 - Edit audio clips non-destructively: trim the start or end at the playhead, split a clip at the playhead (the second part moves to a new track below), set fade-in and fade-out lengths, and normalise a clip's peak to -1 dBFS or reset its gain. Waveform lanes show the trimmed range and fade envelope, and edits support undo/redo.
+- Change a clip's tempo (50-200%) without changing its pitch, or shift its pitch by up to 12 semitones either way without changing its length, using a built-in WSOLA time-stretch with preview-quality resampling. Timeline length, trim, split, and fades follow the tempo.
+- Choose a project mix layout: mono, stereo, quad, 5.1, 7.1, 7.1.4, or 12.1 (7.1.4 plus back centre). Sources are mapped into the mix with standard ITU-style downmix and upmix rules, and monitoring folds the mix down to the stereo output device.
 - Edit audio title, artist, album, genre, and year tags for the selected source. Write supported metadata back to the source only with **Write tags to audio file**; project comments remain project-only.
 - Play and scrub audio alongside video, or play an audio-only timeline.
 - Generate in-between frames by interpolating corresponding keyframe strokes, resampling point paths when their point counts differ. Edit an in-between frame to make it a new keyframe.
 - View Video, Ink, multiple Audio, and Effects track lanes, with each audio lane showing its clip and start frame.
-- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, typed overlays, ink layers, exposure lengths, and keyframe tween settings. Versions 1-6 are migrated when opened.
+- Save and reopen `.inkmotion` project files, including linked video and audio paths, audio track settings and tags, frame drawings, typed overlays, ink layers, exposure lengths, and keyframe tween settings. Versions 1-7 are migrated when opened.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
 - Undo and redo completed ink strokes, erasures, frame additions, duplication and deletion, keyframe changes, and ink-layer visibility/opacity changes.
 
 ## Planned editing milestones
 
-The new workspaces organise the current capabilities; they do not yet provide a full nonlinear editing or audio workstation. The Audio Editor displays decoded per-clip waveforms, and supports trim, split, fades, and normalisation; tempo/pitch and surround processing remain planned. Image tracks, video clip trim/split operations, and final media encoding are also planned in separate increments. The export profile selector currently configures requested output dimensions (720p, 1080p, 1440p, or 4K UHD); actual video encoding is not yet available. Export targets are intended to use supported project rates of 12, 24, 30, or 60 fps. Codec, channel-layout, and encoding support will depend on a verified Windows encoding pipeline.
+The new workspaces organise the current capabilities; they do not yet provide a full nonlinear editing or audio workstation. The Audio Editor displays decoded per-clip waveforms, and supports trim, split, fades, normalisation, tempo, pitch, and mix layouts up to 12.1. Multichannel output to surround devices and surround file export remain planned. Image tracks, video clip trim/split operations, and final media encoding are also planned in separate increments. The export profile selector currently configures requested output dimensions (720p, 1080p, 1440p, or 4K UHD); actual video encoding is not yet available. Export targets are intended to use supported project rates of 12, 24, 30, or 60 fps. Codec, channel-layout, and encoding support will depend on a verified Windows encoding pipeline.
 
 Project files store paths to the original video and audio rather than embedding the media. Keep the sources available or relink them with **Open video** and **Add audio** after opening the project.
 
