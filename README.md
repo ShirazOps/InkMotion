@@ -55,6 +55,9 @@ Microsoft Store details are kept out of source control. `src/InkMotion/Package.a
 | `STORE_PUBLISHER` | Package/Identity/Publisher (the full `CN=...` value) |
 | `STORE_PUBLISHER_DISPLAY_NAME` | Package/Properties/PublisherDisplayName |
 | `STORE_DISPLAY_NAME` | The reserved app name |
+| `STORE_PACKAGE_FAMILY_NAME` | Package Family Name (PFN), for reference |
+| `STORE_PACKAGE_SID` | Package SID, for reference |
+| `STORE_APP_ID` | Store ID, for future automatic Store submission |
 
 Increment the manifest's four-part version for each release (the fourth part must stay 0), then run the workflow manually or push a `v*` tag. It creates an unsigned x86/x64 `.msixupload` bundle for Partner Centre, where Microsoft signs Store submissions, after checking that both packages carry the identity from the secrets and keep the required `runFullTrust` capability. For a local Store build, set the same names as environment variables, run `build/Set-StoreIdentity.ps1`, build with the workflow's MSBuild arguments, and then run `git checkout -- src/InkMotion/Package.appxmanifest` so the identity is never committed. Do not commit signing certificates.
 
