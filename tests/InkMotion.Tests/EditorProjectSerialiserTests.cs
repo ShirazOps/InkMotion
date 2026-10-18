@@ -31,7 +31,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":1,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal(0.5, restored.Frames[0].Strokes[0][0].Pressure);
         Assert.Equal(4, restored.Frames[0].Strokes[0][0].BrushWidth);
         Assert.Equal(0xFFFFA500u, restored.Frames[0].Strokes[0][0].BrushColour);
@@ -42,7 +42,15 @@ public sealed class EditorProjectSerialiserTests
     {
         var original = new EditorProject
         {
-            VideoPath = @"C:\Media\scene.mp4",
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Name = "Video 1",
+                    Clips = [new TimelineClipProject { SourcePath = @"C:\Media\scene.mp4", SourceDurationSeconds = 12 }],
+                },
+            ],
             AudioPath = @"C:\Media\music.wav",
             AudioVolume = 0.65,
             AudioMuted = true,
@@ -74,8 +82,9 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             EditorProjectSerialiser.Serialise(original));
 
-        Assert.Equal(8, restored.Version);
-        Assert.Equal(original.VideoPath, restored.VideoPath);
+        Assert.Equal(9, restored.Version);
+        Assert.Null(restored.VideoPath);
+        Assert.Equal(@"C:\Media\scene.mp4", Assert.Single(Assert.Single(restored.VideoTracks).Clips).SourcePath);
         Assert.Equal(original.AudioPath, restored.AudioPath);
         Assert.Equal(original.AudioVolume, restored.AudioVolume);
         Assert.Equal(original.AudioMuted, restored.AudioMuted);
@@ -157,7 +166,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":2,"Frames":[{"Number":1,"Strokes":[[{"X":0.2,"Y":0.3}]]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal("ink-1", restored.ActiveInkLayerId);
         Assert.Equal("Ink 1", Assert.Single(restored.InkLayers).Name);
         Assert.Single(restored.Frames[0].Strokes);
@@ -169,7 +178,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":3,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"IsKeyframe":true,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal(InkInterpolationMode.Linear, restored.Frames[0].InterpolationMode);
     }
 
@@ -179,7 +188,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":4,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal(1, restored.Frames[0].ExposureFrames);
     }
 
@@ -189,7 +198,7 @@ public sealed class EditorProjectSerialiserTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(
             """{"Version":5,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Empty(restored.Frames[0].TextOverlays);
     }
 
@@ -392,7 +401,7 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Theory]
-    [InlineData("""{"Version":9,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":10,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"TextOverlays":[{"Text":"","FontFamily":"Segoe UI","FontSize":24}],"Strokes":[]}],"SelectedFrameIndex":0}""")]
@@ -423,6 +432,12 @@ public sealed class EditorProjectSerialiserTests
     [InlineData("""{"Version":8,"AudioTracks":[{"TempoPercent":49}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":8,"AudioTracks":[{"TempoPercent":201}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":8,"AudioTracks":[{"PitchSemitones":12.5}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoPath":"C:\\Media\\scene.mp4","Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoTracks":[{"Id":"t","Kind":"Video","Name":"Video 1","Clips":[{"Id":"a","SourcePath":"v.mp4","SourceDurationSeconds":10},{"Id":"b","StartFrame":24,"SourcePath":"v.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoTracks":[{"Id":"t","Kind":"Video","Name":"Video 1","Clips":[{"Id":"a","SourcePath":"v.mp4","SourceInSeconds":4,"SourceOutSeconds":3}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoTracks":[{"Id":"t","Kind":"Text","Name":"Title 1","Clips":[{"Id":"a","Text":""}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoTracks":[{"Id":"t","Kind":"Image","Name":"Image 1","Clips":[{"Id":"a","SourcePath":"a.png","Scale":5}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":9,"VideoTracks":[{"Id":"t","Kind":"Text","Name":"Title 1","Clips":[{"Id":"a","Text":"Hi"}]},{"Id":"t","Kind":"Text","Name":"Title 2","Clips":[]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":8,"AudioMixLayout":99,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     public void Deserialise_RejectsInvalidProjectData(string json)
     {
@@ -472,7 +487,7 @@ public sealed class EditorProjectSerialiserTests
             """{"Version":6,"AudioTracks":[{"AudioPath":"C:\\Media\\music.wav","StartFrame":3}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
         AudioTrackProject track = Assert.Single(restored.AudioTracks);
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal(0, track.SourceInSeconds);
         Assert.Null(track.SourceOutSeconds);
         Assert.Equal(0, track.GainDecibels);
@@ -485,9 +500,90 @@ public sealed class EditorProjectSerialiserTests
             """{"Version":7,"AudioTracks":[{"AudioPath":"C:\\Media\\music.wav"}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
 
         AudioTrackProject track = Assert.Single(restored.AudioTracks);
-        Assert.Equal(8, restored.Version);
+        Assert.Equal(9, restored.Version);
         Assert.Equal(AudioChannelLayout.Stereo, restored.AudioMixLayout);
         Assert.Equal(100, track.TempoPercent);
         Assert.Equal(0, track.PitchSemitones);
+    }
+
+    [Fact]
+    public void Deserialise_VersionEightProject_MovesVideoPathToTimelineClip()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":8,"VideoPath":"C:\\Media\\scene.mp4","Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineTrackProject track = Assert.Single(restored.VideoTracks);
+        TimelineClipProject clip = Assert.Single(track.Clips);
+        Assert.Equal(9, restored.Version);
+        Assert.Null(restored.VideoPath);
+        Assert.Equal(TimelineTrackKind.Video, track.Kind);
+        Assert.Equal(@"C:\Media\scene.mp4", clip.SourcePath);
+        Assert.Equal(1, clip.StartFrame);
+        Assert.Null(clip.SourceOutSeconds);
+        Assert.Equal(0, clip.SourceDurationSeconds);
+        Assert.DoesNotContain("VideoPath", EditorProjectSerialiser.Serialise(restored));
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsTimelineTracksAndClips()
+    {
+        var project = new EditorProject
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Id = "titles",
+                    Kind = TimelineTrackKind.Text,
+                    Name = "Title 1",
+                    IsLocked = true,
+                    Clips = [new TimelineClipProject { Id = "t1", Text = "Opening", FontSize = 96, Colour = 0xFFFF0000, Y = 0.8, DurationSeconds = 3, FadeInSeconds = 0.5 }],
+                },
+                new TimelineTrackProject
+                {
+                    Id = "images",
+                    Kind = TimelineTrackKind.Image,
+                    Name = "Image 1",
+                    IsVisible = false,
+                    Clips = [new TimelineClipProject { Id = "i1", SourcePath = @"C:\Media\logo.png", Scale = 0.5, X = 0.9, StartFrame = 25 }],
+                },
+                new TimelineTrackProject
+                {
+                    Id = "video",
+                    Kind = TimelineTrackKind.Video,
+                    Name = "Video 1",
+                    IsMuted = true,
+                    Clips =
+                    [
+                        new TimelineClipProject { Id = "v1", SourcePath = @"C:\Media\a.mp4", SourceInSeconds = 1, SourceOutSeconds = 3, SourceDurationSeconds = 10, Volume = 0.4 },
+                        new TimelineClipProject { Id = "v2", SourcePath = @"C:\Media\b.mp4", StartFrame = 49, SourceDurationSeconds = 4, Opacity = 0.75 },
+                    ],
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+
+        Assert.Collection(
+            restored.VideoTracks,
+            track =>
+            {
+                Assert.Equal(("titles", TimelineTrackKind.Text, true), (track.Id, track.Kind, track.IsLocked));
+                TimelineClipProject clip = Assert.Single(track.Clips);
+                Assert.Equal(("Opening", 96d, 0xFFFF0000u, 0.8, 3d, 0.5), (clip.Text, clip.FontSize, clip.Colour, clip.Y, clip.DurationSeconds, clip.FadeInSeconds));
+            },
+            track =>
+            {
+                Assert.False(track.IsVisible);
+                TimelineClipProject clip = Assert.Single(track.Clips);
+                Assert.Equal((@"C:\Media\logo.png", 0.5, 0.9, 25), (clip.SourcePath, clip.Scale, clip.X, clip.StartFrame));
+            },
+            track =>
+            {
+                Assert.True(track.IsMuted);
+                Assert.Equal(2, track.Clips.Count);
+                Assert.Equal((1d, (double?)3, 10d, 0.4), (track.Clips[0].SourceInSeconds, track.Clips[0].SourceOutSeconds, track.Clips[0].SourceDurationSeconds, track.Clips[0].Volume));
+                Assert.Equal((49, 0.75), (track.Clips[1].StartFrame, track.Clips[1].Opacity));
+            });
     }
 }

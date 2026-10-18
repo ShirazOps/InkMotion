@@ -5,9 +5,12 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 8;
+    public int Version { get; set; } = 9;
     public double FrameRate { get; set; } = 24;
+    /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
+    public List<TimelineTrackProject> VideoTracks { get; set; } = [];
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
@@ -254,6 +257,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = 8;
         }
+        if (project.Version == 8)
+        {
+            MigrateVersionEight(project);
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -312,6 +319,24 @@ public static class EditorProjectSerialiser
     private static void MigrateVersionFive(EditorProject project)
     {
         project.Version = 6;
+    }
+
+    private static void MigrateVersionEight(EditorProject project)
+    {
+        project.VideoTracks ??= [];
+        if (project.VideoTracks.Count == 0)
+        {
+            var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Name = "Video 1" };
+            if (!string.IsNullOrWhiteSpace(project.VideoPath))
+            {
+                track.Clips.Add(new TimelineClipProject { SourcePath = project.VideoPath, StartFrame = 1 });
+            }
+
+            project.VideoTracks.Add(track);
+        }
+
+        project.VideoPath = null;
+        project.Version = 9;
     }
 
 }
@@ -585,7 +610,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 8)
+        if (project.Version != 9)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -619,6 +644,16 @@ internal static class EditorProjectValidation
         if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))
         {
             throw new InvalidDataException("The audio mix layout is not supported.");
+        }
+
+        if (project.VideoPath is not null)
+        {
+            throw new InvalidDataException("Video sources must be stored as timeline clips.");
+        }
+
+        if (VideoTimelineEditing.Validate(project.VideoTracks, project.FrameRate) is string timelineError)
+        {
+            throw new InvalidDataException(timelineError);
         }
 
         if (project.InkLayers is null || project.InkLayers.Count == 0 ||

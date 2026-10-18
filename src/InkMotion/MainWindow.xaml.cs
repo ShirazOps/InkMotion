@@ -34,7 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly List<RenderedText> _renderedText = [];
     private readonly DispatcherQueueTimer _playbackTimer;
-    private readonly Stopwatch _audioOnlyClock = new();
+    private readonly Stopwatch _timelineClock = new();
     private int _selectedFrameIndex;
     private int _playheadFramePosition;
     private int _selectedAudioTrackIndex = -1;
@@ -47,14 +47,12 @@ public sealed partial class MainWindow : Window
     private EditorProject? _pendingEdit;
     private bool _pendingEditChanged;
     private StorageFile? _projectFile;
-    private string? _videoPath;
     private bool _isPlaying;
-    private bool _hasVideo;
     private bool _isEraser;
     private bool _isRestoringProject;
     private bool _isInitialising = true;
-    private TimeSpan _audioOnlyPosition;
-    private TimeSpan _audioOnlyStartPosition;
+    private TimeSpan _timelinePosition;
+    private TimeSpan _timelineStartPosition;
 
     public MainWindow()
     {
@@ -65,6 +63,7 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
+        InitialiseVideoTimeline();
         UpdateSelectedAudioTrack();
         RefreshInkLayers();
         RefreshTimeline();
@@ -216,26 +215,10 @@ public sealed partial class MainWindow : Window
             _projectFile = file;
             UnsavedIndicator.Visibility = Visibility.Collapsed;
 
-            if (!string.IsNullOrWhiteSpace(_videoPath) && File.Exists(_videoPath))
-            {
-                try
-                {
-                    LoadVideo(await StorageFile.GetFileFromPathAsync(_videoPath), markDirty: false);
-                    StatusText.Text = $"Project opened  ·  {file.Name}";
-                }
-                catch (Exception ex) when (IsFileAccessException(ex))
-                {
-                    ClearVideoSource();
-                    StatusText.Text = $"Project opened; source video is unavailable: {ex.Message}";
-                }
-            }
-            else
-            {
-                ClearVideoSource();
-                StatusText.Text = string.IsNullOrWhiteSpace(_videoPath)
-                    ? $"Project opened  ·  {file.Name}"
-                    : "Project opened; source video is missing. Use Open video to relink it.";
-            }
+            string? sourceWarning = await LoadTimelineSourcesAsync();
+            StatusText.Text = sourceWarning is null
+                ? $"Project opened  ·  {file.Name}"
+                : $"Project opened  ·  {sourceWarning}";
 
             if (audioWarning is not null)
             {
@@ -280,30 +263,6 @@ public sealed partial class MainWindow : Window
         {
             StatusText.Text = $"Could not save project: {ex.Message}";
         }
-    }
-
-    private async void OpenVideo_Click(object sender, RoutedEventArgs e)
-    {
-        PausePlayback();
-        FinishActiveEdit();
-        var picker = new FileOpenPicker();
-        foreach (string extension in VideoFileTypes.SupportedExtensions)
-        {
-            picker.FileTypeFilter.Add(extension);
-        }
-
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-
-        StorageFile? file = await picker.PickSingleFileAsync();
-        if (file is null)
-        {
-            return;
-        }
-
-        LoadVideo(file);
-        ClearHistory();
-        SeekToCurrentFrame();
-        StatusText.Text = $"Loaded  ·  {file.Name}";
     }
 
     private async void OpenAudio_Click(object sender, RoutedEventArgs e)
@@ -353,20 +312,6 @@ public sealed partial class MainWindow : Window
         {
             StatusText.Text = $"Could not load audio: {ex.Message}";
         }
-    }
-
-    private void LoadVideo(StorageFile file, bool markDirty = true)
-    {
-        PausePlayback();
-        PreviewPlayer.Source = MediaSource.CreateFromStorageFile(file);
-        PreviewPlayer.MediaPlayer.IsLoopingEnabled = false;
-        EmptyState.Visibility = Visibility.Collapsed;
-        VideoTrackLabel.Text = file.Name;
-        VideoTrackTimelineLabel.Text = file.Name;
-        _videoPath = file.Path;
-        _hasVideo = true;
-        UnsavedIndicator.Visibility = markDirty ? Visibility.Visible : Visibility.Collapsed;
-        SeekToCurrentFrame();
     }
 
     private void Workspace_Click(object sender, RoutedEventArgs e)
@@ -1267,18 +1212,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ClearVideoSource()
-    {
-        PausePlayback();
-        PreviewPlayer.Source = null;
-        EmptyState.Visibility = Visibility.Visible;
-        VideoTrackLabel.Text = "No video loaded";
-        VideoTrackTimelineLabel.Text = "Use Open video to load a source";
-        _hasVideo = false;
-        _isPlaying = false;
-        PlayButton.Content = "Play";
-    }
-
     private static bool IsProjectFileException(Exception exception) =>
         exception is JsonException or InvalidDataException or IOException or
             UnauthorizedAccessException or ArgumentException or System.Runtime.InteropServices.COMException;
@@ -1289,9 +1222,9 @@ public sealed partial class MainWindow : Window
 
     private void Play_Click(object sender, RoutedEventArgs e)
     {
-        if (!_hasVideo && !HasLoadedAudio)
+        if (!HasTimelineClips && !HasLoadedAudio)
         {
-            StatusText.Text = "Open a video or add an audio clip before playback.";
+            StatusText.Text = "Add a video, image, title or audio clip before playback.";
             return;
         }
 
@@ -1302,37 +1235,18 @@ public sealed partial class MainWindow : Window
         else
         {
             FinishActiveEdit();
-            if (_hasVideo)
+            double end = GetPlaybackEndSeconds();
+            if (end > 0 && _timelinePosition.TotalSeconds >= end - (0.5 / _frameRate))
             {
-                TimeSpan duration = PreviewPlayer.MediaPlayer.PlaybackSession.NaturalDuration;
-                if (duration > TimeSpan.Zero &&
-                    PreviewPlayer.MediaPlayer.PlaybackSession.Position >= duration)
-                {
-                    PreviewPlayer.MediaPlayer.PlaybackSession.Position = TimeSpan.Zero;
-                    SelectFrame(0, seekVideo: false);
-                }
-
-                PreviewPlayer.MediaPlayer.Play();
-            }
-
-            else if (GetAudioTimelineEnd() is TimeSpan audioEnd &&
-                     audioEnd > TimeSpan.Zero &&
-                     _audioOnlyPosition >= audioEnd)
-            {
-                _audioOnlyPosition = TimeSpan.Zero;
+                _timelinePosition = TimeSpan.Zero;
                 SelectFrame(0, seekVideo: false);
             }
 
             _isPlaying = true;
-            if (!_hasVideo)
-            {
-                _audioOnlyStartPosition = _audioOnlyPosition;
-                _audioOnlyClock.Restart();
-            }
-
-            SyncAudioTracks(_hasVideo
-                ? PreviewPlayer.MediaPlayer.PlaybackSession.Position
-                : _audioOnlyStartPosition, startPlayback: true);
+            _timelineStartPosition = _timelinePosition;
+            _timelineClock.Restart();
+            SyncAudioTracks(_timelineStartPosition, startPlayback: true);
+            SyncVideoPreview(_timelineStartPosition.TotalSeconds, forceSeek: true);
             _playbackTimer.Start();
             PlayButton.Content = "Pause";
         }
@@ -1550,10 +1464,12 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
+        VideoTimelineEditing.RescaleFrameRate(_videoTracks, _frameRate, rate);
         _frameRate = rate;
         MarkEditChanged();
         CommitEdit();
         SeekToCurrentFrame();
+        RefreshVideoTimeline();
         UpdateExportProfileReadout();
         StatusText.Text = $"Timeline frame rate: {_frameRate:0} fps";
     }
@@ -1925,17 +1841,16 @@ public sealed partial class MainWindow : Window
     private void SeekToCurrentFrame()
     {
         TimeSpan position = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
-        if (_hasVideo)
+        _timelinePosition = position;
+        if (_isPlaying)
         {
-            PreviewPlayer.MediaPlayer.PlaybackSession.Position = position;
-        }
-
-        if (!_hasVideo && !_isPlaying)
-        {
-            _audioOnlyPosition = position;
+            _timelineStartPosition = position;
+            _timelineClock.Restart();
         }
 
         SyncAudioTracks(position, startPlayback: _isPlaying);
+        SyncVideoPreview(position.TotalSeconds, forceSeek: true);
+        InvalidateVideoTimeline();
     }
 
     private void SyncAudioTracks(TimeSpan timelinePosition, bool startPlayback)
@@ -1999,7 +1914,7 @@ public sealed partial class MainWindow : Window
         return new EditorProject
         {
             FrameRate = _frameRate,
-            VideoPath = _videoPath,
+            VideoTracks = _videoTracks.Select(VideoTimelineEditing.Clone).ToList(),
             AudioPath = firstLoadedTrack?.AudioPath,
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
             AudioMuted = firstLoadedTrack?.Muted ?? false,
@@ -2080,7 +1995,7 @@ public sealed partial class MainWindow : Window
         _activeInkLayerId = project.ActiveInkLayerId;
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
-        _videoPath = project.VideoPath;
+        RestoreVideoTracks(project.VideoTracks);
         _audioMixLayout = project.AudioMixLayout;
         RestoreAudioTrackModels(project.AudioTracks);
         UpdateAudioMixLayoutSelector();
@@ -2091,10 +2006,11 @@ public sealed partial class MainWindow : Window
         _pendingEdit = null;
         _pendingEditChanged = false;
         _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
-        _audioOnlyPosition = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
+        _timelinePosition = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         RenderCurrentInk();
         SeekToCurrentFrame();
         RefreshTimeline();
+        RefreshVideoTimeline();
         UpdateFrameStatus();
         UpdateFrameRateSelector();
     }
@@ -2216,32 +2132,18 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        TimeSpan position;
-        if (_hasVideo)
+        TimeSpan position = _timelineStartPosition + _timelineClock.Elapsed;
+        double end = GetPlaybackEndSeconds();
+        if (end > 0 && position.TotalSeconds >= end)
         {
-            var session = PreviewPlayer.MediaPlayer.PlaybackSession;
-            position = session.Position;
-            TimeSpan duration = session.NaturalDuration;
-            if (duration > TimeSpan.Zero && position >= duration)
-            {
-                PausePlayback();
-                return;
-            }
-        }
-        else
-        {
-            position = _audioOnlyStartPosition + _audioOnlyClock.Elapsed;
-            _audioOnlyPosition = position;
-            if (GetAudioTimelineEnd() is TimeSpan duration &&
-                duration > TimeSpan.Zero &&
-                position >= duration)
-            {
-                PausePlayback();
-                return;
-            }
+            _timelinePosition = TimeSpan.FromSeconds(end);
+            PausePlayback();
+            return;
         }
 
+        _timelinePosition = position;
         SyncAudioTracks(position, startPlayback: true);
+        SyncVideoPreview(position.TotalSeconds, forceSeek: false);
         int framePosition = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
         EnsureFrameExists(framePosition);
         _playheadFramePosition = framePosition;
@@ -2250,6 +2152,8 @@ public sealed partial class MainWindow : Window
             seekVideo: false,
             preservePlayhead: true);
         UpdateFrameReadout();
+        CompositionSurface.Invalidate();
+        InvalidateVideoTimeline();
     }
 
     private void EnsureFrameExists(int framePosition)
@@ -2272,20 +2176,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (_hasVideo)
-        {
-            PreviewPlayer.MediaPlayer.Pause();
-        }
-
+        _previewMediaPlayer.Pause();
         foreach (AudioTrackRuntime track in _audioTracks)
         {
             track.Player?.Pause();
         }
 
-        if (!_hasVideo)
+        if (_timelineClock.IsRunning)
         {
-            _audioOnlyPosition = _audioOnlyStartPosition + _audioOnlyClock.Elapsed;
-            _audioOnlyClock.Stop();
+            _timelinePosition = _timelineStartPosition + _timelineClock.Elapsed;
+            _timelineClock.Stop();
         }
 
         _playbackTimer.Stop();
@@ -2426,6 +2326,7 @@ public sealed partial class MainWindow : Window
     {
         _playbackTimer.Stop();
         DisposeAudioTracks();
+        DisposeVideoTimeline();
     }
 
     private sealed class AudioTrackRuntime(AudioTrackProject project) : IDisposable

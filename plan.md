@@ -11,6 +11,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
    - Model timeline lanes explicitly for video, audio, ink, images, and text; only expose operations that are wired to real behaviour.
    - Preserve current video playback, cel/ink animation, audio clips, audio tags, project save/load, and undo/redo.
+   - Done: project version 9 stores ordered video, image, and title tracks with clips (source in/out, fades, opacity, volume, position, scale, title styling); version 8 projects migrate their video into a clip. The timeline supports drag, trim, split, ripple delete, and track hide/lock/mute/reorder with undo/redo. Preview shows the topmost visible video clip; multi-video blending is deferred to the export compositor.
 
 2. **Ink Editor**
    - Give drawing and animation a dedicated workspace with the preview, ink tracks/layers, pen/eraser, colour, size, brush presets, onion skin, tween, and cel-exposure tools.
