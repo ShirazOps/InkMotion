@@ -4,107 +4,194 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:canvas="using:Microsoft.Graphics.Canvas.UI.Xaml"
     Title="InkMotion">
-    <Grid Background="#101216" RequestedTheme="Dark">
+    <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}" RequestedTheme="Dark">
         <Grid.RowDefinitions>
-            <RowDefinition Height="58" />
-            <RowDefinition Height="42" />
+            <RowDefinition Height="48" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="28" />
+            <RowDefinition Height="26" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="18,0" Background="#191C22">
+        <Grid x:Name="AppTitleBar" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,0,0,1" SizeChanged="TitleBar_SizeChanged">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock Text="INKMOTION" FontSize="16" FontWeight="Bold" Foreground="#F2F4F8" VerticalAlignment="Center" />
-                <TextBlock x:Name="UnsavedIndicator" Text="Unsaved" FontSize="11" Foreground="#F3B562" VerticalAlignment="Center" Visibility="Collapsed" />
-                <Button Content="Open project" Click="OpenProject_Click" />
-                <Button Content="Save project" Click="SaveProject_Click" />
+            <StackPanel Orientation="Horizontal" Spacing="10" Padding="14,0,0,0" VerticalAlignment="Center">
+                <Image Source="Assets/Square44x44Logo.png" Width="20" Height="20" />
+                <TextBlock Text="InkMotion" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                <MenuBar x:Name="AppMenuBar" VerticalAlignment="Center">
+                    <MenuBarItem Title="File">
+                        <MenuFlyoutItem Text="Open project…" Click="OpenProject_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
+                            <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="O" /></MenuFlyoutItem.KeyboardAccelerators>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Save project" Click="SaveProject_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                            <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="S" /></MenuFlyoutItem.KeyboardAccelerators>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Add video clip…" Click="AddVideoClip_Click" />
+                        <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
+                        <MenuFlyoutItem Text="Add title" Click="AddTitleClip_Click" />
+                        <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Export…" Tag="Export" Click="Workspace_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEDE1;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuBarItem>
+                    <MenuBarItem Title="Edit">
+                        <MenuFlyoutItem Text="Undo" Click="Undo_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Redo" Click="Redo_Click">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuBarItem>
+                </MenuBar>
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Button x:Name="PlayButton" Content="Play" Click="Play_Click" />
-                <Button Content="Previous frame" Click="PreviousFrame_Click" />
-                <Button Content="Next frame" Click="NextFrame_Click" />
-                <Border Width="1" Height="24" Margin="4,0" Background="#353A44" />
-                <Button x:Name="UndoButton" Content="Undo" Click="Undo_Click" IsEnabled="False" />
-                <Button x:Name="RedoButton" Content="Redo" Click="Redo_Click" IsEnabled="False" />
-                <TextBlock x:Name="FrameReadout" Text="F 001 · C001" MinWidth="112" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#D6DBE5" />
-            </StackPanel>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="Add video" Click="AddVideoClip_Click" ToolTipService.ToolTip="Add a video clip at the playhead" />
-                <Button Content="Add audio" Click="OpenAudio_Click" />
-            </StackPanel>
+
+            <Border x:Name="PageSwitcher" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="3" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="VideoWorkspaceButton" Tag="Video" Style="{StaticResource PageButtonStyle}" Click="Workspace_Click" AutomationProperties.Name="Video Editor">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE714;" FontSize="14" />
+                            <TextBlock Text="Video Editor" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="AudioWorkspaceButton" Tag="Audio" Style="{StaticResource PageButtonStyle}" Click="Workspace_Click" AutomationProperties.Name="Audio Editor">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8D6;" FontSize="14" />
+                            <TextBlock Text="Audio Editor" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="InkWorkspaceButton" Tag="Ink" Style="{StaticResource PageButtonStyle}" Click="Workspace_Click" AutomationProperties.Name="Ink Editor">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xEE56;" FontSize="14" />
+                            <TextBlock Text="Ink Editor" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ExportWorkspaceButton" Tag="Export" Style="{StaticResource PageButtonStyle}" Click="Workspace_Click" AutomationProperties.Name="Export">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xEDE1;" FontSize="14" />
+                            <TextBlock Text="Export" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Column="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition x:Name="CaptionButtonsColumn" Width="140" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="UnsavedIndicator" Grid.Column="1" Text="● Unsaved changes" FontSize="12" Margin="0,0,12,0" Foreground="{StaticResource WarningTextBrush}" VerticalAlignment="Center" Visibility="Collapsed" />
+            </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Background="#14171C" Padding="12,4">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-                <Button x:Name="VideoWorkspaceButton" Content="Video Editor" Tag="Video" Background="#2878D0" Click="Workspace_Click" />
-                <Button x:Name="AudioWorkspaceButton" Content="Audio Editor" Tag="Audio" Click="Workspace_Click" />
-                <Button x:Name="InkWorkspaceButton" Content="Ink Editor" Tag="Ink" Click="Workspace_Click" />
-            </StackPanel>
-        </Grid>
-
-        <Grid Grid.Row="2" Margin="12">
+        <Grid Grid.Row="1" Padding="8" RowSpacing="8" ColumnSpacing="8">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="220" />
+                <RowDefinition Height="3*" MinHeight="276" />
+                <RowDefinition Height="2*" MinHeight="170" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="340" />
             </Grid.ColumnDefinitions>
 
-            <Grid x:Name="PreviewStage" Grid.Row="0" Grid.Column="0" Margin="0,0,12,12" Background="#08090B">
-                <Grid MaxWidth="1100" MaxHeight="620">
-                    <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
-                    <canvas:CanvasControl
-                        x:Name="CompositionSurface"
-                        ClearColor="Transparent"
-                        IsHitTestVisible="False"
-                        CreateResources="CompositionSurface_CreateResources"
-                        Draw="CompositionSurface_Draw" />
-                    <canvas:CanvasControl
-                        x:Name="InkSurface"
-                        ClearColor="Transparent"
-                        Draw="InkSurface_Draw"
-                        PointerPressed="InkSurface_PointerPressed"
-                        PointerMoved="InkSurface_PointerMoved"
-                        PointerReleased="InkSurface_PointerReleased"
-                        PointerCaptureLost="InkSurface_PointerCaptureLost"
-                        SizeChanged="InkSurface_SizeChanged"
-                        Visibility="Collapsed" />
-                    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
-                        <TextBlock Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#E5E8EE" />
-                        <TextBlock Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="#9BA3B2" />
+            <Grid Grid.Row="0" Grid.Column="0" RowSpacing="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="48" />
+                </Grid.RowDefinitions>
+
+                <Grid x:Name="PreviewStage" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
+                    <Grid Margin="12">
+                        <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
+                        <canvas:CanvasControl
+                            x:Name="CompositionSurface"
+                            ClearColor="Transparent"
+                            IsHitTestVisible="False"
+                            CreateResources="CompositionSurface_CreateResources"
+                            Draw="CompositionSurface_Draw" />
+                        <canvas:CanvasControl
+                            x:Name="InkSurface"
+                            ClearColor="Transparent"
+                            Draw="InkSurface_Draw"
+                            PointerPressed="InkSurface_PointerPressed"
+                            PointerMoved="InkSurface_PointerMoved"
+                            PointerReleased="InkSurface_PointerReleased"
+                            PointerCaptureLost="InkSurface_PointerCaptureLost"
+                            SizeChanged="InkSurface_SizeChanged"
+                            Visibility="Collapsed" />
+                        <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
+                            <TextBlock Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                            <TextBlock Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock x:Name="PreviewCaption" Text="PROGRAM" Margin="12,8" VerticalAlignment="Top" FontSize="10" CharacterSpacing="100" Foreground="{StaticResource TextMutedBrush}" IsHitTestVisible="False" />
+                </Grid>
+
+                <Grid x:Name="AudioWorkspacePanel" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="460">
+                        <FontIcon Glyph="&#xE8D6;" FontSize="40" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="Multitrack audio" Style="{StaticResource PanelTitleTextStyle}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Arrange clips on the tracks below. Select a clip to trim, split, fade, normalise, change its tempo or pitch, and edit its tags." Style="{StaticResource HintTextStyle}" TextAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <Button Click="AddAudioTrack_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add audio track" /></StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource AccentButtonStyle}" Click="OpenAudio_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8E5;" FontSize="12" /><TextBlock Text="Add audio clip…" /></StackPanel>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
                 </Grid>
-                <TextBlock Text="PREVIEW  ·  VIDEO + INK" Margin="12" VerticalAlignment="Bottom" FontSize="10" CharacterSpacing="100" Foreground="#727B8A" />
+
+                <Grid x:Name="TransportBar" Grid.Row="1" Style="{StaticResource PanelStyle}" Padding="10,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="FrameReadout" Text="F 001 · C001" VerticalAlignment="Center" FontFamily="Consolas" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                        <Button Style="{StaticResource TransportButtonStyle}" Click="PreviousFrame_Click" ToolTipService.ToolTip="Previous frame" AutomationProperties.Name="Previous frame">
+                            <FontIcon Glyph="&#xE892;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="PlayButton" Width="52" Height="34" Padding="0" CornerRadius="17" Style="{StaticResource AccentButtonStyle}" Click="Play_Click" ToolTipService.ToolTip="Play" AutomationProperties.Name="Play">
+                            <FontIcon x:Name="PlayButtonIcon" Glyph="&#xE768;" FontSize="14" />
+                        </Button>
+                        <Button Style="{StaticResource TransportButtonStyle}" Click="NextFrame_Click" ToolTipService.ToolTip="Next frame" AutomationProperties.Name="Next frame">
+                            <FontIcon Glyph="&#xE893;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+                        <Button x:Name="UndoButton" Style="{StaticResource TransportButtonStyle}" Click="Undo_Click" IsEnabled="False" ToolTipService.ToolTip="Undo" AutomationProperties.Name="Undo">
+                            <FontIcon Glyph="&#xE7A7;" FontSize="14" />
+                        </Button>
+                        <Button x:Name="RedoButton" Style="{StaticResource TransportButtonStyle}" Click="Redo_Click" IsEnabled="False" ToolTipService.ToolTip="Redo" AutomationProperties.Name="Redo">
+                            <FontIcon Glyph="&#xE7A6;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                </Grid>
+
             </Grid>
 
-            <Grid x:Name="AudioWorkspacePanel" Grid.Row="0" Grid.Column="0" Margin="0,0,12,12" Background="#14171C" Visibility="Collapsed">
-                <StackPanel Orientation="Horizontal" Spacing="8" Padding="12">
-                    <Button Content="Add audio track" Click="AddAudioTrack_Click" />
-                    <Button Content="Add audio clip" Click="OpenAudio_Click" />
-                    <TextBlock Text="Manage tracks below; select a clip to edit its mix and tags." VerticalAlignment="Center" Foreground="#9BA3B2" />
-                </StackPanel>
-            </Grid>
-
-            <Grid x:Name="VideoInspectorPanel" Grid.Row="0" Grid.Column="1" Margin="0,0,0,12" Background="#191C22">
+            <Grid x:Name="VideoInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
-                        <TextBlock Text="Video Editor" FontSize="18" FontWeight="SemiBold" Foreground="#F2F4F8" />
-                        <TextBlock Text="PROJECT SETTINGS" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                        <TextBlock Text="Frame rate" Foreground="#AAB1BD" />
+                        <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="PROJECT SETTINGS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="Frame rate" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">
                             <ComboBoxItem Content="12 fps" Tag="12" />
                             <ComboBoxItem Content="24 fps" Tag="24" />
                             <ComboBoxItem Content="30 fps" Tag="30" />
                             <ComboBoxItem Content="60 fps" Tag="60" />
                         </ComboBox>
-                        <TextBlock Text="ADD AT PLAYHEAD" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="ADD AT PLAYHEAD" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -115,8 +202,8 @@
                             <Button Grid.Column="1" Content="Image" HorizontalAlignment="Stretch" Click="AddImageClip_Click" ToolTipService.ToolTip="Add a still image" />
                             <Button Grid.Column="2" Content="Title" HorizontalAlignment="Stretch" Click="AddTitleClip_Click" ToolTipService.ToolTip="Add a text title" />
                         </Grid>
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="TRACK" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="TRACK" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="TimelineTrackNameBox" Header="Name" MaxLength="64" LostFocus="TimelineTrackName_LostFocus" KeyDown="TimelineTrackName_KeyDown" />
                         <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>
@@ -144,9 +231,9 @@
                                 <FontIcon Glyph="&#xE74D;" FontSize="12" />
                             </Button>
                         </Grid>
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="CLIP" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                        <TextBlock x:Name="SelectedClipLabel" Text="No clip selected" TextWrapping="Wrap" Foreground="#AAB1BD" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="CLIP" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock x:Name="SelectedClipLabel" Text="No clip selected" TextWrapping="Wrap" Style="{StaticResource LabelTextStyle}" />
                         <Grid x:Name="ClipActionsGrid" ColumnSpacing="6" RowSpacing="6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -204,15 +291,23 @@
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipYSlider" Header="Vertical position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                         </StackPanel>
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="EXPORT PROFILE" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <Grid x:Name="ExportInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Padding="18" Spacing="12">
+                        <TextBlock Text="Export" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="Render the whole timeline to an MP4 file at the project frame rate." Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="RESOLUTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="ExportResolutionSelector" SelectedIndex="1" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="720p · 1280 × 720" Tag="P720" />
                             <ComboBoxItem Content="1080p · 1920 × 1080" Tag="P1080" />
                             <ComboBoxItem Content="1440p · 2560 × 1440" Tag="P1440" />
                             <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
                         </ComboBox>
-                        <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Foreground="#AAB1BD" />
+                        <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="ExportCodecSelector" Header="Codec" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
                             <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
@@ -226,18 +321,18 @@
                             <Button x:Name="CancelExportButton" Grid.Column="1" Content="Cancel" Visibility="Collapsed" Click="CancelExport_Click" />
                         </Grid>
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
-                        <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Foreground="#AAB1BD" Visibility="Collapsed" />
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="#8992A1" />
+                        <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="AudioInspectorPanel" Grid.Row="0" Grid.Column="1" Margin="0,0,0,12" Background="#191C22" Visibility="Collapsed">
+            <Grid x:Name="AudioInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
-                        <TextBlock Text="Audio Editor" FontSize="18" FontWeight="SemiBold" Foreground="#F2F4F8" />
-                        <TextBlock Text="PROJECT MIX" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="Audio Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="PROJECT MIX" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="AudioMixLayoutSelector" Header="Channel layout" SelectedIndex="1" SelectionChanged="AudioMixLayout_SelectionChanged" HorizontalAlignment="Stretch">
                             <ComboBoxItem Content="Mono (1.0)" Tag="Mono" />
                             <ComboBoxItem Content="Stereo (2.0)" Tag="Stereo" />
@@ -247,18 +342,18 @@
                             <ComboBoxItem Content="7.1.4 immersive" Tag="Surround714" />
                             <ComboBoxItem Content="12.1 immersive" Tag="Surround121" />
                         </ComboBox>
-                        <TextBlock x:Name="AudioMixLayoutText" Text="2 channels · L R" TextWrapping="Wrap" FontSize="12" Foreground="#AAB1BD" />
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="MIXER" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                        <TextBlock x:Name="AudioTrackLabel" Text="No audio track selected" TextWrapping="Wrap" Foreground="#AAB1BD" />
+                        <TextBlock x:Name="AudioMixLayoutText" Text="2 channels · L R" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="MIXER" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock x:Name="AudioTrackLabel" Text="No audio track selected" TextWrapping="Wrap" Style="{StaticResource LabelTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleButton x:Name="AudioMuteButton" Content="Mute" Click="AudioMute_Click" />
                             <Slider x:Name="AudioVolumeSlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="AudioVolume_Changed" />
                         </StackPanel>
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="CLIP EDITING" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
-                        <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Foreground="#AAB1BD" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="TrimAudioStartButton" Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio before the playhead" />
                             <Button x:Name="TrimAudioEndButton" Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio after the playhead" />
@@ -269,42 +364,46 @@
                         <NumberBox x:Name="AudioTempoBox" Header="Tempo (%) — keeps pitch" Minimum="50" Maximum="200" SmallChange="1" LargeChange="10" Value="100" SpinButtonPlacementMode="Compact" ValueChanged="AudioTempoPitch_ValueChanged" IsEnabled="False" />
                         <NumberBox x:Name="AudioPitchBox" Header="Pitch (semitones) — keeps tempo" Minimum="-12" Maximum="12" SmallChange="1" LargeChange="12" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioTempoPitch_ValueChanged" IsEnabled="False" />
                         <Button x:Name="ResetAudioTempoPitchButton" Content="Reset tempo and pitch" Click="ResetAudioTempoPitch_Click" IsEnabled="False" />
-                        <TextBlock x:Name="AudioGainText" Text="Clip gain: 0.0 dB" Foreground="#AAB1BD" />
+                        <TextBlock x:Name="AudioGainText" Text="Clip gain: 0.0 dB" Style="{StaticResource LabelTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="NormaliseAudioButton" Content="Normalise to −1 dBFS" Click="NormaliseAudio_Click" IsEnabled="False" />
                             <Button x:Name="ResetAudioGainButton" Content="Reset gain" Click="ResetAudioGain_Click" IsEnabled="False" />
                         </StackPanel>
-                        <Border Height="1" Background="#353A44" />
-                        <TextBlock Text="AUDIO TAGS" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioArtistBox" PlaceholderText="Artist" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioAlbumBox" PlaceholderText="Album" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioGenreBox" PlaceholderText="Genre" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioYearBox" PlaceholderText="Year" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioCommentsBox" PlaceholderText="Project comments" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
-                        <TextBlock Text="Comments stay in the project. Other supported tags are written only when requested." TextWrapping="Wrap" FontSize="11" Foreground="#727B8A" />
+                        <TextBlock Text="Comments stay in the project. Other supported tags are written only when requested." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource TextMutedBrush}" />
                         <Button x:Name="WriteAudioTagsButton" Content="Write tags to audio file" Click="WriteAudioTags_Click" IsEnabled="False" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="InkInspectorPanel" Grid.Row="0" Grid.Column="1" Margin="0,0,0,12" Background="#191C22" Visibility="Collapsed">
+            <Grid x:Name="InkInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
-                        <TextBlock Text="Ink Editor" FontSize="18" FontWeight="SemiBold" Foreground="#F2F4F8" />
+                        <TextBlock Text="Ink Editor" Style="{StaticResource PanelTitleTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="Pen" Click="SelectPen_Click" />
-                            <Button Content="Eraser" Click="SelectEraser_Click" />
+                            <Button Click="SelectPen_Click" ToolTipService.ToolTip="Draw with the pen" AutomationProperties.Name="Pen">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xEE56;" FontSize="14" /><TextBlock Text="Pen" /></StackPanel>
+                            </Button>
+                            <Button Click="SelectEraser_Click" ToolTipService.ToolTip="Erase whole strokes" AutomationProperties.Name="Eraser">
+                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE75C;" FontSize="14" /><TextBlock Text="Eraser" /></StackPanel>
+                            </Button>
                         </StackPanel>
-                        <TextBlock Text="INK LAYERS" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Opacity" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                            <TextBlock Text="Opacity" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkLayerOpacitySlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="InkLayerOpacity_Changed" LostFocus="InkLayerOpacity_LostFocus" />
                         </StackPanel>
-                        <TextBlock Text="BRUSH" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                             <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                             <ComboBoxItem Content="White" Tag="FFFFFFFF" />
@@ -313,12 +412,12 @@
                             <ComboBoxItem Content="Lime" Tag="FF7CFC00" />
                         </ComboBox>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Pen size" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                            <TextBlock Text="Pen size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
                         </StackPanel>
-                        <TextBlock Text="TEXT OVERLAY" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
-                        <TextBlock Text="Font" Foreground="#AAB1BD" />
+                        <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="InkTextFontSelector" SelectedIndex="0">
                             <ComboBoxItem Content="Segoe UI" Tag="Segoe UI" />
                             <ComboBoxItem Content="Arial" Tag="Arial" />
@@ -327,42 +426,42 @@
                             <ComboBoxItem Content="Consolas" Tag="Consolas" />
                         </ComboBox>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="Text size" VerticalAlignment="Center" Foreground="#AAB1BD" />
+                            <TextBlock Text="Text size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <NumberBox x:Name="InkTextSizeBox" Minimum="6" Maximum="512" Value="48" SmallChange="2" SpinButtonPlacementMode="Compact" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Add text to cel" Click="AddInkText_Click" />
                             <Button Content="Remove last text" Click="RemoveInkText_Click" />
                         </StackPanel>
-                        <TextBlock Text="ANIMATION" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show the adjacent animation cels as translucent guides." Click="OnionSkin_Click" />
                         <Slider x:Name="OnionSkinOpacitySlider" Minimum="0.05" Maximum="0.6" Value="0.25" StepFrequency="0.05" ValueChanged="OnionSkinOpacity_Changed" />
-                        <TextBlock Text="Tween curve" Foreground="#AAB1BD" />
+                        <TextBlock Text="Tween curve" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="InkInterpolationSelector" SelectedIndex="0" SelectionChanged="InkInterpolation_SelectionChanged">
                             <ComboBoxItem Content="Linear" Tag="Linear" />
                             <ComboBoxItem Content="Ease in" Tag="EaseIn" />
                             <ComboBoxItem Content="Ease out" Tag="EaseOut" />
                             <ComboBoxItem Content="Ease in and out" Tag="EaseInOut" />
                         </ComboBox>
-                        <TextBlock Text="Choose the motion curve from this keyframe to the next." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
-                        <TextBlock x:Name="KeyframeStatus" Text="No keyframe on this cel" TextWrapping="Wrap" Foreground="#AAB1BD" />
-                        <TextBlock Text="CEL EXPOSURE" FontSize="10" CharacterSpacing="100" Foreground="#9098A7" />
+                        <TextBlock Text="Choose the motion curve from this keyframe to the next." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock x:Name="KeyframeStatus" Text="No keyframe on this cel" TextWrapping="Wrap" Style="{StaticResource LabelTextStyle}" />
+                        <TextBlock Text="CEL EXPOSURE" Style="{StaticResource SectionHeaderTextStyle}" />
                         <NumberBox x:Name="ExposureFramesBox" Minimum="1" Maximum="999" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExposureFrames_Changed" LostFocus="ExposureFrames_LostFocus" />
-                        <TextBlock Text="Output frames to hold this cel." FontSize="11" TextWrapping="Wrap" Foreground="#727B8A" />
+                        <TextBlock Text="Output frames to hold this cel." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="VideoTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Background="#191C22" Padding="12,8,12,8">
+            <Grid x:Name="VideoTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12,8,12,8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
-                    <TextBlock Text="VIDEO TIMELINE" FontSize="10" CharacterSpacing="100" FontWeight="SemiBold" Foreground="#AAB1BD" VerticalAlignment="Center" />
-                    <TextBlock Text="Zoom" FontSize="11" Foreground="#8F99AA" VerticalAlignment="Center" />
+                    <TextBlock Text="VIDEO TIMELINE" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
+                    <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
-                    <TextBlock x:Name="VideoTimelineHint" Text="Click a clip to select it, drag to move it, click the ruler to move the playhead." FontSize="11" Foreground="#727B8A" VerticalAlignment="Center" />
+                    <TextBlock x:Name="VideoTimelineHint" Text="Click a clip to select it, drag to move it, click the ruler to move the playhead." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
@@ -376,7 +475,7 @@
                                 x:Name="VideoTimelineCanvas"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Top"
-                                ClearColor="#15181D"
+                                ClearColor="#181B21"
                                 RegionsInvalidated="VideoTimelineCanvas_RegionsInvalidated"
                                 PointerPressed="VideoTimelineCanvas_PointerPressed"
                                 PointerMoved="VideoTimelineCanvas_PointerMoved"
@@ -387,7 +486,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="AudioTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Background="#191C22" Padding="12" Visibility="Collapsed">
+            <Grid x:Name="AudioTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12" Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="*" />
@@ -398,33 +497,37 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="InkTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Background="#191C22" Padding="12" Visibility="Collapsed">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Spacing="6">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="INK CELS" FontSize="10" CharacterSpacing="100" FontWeight="SemiBold" Foreground="#AAB1BD" VerticalAlignment="Center" />
-                        <Button Content="+" ToolTipService.ToolTip="Add cel" Click="AddFrame_Click" />
-                        <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
-                        <Button Content="Duplicate cel" Click="DuplicateFrame_Click" />
-                        <Button x:Name="DeleteFrameButton" Content="Delete cel" Click="DeleteFrame_Click" IsEnabled="False" />
-                    </StackPanel>
+            <Grid x:Name="InkTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12" RowSpacing="10" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="INK CELS" Style="{StaticResource SectionHeaderTextStyle}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <Button Click="AddFrame_Click" ToolTipService.ToolTip="Add a cel after the current one" AutomationProperties.Name="Add cel">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add cel" /></StackPanel>
+                    </Button>
+                    <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
+                    <Button Click="DuplicateFrame_Click" AutomationProperties.Name="Duplicate cel">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" FontSize="12" /><TextBlock Text="Duplicate cel" /></StackPanel>
+                    </Button>
+                    <Button x:Name="DeleteFrameButton" Click="DeleteFrame_Click" IsEnabled="False" AutomationProperties.Name="Delete cel">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74D;" FontSize="12" /><TextBlock Text="Delete cel" /></StackPanel>
+                    </Button>
                 </StackPanel>
-                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Grid.Row="1" VerticalAlignment="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
                     <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="38" />
                 </ScrollViewer>
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="3" Padding="12,0" Background="#121419">
+        <Grid Grid.Row="2" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock x:Name="StatusText" Text="Ready  ·  24 fps" FontSize="11" Foreground="#8992A1" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="1" Text="INKMOTION" FontSize="10" CharacterSpacing="80" Foreground="#5F6877" VerticalAlignment="Center" />
+            <TextBlock x:Name="StatusText" Text="Ready  ·  24 fps" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+            <TextBlock x:Name="WorkspaceStatusText" Grid.Column="1" Text="Video Editor" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
         </Grid>
     </Grid>
 </Window>
