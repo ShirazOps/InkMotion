@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
     private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly List<RenderedText> _renderedText = [];
     private readonly DispatcherQueueTimer _playbackTimer;
@@ -599,6 +600,9 @@ public sealed partial class MainWindow : Window
         SplitAudioButton.IsEnabled = hasClip;
         AudioFadeInBox.IsEnabled = hasClip;
         AudioFadeOutBox.IsEnabled = hasClip;
+        AudioTempoBox.IsEnabled = hasClip;
+        AudioPitchBox.IsEnabled = hasClip;
+        ResetAudioTempoPitchButton.IsEnabled = hasClip;
         NormaliseAudioButton.IsEnabled = hasClip;
         ResetAudioGainButton.IsEnabled = hasClip;
         if (!hasSelection)
@@ -609,6 +613,8 @@ public sealed partial class MainWindow : Window
             AudioGainText.Text = "Clip gain: 0.0 dB";
             AudioFadeInBox.Value = 0;
             AudioFadeOutBox.Value = 0;
+            AudioTempoBox.Value = 100;
+            AudioPitchBox.Value = 0;
             AudioVolumeSlider.Value = 1;
             AudioMuteButton.IsChecked = false;
             AudioTitleBox.Text = string.Empty;
@@ -631,11 +637,15 @@ public sealed partial class MainWindow : Window
         AudioMuteButton.IsChecked = track.Project.Muted;
         AudioFadeInBox.Value = track.Project.FadeInSeconds;
         AudioFadeOutBox.Value = track.Project.FadeOutSeconds;
+        AudioTempoBox.Value = track.Project.TempoPercent;
+        AudioPitchBox.Value = track.Project.PitchSemitones;
         AudioGainText.Text = $"Clip gain: {track.Project.GainDecibels:+0.0;-0.0;0.0} dB";
         AudioClipRangeText.Text = track.Player is AudioClipPlayer player
             ? $"Source {FormatSeconds(track.Project.SourceInSeconds)} – " +
               $"{FormatSeconds(AudioClipEditing.GetClipEnd(track.Project.SourceInSeconds, track.Project.SourceOutSeconds, player.DurationSeconds))}" +
-              $" · {player.ChannelCount} channel{(player.ChannelCount == 1 ? string.Empty : "s")}"
+              $" · {FormatSeconds(AudioClipEditing.GetTimelineDuration(track.Project, player.DurationSeconds))} on the timeline" +
+              $" · {player.ChannelCount} channel{(player.ChannelCount == 1 ? string.Empty : "s")} ({AudioChannelLayouts.DescribeSource(player.ChannelCount)})" +
+              $" mixed to {AudioChannelLayouts.Get(_audioMixLayout).DisplayName}"
             : track.LoadError ?? "No clip on this track";
         AudioTitleBox.Text = track.Project.Title;
         AudioArtistBox.Text = track.Project.Artist;
@@ -705,7 +715,7 @@ public sealed partial class MainWindow : Window
         }
 
         CommitEdit();
-        track.Player?.Update(track.Project);
+        track.Player?.Update(track.Project, _audioMixLayout);
         SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
@@ -843,6 +853,124 @@ public sealed partial class MainWindow : Window
             "Clip gain reset to 0 dB.",
             "Clip gain is already 0 dB.");
 
+    private void AudioTempoPitch_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject || !TryGetSelectedAudioClip(out AudioTrackRuntime? track))
+        {
+            return;
+        }
+
+        bool isTempo = ReferenceEquals(sender, AudioTempoBox);
+        double value = double.IsFinite(args.NewValue) ? args.NewValue : isTempo ? 100 : 0;
+        value = isTempo
+            ? Math.Clamp(value, AudioClipEditing.MinimumTempoPercent, AudioClipEditing.MaximumTempoPercent)
+            : Math.Clamp(Math.Round(value * 10) / 10, AudioClipEditing.MinimumPitchSemitones, AudioClipEditing.MaximumPitchSemitones);
+        double current = isTempo ? track.Project.TempoPercent : track.Project.PitchSemitones;
+        if (Math.Abs(current - value) < 0.0001)
+        {
+            if (!double.IsFinite(args.NewValue) || Math.Abs(args.NewValue - value) > 0.0001)
+            {
+                UpdateSelectedAudioTrack();
+            }
+
+            return;
+        }
+
+        ApplyAudioClipEdit(
+            clip =>
+            {
+                if (isTempo)
+                {
+                    clip.Project.TempoPercent = value;
+                    AudioClipEditing.ClampFades(clip.Project, clip.SourceDurationSeconds);
+                }
+                else
+                {
+                    clip.Project.PitchSemitones = value;
+                }
+
+                return true;
+            },
+            isTempo ? $"Tempo set to {value:0.#}% without changing pitch." : $"Pitch set to {value:+0.#;-0.#;0} semitones without changing tempo.",
+            string.Empty);
+    }
+
+    private void ResetAudioTempoPitch_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(
+            track =>
+            {
+                if (track.Project.TempoPercent == 100 && track.Project.PitchSemitones == 0)
+                {
+                    return false;
+                }
+
+                track.Project.TempoPercent = 100;
+                track.Project.PitchSemitones = 0;
+                AudioClipEditing.ClampFades(track.Project, track.SourceDurationSeconds);
+                return true;
+            },
+            "Tempo and pitch reset.",
+            "Tempo and pitch are already at their original values.");
+
+    private void AudioMixLayout_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            AudioMixLayoutSelector.SelectedItem is not ComboBoxItem { Tag: string tag } ||
+            !Enum.TryParse(tag, out AudioChannelLayout layout) ||
+            layout == _audioMixLayout)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _audioMixLayout = layout;
+        MarkEditChanged();
+        CommitEdit();
+        foreach (AudioTrackRuntime track in _audioTracks)
+        {
+            track.Player?.Update(track.Project, _audioMixLayout);
+        }
+
+        UpdateAudioMixLayoutSelector();
+        UpdateSelectedAudioTrack();
+        StatusText.Text = $"Project mix layout set to {AudioChannelLayouts.Get(layout).DisplayName}. Monitoring folds it down to stereo.";
+    }
+
+    private void UpdateAudioMixLayoutSelector()
+    {
+        bool wasRestoringProject = _isRestoringProject;
+        _isRestoringProject = true;
+        AudioMixLayoutSelector.SelectedItem = AudioMixLayoutSelector.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag as string == _audioMixLayout.ToString());
+        _isRestoringProject = wasRestoringProject;
+        AudioChannelLayoutInfo info = AudioChannelLayouts.Get(_audioMixLayout);
+        AudioMixLayoutText.Text =
+            $"{info.ChannelCount} channel{(info.ChannelCount == 1 ? string.Empty : "s")} · " +
+            string.Join(" ", info.Speakers.Select(SpeakerAbbreviation)) +
+            (info.ChannelCount > 2 ? " · monitored as a stereo fold-down" : string.Empty);
+    }
+
+    private static string SpeakerAbbreviation(AudioSpeaker speaker) => speaker switch
+    {
+        AudioSpeaker.FrontLeft => "L",
+        AudioSpeaker.FrontRight => "R",
+        AudioSpeaker.FrontCentre => "C",
+        AudioSpeaker.LowFrequency => "LFE",
+        AudioSpeaker.BackLeft => "Lb",
+        AudioSpeaker.BackRight => "Rb",
+        AudioSpeaker.BackCentre => "Cb",
+        AudioSpeaker.SideLeft => "Ls",
+        AudioSpeaker.SideRight => "Rs",
+        AudioSpeaker.TopFrontLeft => "Ltf",
+        AudioSpeaker.TopFrontRight => "Rtf",
+        AudioSpeaker.TopBackLeft => "Ltb",
+        AudioSpeaker.TopBackRight => "Rtb",
+        _ => speaker.ToString(),
+    };
+
     private static string FormatSeconds(double seconds) =>
         double.IsFinite(seconds) ? TimeSpan.FromSeconds(seconds).ToString(@"m\:ss\.ff") : "end";
 
@@ -970,6 +1098,7 @@ public sealed partial class MainWindow : Window
                 Math.Max(1, columnWidth * 0.7f));
         }
 
+        clipDuration = AudioClipEditing.GetTimelineDuration(track.Project, sourceDuration);
         if (clipDuration <= 0 || !double.IsFinite(clipDuration))
         {
             return;
@@ -1110,7 +1239,7 @@ public sealed partial class MainWindow : Window
         _selectedAudioTrackIndex = -1;
     }
 
-    private static void OpenAudioPlayer(AudioTrackRuntime track)
+    private void OpenAudioPlayer(AudioTrackRuntime track)
     {
         track.Dispose();
         track.LoadError = null;
@@ -1128,7 +1257,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            track.Player = new AudioClipPlayer(path, track.Project);
+            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout);
         }
         catch (Exception ex) when (
             IsFileAccessException(ex) ||
@@ -1819,7 +1948,7 @@ public sealed partial class MainWindow : Window
             }
 
             double clipOffset = timelinePosition.TotalSeconds - AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate);
-            double clipDuration = AudioClipEditing.GetClipDuration(track.Project, player.DurationSeconds);
+            double clipDuration = AudioClipEditing.GetTimelineDuration(track.Project, player.DurationSeconds);
             if (clipOffset < 0 || clipOffset >= clipDuration)
             {
                 player.Pause();
@@ -1831,7 +1960,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
-            double sourcePosition = track.Project.SourceInSeconds + clipOffset;
+            double sourcePosition = AudioClipEditing.TimelineToSourceSeconds(track.Project, clipOffset);
             if (startPlayback)
             {
                 if (!player.IsPlaying || Math.Abs(player.AudiblePositionSeconds - sourcePosition) > 0.25)
@@ -1857,7 +1986,7 @@ public sealed partial class MainWindow : Window
             .Where(track => track.HasSource && track.SourceDurationSeconds > 0)
             .Select(track =>
                 AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) +
-                AudioClipEditing.GetClipDuration(track.Project, track.SourceDurationSeconds))
+                AudioClipEditing.GetTimelineDuration(track.Project, track.SourceDurationSeconds))
             .Where(end => end > 0)
             .ToArray();
         return ends.Length == 0 ? null : TimeSpan.FromSeconds(ends.Max());
@@ -1875,6 +2004,7 @@ public sealed partial class MainWindow : Window
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
             AudioMuted = firstLoadedTrack?.Muted ?? false,
             AudioTracks = tracks,
+            AudioMixLayout = _audioMixLayout,
             InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
             ActiveInkLayerId = _activeInkLayerId,
             SelectedFrameIndex = _selectedFrameIndex,
@@ -1951,7 +2081,9 @@ public sealed partial class MainWindow : Window
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         _videoPath = project.VideoPath;
+        _audioMixLayout = project.AudioMixLayout;
         RestoreAudioTrackModels(project.AudioTracks);
+        UpdateAudioMixLayoutSelector();
         RefreshInkLayers();
         _isRestoringProject = false;
         _activePointerId = null;
@@ -1979,7 +2111,7 @@ public sealed partial class MainWindow : Window
             {
                 AudioTrackRuntime reused = previousTracks[index];
                 reused.Project = CloneAudioTrack(project);
-                reused.Player?.Update(reused.Project);
+                reused.Player?.Update(reused.Project, _audioMixLayout);
                 restoredTracks.Add(reused);
             }
             else
@@ -2271,7 +2403,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Volume = e.NewValue;
-        track.Player?.Update(track.Project);
+        track.Player?.Update(track.Project, _audioMixLayout);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
@@ -2286,7 +2418,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Muted = AudioMuteButton.IsChecked == true;
-        track.Player?.Update(track.Project);
+        track.Player?.Update(track.Project, _audioMixLayout);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 

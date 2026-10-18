@@ -5,13 +5,14 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 7;
+    public int Version { get; set; } = 8;
     public double FrameRate { get; set; } = 24;
     public string? VideoPath { get; set; }
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
     public List<AudioTrackProject> AudioTracks { get; set; } = [];
+    public AudioChannelLayout AudioMixLayout { get; set; } = AudioChannelLayout.Stereo;
     public List<InkLayerProject> InkLayers { get; set; } = [new()];
     public string ActiveInkLayerId { get; set; } = "ink-1";
     public int SelectedFrameIndex { get; set; }
@@ -37,6 +38,8 @@ public sealed class AudioTrackProject
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
     public double GainDecibels { get; set; }
+    public double TempoPercent { get; set; } = 100;
+    public double PitchSemitones { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Artist { get; set; } = string.Empty;
     public string Album { get; set; } = string.Empty;
@@ -246,6 +249,10 @@ public static class EditorProjectSerialiser
         if (project.Version == 6)
         {
             project.Version = 7;
+        }
+        if (project.Version == 7)
+        {
+            project.Version = 8;
         }
 
         EditorProjectValidation.Validate(project);
@@ -578,7 +585,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 7)
+        if (project.Version != 8)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -606,7 +613,12 @@ internal static class EditorProjectValidation
 
         if (project.AudioTracks.Any(track => !AudioClipEditing.HasValidClipSettings(track)))
         {
-            throw new InvalidDataException("Audio clips must have valid in and out points, fades, and gain.");
+            throw new InvalidDataException("Audio clips must have valid in and out points, fades, gain, tempo, and pitch.");
+        }
+
+        if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))
+        {
+            throw new InvalidDataException("The audio mix layout is not supported.");
         }
 
         if (project.InkLayers is null || project.InkLayers.Count == 0 ||

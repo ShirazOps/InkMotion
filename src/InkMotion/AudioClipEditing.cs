@@ -38,6 +38,10 @@ public static class AudioClipEditing
     public const double MaximumGainDecibels = 24;
     public const double MaximumFadeSeconds = 600;
     public const double NormalisationTargetDecibels = -1;
+    public const double MinimumTempoPercent = 50;
+    public const double MaximumTempoPercent = 200;
+    public const double MinimumPitchSemitones = -12;
+    public const double MaximumPitchSemitones = 12;
 
     public static bool HasValidClipSettings(AudioTrackProject track) =>
         double.IsFinite(track.SourceInSeconds) &&
@@ -47,7 +51,11 @@ public static class AudioClipEditing
         IsValidFade(track.FadeInSeconds) &&
         IsValidFade(track.FadeOutSeconds) &&
         double.IsFinite(track.GainDecibels) &&
-        track.GainDecibels is >= MinimumGainDecibels and <= MaximumGainDecibels;
+        track.GainDecibels is >= MinimumGainDecibels and <= MaximumGainDecibels &&
+        double.IsFinite(track.TempoPercent) &&
+        track.TempoPercent is >= MinimumTempoPercent and <= MaximumTempoPercent &&
+        double.IsFinite(track.PitchSemitones) &&
+        track.PitchSemitones is >= MinimumPitchSemitones and <= MaximumPitchSemitones;
 
     public static double GetClipEnd(double sourceInSeconds, double? sourceOutSeconds, double sourceDurationSeconds)
     {
@@ -63,6 +71,14 @@ public static class AudioClipEditing
     public static double GetClipDuration(AudioTrackProject track, double sourceDurationSeconds) =>
         GetClipEnd(track.SourceInSeconds, track.SourceOutSeconds, sourceDurationSeconds) - track.SourceInSeconds;
 
+    public static double GetTempoRatio(AudioTrackProject track) => track.TempoPercent / 100;
+
+    public static double GetTimelineDuration(AudioTrackProject track, double sourceDurationSeconds) =>
+        GetClipDuration(track, sourceDurationSeconds) / GetTempoRatio(track);
+
+    public static double TimelineToSourceSeconds(AudioTrackProject track, double clipOffsetSeconds) =>
+        track.SourceInSeconds + clipOffsetSeconds * GetTempoRatio(track);
+
     public static double GetClipStartSeconds(AudioTrackProject track, double frameRate) =>
         (track.StartFrame - 1) / frameRate;
 
@@ -71,8 +87,8 @@ public static class AudioClipEditing
     public static AudioClipGainSettings CreateGainSettings(AudioTrackProject track) => new(
         track.SourceInSeconds,
         track.SourceOutSeconds,
-        track.FadeInSeconds,
-        track.FadeOutSeconds,
+        track.FadeInSeconds * GetTempoRatio(track),
+        track.FadeOutSeconds * GetTempoRatio(track),
         track.Muted ? 0 : track.Volume * DecibelsToLinear(track.GainDecibels));
 
     public static double GetGain(AudioTrackProject track, double sourceSeconds, double sourceDurationSeconds) =>
@@ -86,7 +102,7 @@ public static class AudioClipEditing
         out double offsetSeconds)
     {
         offsetSeconds = (playheadFrameNumber - track.StartFrame) / frameRate;
-        double duration = GetClipDuration(track, sourceDurationSeconds);
+        double duration = GetTimelineDuration(track, sourceDurationSeconds);
         return offsetSeconds > 0 && offsetSeconds < duration;
     }
 
@@ -98,7 +114,7 @@ public static class AudioClipEditing
         }
 
         double clipEnd = GetClipEnd(track.SourceInSeconds, track.SourceOutSeconds, sourceDurationSeconds);
-        track.SourceInSeconds += offset;
+        track.SourceInSeconds = TimelineToSourceSeconds(track, offset);
         track.SourceOutSeconds ??= double.IsFinite(clipEnd) ? clipEnd : null;
         track.StartFrame = playheadFrameNumber;
         ClampFades(track, sourceDurationSeconds);
@@ -112,7 +128,7 @@ public static class AudioClipEditing
             return false;
         }
 
-        track.SourceOutSeconds = track.SourceInSeconds + offset;
+        track.SourceOutSeconds = TimelineToSourceSeconds(track, offset);
         ClampFades(track, sourceDurationSeconds);
         return true;
     }
@@ -125,7 +141,7 @@ public static class AudioClipEditing
         }
 
         double clipEnd = GetClipEnd(track.SourceInSeconds, track.SourceOutSeconds, sourceDurationSeconds);
-        double splitPoint = track.SourceInSeconds + offset;
+        double splitPoint = TimelineToSourceSeconds(track, offset);
         AudioTrackProject right = Clone(track);
         right.StartFrame = playheadFrameNumber;
         right.SourceInSeconds = splitPoint;
@@ -154,7 +170,7 @@ public static class AudioClipEditing
     {
         track.FadeInSeconds = Math.Clamp(track.FadeInSeconds, 0, MaximumFadeSeconds);
         track.FadeOutSeconds = Math.Clamp(track.FadeOutSeconds, 0, MaximumFadeSeconds);
-        double duration = GetClipDuration(track, sourceDurationSeconds);
+        double duration = GetTimelineDuration(track, sourceDurationSeconds);
         double totalFade = track.FadeInSeconds + track.FadeOutSeconds;
         if (!double.IsFinite(duration) || totalFade <= duration)
         {
@@ -177,6 +193,8 @@ public static class AudioClipEditing
         FadeInSeconds = track.FadeInSeconds,
         FadeOutSeconds = track.FadeOutSeconds,
         GainDecibels = track.GainDecibels,
+        TempoPercent = track.TempoPercent,
+        PitchSemitones = track.PitchSemitones,
         Title = track.Title,
         Artist = track.Artist,
         Album = track.Album,
