@@ -332,6 +332,13 @@ public sealed class MediaFoundationVideoReader : IDisposable
     }
 }
 
+/// <summary>The Windows AAC encoder rejected the requested channel count (for example, 5.1 on some Windows Server images).</summary>
+public sealed class AudioEncoderUnavailableException(int channels, Exception inner)
+    : Exception($"Windows could not start the AAC encoder for {channels}-channel audio (0x{inner.HResult:X8}).", inner)
+{
+    public int Channels { get; } = channels;
+}
+
 /// <summary>
 /// MP4 writer built on the Media Foundation sink writer. Video is supplied as top-down BGRA frames and audio as
 /// interleaved 16-bit PCM; Media Foundation converts colour and selects hardware encoders where available.
@@ -384,7 +391,14 @@ public sealed class MediaFoundationVideoWriter : IDisposable
             ConfigureVideo(codec, bitRate, numerator, denominator);
             if (audioChannels > 0)
             {
-                ConfigureAudio(audioChannels, audioChannelMask);
+                try
+                {
+                    ConfigureAudio(audioChannels, audioChannelMask);
+                }
+                catch (COMException ex)
+                {
+                    throw new AudioEncoderUnavailableException(audioChannels, ex);
+                }
             }
 
             _writer.BeginWriting();

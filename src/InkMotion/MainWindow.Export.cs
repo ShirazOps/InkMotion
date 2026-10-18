@@ -74,7 +74,7 @@ public sealed partial class MainWindow
         {
             ExportStatusText.Text = "Export cancelled; the partial file was removed.";
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or AudioEncoderUnavailableException or System.Runtime.InteropServices.COMException)
         {
             ExportStatusText.Text = $"Export failed: {ex.Message}";
             StatusText.Text = "Export failed";

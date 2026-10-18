@@ -295,7 +295,10 @@ public sealed class VideoExportTests
 
             using (var audio = new MediaFoundationReader(second))
             {
-                Assert.Equal(6, audio.WaveFormat.Channels);
+                // Some Windows editions (such as Server CI images) only encode stereo AAC; the exporter then falls back.
+                Assert.Contains(result.AudioChannels, new[] { 6, 2 });
+                Assert.Equal(result.AudioChannels, audio.WaveFormat.Channels);
+                Assert.True(result.AudioChannels == 6 || result.Warnings.Any(w => w.Contains("stereo downmix", StringComparison.Ordinal)));
             }
 
             using (var wave = new WaveFileReader(stem))

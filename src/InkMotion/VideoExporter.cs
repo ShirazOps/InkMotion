@@ -25,7 +25,8 @@ public sealed record VideoExportResult(
     int FrameCount,
     double DurationSeconds,
     bool UsedHardwareEncoder,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    int AudioChannels = 0);
 
 /// <summary>
 /// Renders the project frame by frame on the GPU with Win2D and encodes it to MP4 with Media Foundation.
@@ -71,11 +72,23 @@ public static class VideoExporter
         bool usedHardware = false;
         try
         {
-            writer = CreateWriter(request, frameCount, hasAudio ? encodedInfo : null, warnings, out usedHardware);
-            if (hasAudio && ExportPlanning.NeedsSurroundStem(mixer.Layout))
+            try
+            {
+                writer = CreateWriter(request, frameCount, hasAudio ? encodedInfo : null, warnings, out usedHardware);
+            }
+            catch (AudioEncoderUnavailableException) when (encodedInfo.ChannelCount > 2)
+            {
+                warnings.Add($"Windows could not encode {encodedInfo.DisplayName} AAC on this PC, so the MP4 carries a stereo downmix.");
+                encodedLayout = AudioChannelLayout.Stereo;
+                encodedInfo = AudioChannelLayouts.Get(encodedLayout);
+                downmix = AudioChannelLayouts.CreateMixMatrix(mixer.Layout, encodedLayout);
+                writer = CreateWriter(request, frameCount, encodedInfo, warnings, out usedHardware);
+            }
+
+            AudioChannelLayoutInfo mixInfo = AudioChannelLayouts.Get(mixer.Layout);
+            if (hasAudio && mixInfo.ChannelCount > 2 && mixInfo.ChannelCount > encodedInfo.ChannelCount)
             {
                 stemPath = ExportPlanning.GetSurroundStemPath(request.OutputPath);
-                AudioChannelLayoutInfo mixInfo = AudioChannelLayouts.Get(mixer.Layout);
                 stem = new MultichannelWaveWriter(stemPath, ExportPlanning.AudioSampleRate, mixInfo.ChannelCount, mixInfo.ChannelMask);
                 warnings.Add($"MP4 audio carries a {encodedInfo.DisplayName} downmix; the full {mixInfo.DisplayName} mix is in {Path.GetFileName(stemPath)}.");
             }
@@ -108,7 +121,14 @@ public static class VideoExporter
             }
 
             completed = true;
-            return new VideoExportResult(request.OutputPath, stemPath, frameCount, duration, usedHardware, warnings);
+            return new VideoExportResult(
+                request.OutputPath,
+                stemPath,
+                frameCount,
+                duration,
+                usedHardware,
+                warnings,
+                hasAudio ? encodedInfo.ChannelCount : 0);
         }
         finally
         {
