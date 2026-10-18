@@ -9,7 +9,9 @@ the same variables in your session, run this script, and then discard the manife
 (git checkout -- src/InkMotion/Package.appxmanifest) so the identity is never committed.
 
 Required: STORE_PACKAGE_NAME, STORE_PUBLISHER, STORE_PUBLISHER_DISPLAY_NAME.
-Optional: STORE_DISPLAY_NAME (defaults to the manifest's display name).
+Optional: STORE_DISPLAY_NAME (defaults to the manifest's display name) and STORE_PACKAGE_BUILD, which
+replaces the third part of the package version (for example with the CI run number) so that each
+upload has a higher version than the last.
 #>
 [CmdletBinding()]
 param(
@@ -47,6 +49,16 @@ $namespaces.AddNamespace('uap', 'http://schemas.microsoft.com/appx/manifest/uap/
 $identity = $manifest.SelectSingleNode('/f:Package/f:Identity', $namespaces)
 if ($identity.GetAttribute('Version') -notmatch '^\d+\.\d+\.\d+\.0$') {
     throw "Store package versions must end in .0 (found $($identity.GetAttribute('Version')))."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($env:STORE_PACKAGE_BUILD)) {
+    $build = 0
+    if (-not [int]::TryParse($env:STORE_PACKAGE_BUILD, [ref]$build) -or $build -lt 0 -or $build -gt 65535) {
+        throw 'STORE_PACKAGE_BUILD must be a whole number from 0 to 65535.'
+    }
+    $parts = $identity.GetAttribute('Version').Split('.')
+    $identity.SetAttribute('Version', "$($parts[0]).$($parts[1]).$build.0")
+    Write-Host "Package version: $($identity.GetAttribute('Version'))"
 }
 
 $identity.SetAttribute('Name', $values.STORE_PACKAGE_NAME)

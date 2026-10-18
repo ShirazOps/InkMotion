@@ -2,6 +2,16 @@ name: Microsoft Store package
 
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      build-number:
+        description: Third part of the package version, for example the CI run number.
+        type: string
+        default: ""
+      skip-if-identity-missing:
+        description: Skip packaging with a warning when the Store secrets are not set.
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -24,20 +34,43 @@ jobs:
       - name: Set up MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Check Microsoft Store secrets
+        id: identity
+        shell: pwsh
+        env:
+          STORE_PACKAGE_NAME: ${{ secrets.STORE_PACKAGE_NAME }}
+          STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.STORE_PUBLISHER_DISPLAY_NAME }}
+          SKIP_IF_MISSING: ${{ inputs.skip-if-identity-missing }}
+        run: |
+          $missing = @('STORE_PACKAGE_NAME', 'STORE_PUBLISHER', 'STORE_PUBLISHER_DISPLAY_NAME') |
+            Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing -and $env:SKIP_IF_MISSING -eq 'true') {
+            Write-Host "::warning::Skipping the MSIX package because these repository secrets are not set: $($missing -join ', ')"
+            "ready=false" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            "ready=true" >> $env:GITHUB_OUTPUT
+          }
+
       - name: Apply Microsoft Store identity from secrets
+        if: steps.identity.outputs.ready == 'true'
         shell: pwsh
         env:
           STORE_PACKAGE_NAME: ${{ secrets.STORE_PACKAGE_NAME }}
           STORE_PUBLISHER: ${{ secrets.STORE_PUBLISHER }}
           STORE_PUBLISHER_DISPLAY_NAME: ${{ secrets.STORE_PUBLISHER_DISPLAY_NAME }}
           STORE_DISPLAY_NAME: ${{ secrets.STORE_DISPLAY_NAME }}
+          STORE_PACKAGE_BUILD: ${{ inputs.build-number }}
         run: ./build/Set-StoreIdentity.ps1
 
       - name: Restore
+        if: steps.identity.outputs.ready == 'true'
         run: msbuild src\InkMotion\InkMotion.csproj /t:Restore /p:Configuration=Release /p:Platform=x86 /p:StorePackage=true /p:AppxBundlePlatforms="x86|x64"
 
       # Keep runFullTrust in generated manifests; Store mode strips it before validation.
       - name: Build Store upload package
+        if: steps.identity.outputs.ready == 'true'
         run: >
           msbuild src\InkMotion\InkMotion.csproj
           /p:Configuration=Release
@@ -52,6 +85,7 @@ jobs:
           /p:GenerateAppxPackageOnBuild=true
 
       - name: Verify packaged identity
+        if: steps.identity.outputs.ready == 'true'
         shell: pwsh
         env:
           STORE_PACKAGE_NAME: ${{ secrets.STORE_PACKAGE_NAME }}
@@ -88,6 +122,7 @@ jobs:
           Write-Host "Verified $($upload.Name): $($architectures -join ', ')"
 
       - name: Upload Store package
+        if: steps.identity.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: InkMotion-Microsoft-Store

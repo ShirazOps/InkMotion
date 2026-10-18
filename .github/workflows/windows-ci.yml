@@ -73,8 +73,17 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  release:
+  store-package:
     needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/windows-store-package.yml
+    with:
+      build-number: ${{ github.run_number }}
+      skip-if-identity-missing: true
+    secrets: inherit
+
+  release:
+    needs: [build-and-test, store-package]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -90,6 +99,12 @@ jobs:
           merge-multiple: true
           path: release
 
+      - name: Download MSIX package
+        uses: actions/download-artifact@v4
+        with:
+          pattern: InkMotion-Microsoft-Store
+          path: store
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,12 +119,20 @@ jobs:
           for platform in x64 x86; do
             mv "release/InkMotion-win-${platform}.zip" "release/InkMotion-${TAG}-win-${platform}.zip"
           done
+          msix_note="No MSIX package was built because the Microsoft Store repository secrets are not set."
+          upload="$(find store -name '*.msixupload' -print -quit 2>/dev/null || true)"
+          if [ -n "$upload" ]; then
+            mv "$upload" "release/InkMotion-${TAG}-x86-x64.msixupload"
+            msix_note="\`InkMotion-${TAG}-x86-x64.msixupload\` is the MSIX bundle (x86 and x64, package build ${{ github.run_number }}) to upload to Partner Centre. Microsoft signs it when it is certified, so it cannot be installed directly."
+          fi
           cat > notes.md <<EOF
           Automatic build of \`main\` at ${short_sha}, created after the x86 and x64 builds and tests passed.
 
           Download the zip for your PC (**x64** for most PCs, **x86** for 32-bit Windows), extract it, and run \`InkMotion.exe\`. The builds are self-contained and unsigned, so Windows SmartScreen may ask you to confirm before the first run.
+
+          ${msix_note}
           EOF
-          gh release create "$TAG" release/*.zip \
+          gh release create "$TAG" release/* \
             --target "$GITHUB_SHA" \
             --title "InkMotion build ${{ github.run_number }} (${short_sha})" \
             --notes-file notes.md \
