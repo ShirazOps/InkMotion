@@ -395,6 +395,29 @@ public static class VideoTimelineEditing
         return overlays;
     }
 
+    /// <summary>
+    /// Returns every visible clip at the given time, of any kind, in compositing order (bottom track first).
+    /// Export uses this so video, image and title tracks stack exactly as they are ordered on the timeline.
+    /// </summary>
+    public static IReadOnlyList<TimelineClipLocation> GetVisibleLayers(
+        IReadOnlyList<TimelineTrackProject> tracks,
+        double seconds,
+        double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(tracks);
+        var layers = new List<TimelineClipLocation>();
+        for (int index = tracks.Count - 1; index >= 0; index--)
+        {
+            TimelineTrackProject track = tracks[index];
+            if (track.IsVisible && FindClipAt(track, seconds, frameRate) is { } location)
+            {
+                layers.Add(location);
+            }
+        }
+
+        return layers;
+    }
+
     public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate) =>
         clip.SourceInSeconds + Math.Max(0, timelineSeconds - GetStartSeconds(clip, frameRate));
 

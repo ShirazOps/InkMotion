@@ -398,7 +398,7 @@ public sealed partial class MainWindow
             }
             else
             {
-                DrawTitleOverlay(args.DrawingSession, overlay.Clip, width, height, opacity);
+                TimelineCompositor.DrawTitle(args.DrawingSession, overlay.Clip, width, height, opacity);
             }
         }
     }
@@ -422,52 +422,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        Size size = bitmap.Size;
-        if (size.Width <= 0 || size.Height <= 0)
-        {
-            return;
-        }
-
-        double fit = Math.Min(width / size.Width, height / size.Height) * clip.Scale;
-        double drawWidth = size.Width * fit;
-        double drawHeight = size.Height * fit;
-        var destination = new Rect(
-            (clip.X * width) - (drawWidth / 2),
-            (clip.Y * height) - (drawHeight / 2),
-            drawWidth,
-            drawHeight);
-        session.DrawImage(bitmap, destination, bitmap.Bounds, opacity);
-    }
-
-    private static void DrawTitleOverlay(
-        CanvasDrawingSession session,
-        TimelineClipProject clip,
-        float width,
-        float height,
-        float opacity)
-    {
-        float fontSize = (float)(clip.FontSize * height / 1080);
-        if (fontSize < 1 || string.IsNullOrWhiteSpace(clip.Text))
-        {
-            return;
-        }
-
-        using var format = new CanvasTextFormat
-        {
-            FontFamily = clip.FontFamily,
-            FontSize = fontSize,
-            HorizontalAlignment = CanvasHorizontalAlignment.Center,
-            VerticalAlignment = CanvasVerticalAlignment.Center,
-            WordWrapping = CanvasWordWrapping.WholeWord,
-        };
-        float boxWidth = width * 0.9f;
-        using var layout = new CanvasTextLayout(session, clip.Text, format, boxWidth, height);
-        var origin = new Vector2((float)(clip.X * width) - (boxWidth / 2), (float)(clip.Y * height) - (height / 2));
-        Color colour = ToColour(clip.Colour);
-        byte alpha = (byte)(colour.A * Math.Clamp(opacity, 0, 1));
-        float shadowOffset = Math.Max(1, fontSize * 0.04f);
-        session.DrawTextLayout(layout, origin + new Vector2(shadowOffset), Color.FromArgb((byte)(alpha * 0.6), 0, 0, 0));
-        session.DrawTextLayout(layout, origin, Color.FromArgb(alpha, colour.R, colour.G, colour.B));
+        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, clip.Scale, clip.X, clip.Y, opacity);
     }
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
