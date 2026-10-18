@@ -5,8 +5,35 @@ namespace InkMotion.Tests;
 
 public sealed class VideoExportTests
 {
-    private static bool HasH264Encoder =>
-        File.Exists(Path.Combine(Environment.SystemDirectory, "mfh264enc.dll"));
+    private static readonly Lazy<bool> H264EncoderProbe = new(ProbeH264Encoder);
+
+    // Windows Server images (such as CI runners) ship mfh264enc.dll but can reject the H.264 media types,
+    // so the encode tests run only where the software encoder actually starts.
+    private static bool HasH264Encoder => H264EncoderProbe.Value;
+
+    private static bool ProbeH264Encoder()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-probe-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            using var writer = new MediaFoundationVideoWriter(path, 1280, 720, 24, VideoExportCodec.H264, 1_000_000, 2, 0, false);
+            return true;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        {
+            return false;
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
 
     [Theory]
     [InlineData(ExportResolution.P720, VideoExportCodec.H264, 24, 3_317_760)]
