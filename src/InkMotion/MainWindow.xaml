@@ -507,7 +507,7 @@
                         <TextBlock Text="NON-DESTRUCTIVE EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <UserControl x:Name="AudioEffectsControls" IsEnabled="False">
                             <StackPanel Spacing="8">
-                                <ToggleButton x:Name="AudioEffectsEnabled" Content="Enable filters, EQ and compression" Click="AudioEffectsChanged" />
+                                <ToggleButton x:Name="AudioEffectsEnabled" Content="Enable audio processing chain" Click="AudioEffectsChanged" />
                                 <TextBlock Text="Applied after tempo/pitch, before balance. Filters are off at 0 Hz; frequencies above 45% of the source rate are capped. EQ can add headroom demands; lower clip gain if clipping occurs." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="AudioHighPassBox" Header="High-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="20" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <NumberBox x:Name="AudioLowPassBox" Header="Low-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="100" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
@@ -518,7 +518,17 @@
                                 <NumberBox x:Name="AudioCompressorRatioBox" Header="Compressor ratio (1 = off)" Minimum="1" Maximum="20" Value="1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <NumberBox x:Name="AudioCompressorAttackBox" Header="Attack (ms)" Minimum="0.1" Maximum="200" Value="10" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <NumberBox x:Name="AudioCompressorReleaseBox" Header="Release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="10" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
-                                <TextBlock Text="Linked peak compressor with no make-up gain, look-ahead or brick-wall limiting. Bypass retains settings. Playback/seek resets filter and compressor history." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Linked peak compressor with no make-up gain or look-ahead. Bypass retains settings. Playback/seek resets processing history." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ToggleButton x:Name="AudioGateEnabled" Content="Noise gate" Click="AudioEffectsChanged" />
+                                <NumberBox x:Name="AudioGateThresholdBox" Header="Gate threshold (dBFS)" Minimum="-90" Maximum="0" Value="-40" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateAttackBox" Header="Gate attack (ms)" Minimum="0.1" Maximum="200" Value="5" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateHoldBox" Header="Gate hold (ms)" Minimum="0" Maximum="1000" Value="20" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateReleaseBox" Header="Gate release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Linked-channel gate after EQ, before compression. Closes 3 dB below threshold after hold, with smoothed attack/release. It attenuates quiet passages, not noise under speech." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ToggleButton x:Name="AudioLimiterEnabled" Content="Sample-peak limiter" Click="AudioEffectsChanged" />
+                                <NumberBox x:Name="AudioLimiterCeilingBox" Header="Limiter ceiling (dBFS)" Minimum="-24" Maximum="0" Value="-1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioLimiterReleaseBox" Header="Limiter release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Instant linked gain reduction at the end of this track's chain. No look-ahead or inter-sample/true-peak protection. Downmix, resampling and summed tracks can still exceed full scale." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
                             </StackPanel>
                         </UserControl>

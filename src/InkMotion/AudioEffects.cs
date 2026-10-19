@@ -15,6 +15,14 @@ public sealed record AudioEffectSettings
     public double CompressorRatio { get; init; } = 1;
     public double AttackMilliseconds { get; init; } = 10;
     public double ReleaseMilliseconds { get; init; } = 100;
+    public bool GateEnabled { get; init; }
+    public double GateThresholdDecibels { get; init; } = -40;
+    public double GateAttackMilliseconds { get; init; } = 5;
+    public double GateReleaseMilliseconds { get; init; } = 100;
+    public double GateHoldMilliseconds { get; init; } = 20;
+    public bool LimiterEnabled { get; init; }
+    public double LimiterCeilingDecibels { get; init; } = -1;
+    public double LimiterReleaseMilliseconds { get; init; } = 100;
 
     public bool IsValid =>
         double.IsFinite(HighPassHz) && (HighPassHz == 0 || HighPassHz is >= 20 and <= 20000) &&
@@ -24,7 +32,13 @@ public sealed record AudioEffectSettings
         double.IsFinite(CompressorThresholdDecibels) && CompressorThresholdDecibels is >= -60 and <= 0 &&
         double.IsFinite(CompressorRatio) && CompressorRatio is >= 1 and <= 20 &&
         double.IsFinite(AttackMilliseconds) && AttackMilliseconds is >= 0.1 and <= 200 &&
-        double.IsFinite(ReleaseMilliseconds) && ReleaseMilliseconds is >= 5 and <= 2000;
+        double.IsFinite(ReleaseMilliseconds) && ReleaseMilliseconds is >= 5 and <= 2000 &&
+        double.IsFinite(GateThresholdDecibels) && GateThresholdDecibels is >= -90 and <= 0 &&
+        double.IsFinite(GateAttackMilliseconds) && GateAttackMilliseconds is >= 0.1 and <= 200 &&
+        double.IsFinite(GateReleaseMilliseconds) && GateReleaseMilliseconds is >= 5 and <= 2000 &&
+        double.IsFinite(GateHoldMilliseconds) && GateHoldMilliseconds is >= 0 and <= 1000 &&
+        double.IsFinite(LimiterCeilingDecibels) && LimiterCeilingDecibels is >= -24 and <= 0 &&
+        double.IsFinite(LimiterReleaseMilliseconds) && LimiterReleaseMilliseconds is >= 5 and <= 2000;
 }
 
 public sealed class AudioEffectsSampleProvider : ISampleProvider
@@ -35,6 +49,10 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     private BiQuadFilter[][] _filters = [];
     private double _gainReductionDecibels;
     private bool _suppressed;
+    private double _gateGain;
+    private bool _gateOpen;
+    private int _gateHoldFrames;
+    private double _limiterGain = 1;
 
     public AudioEffectsSampleProvider(ISampleProvider source, AudioEffectSettings settings)
     {
@@ -50,7 +68,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
         ArgumentNullException.ThrowIfNull(settings);
         if (!settings.IsValid)
         {
-            throw new ArgumentException("Invalid audio filter, EQ or compressor settings.", nameof(settings));
+            throw new ArgumentException("Invalid audio filter, EQ, compressor, gate or limiter settings.", nameof(settings));
         }
 
         lock (_sync)
@@ -90,6 +108,10 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     private void ResetCore()
     {
         _gainReductionDecibels = 0;
+        _gateGain = 0;
+        _gateOpen = false;
+        _gateHoldFrames = 0;
+        _limiterGain = 1;
         _filters = Enumerable.Range(0, WaveFormat.Channels).Select(_ => CreateFilters()).ToArray();
     }
 
@@ -145,6 +167,13 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
             int channels = WaveFormat.Channels;
             double attack = Math.Exp(-1 / (_settings.AttackMilliseconds * 0.001 * WaveFormat.SampleRate));
             double release = Math.Exp(-1 / (_settings.ReleaseMilliseconds * 0.001 * WaveFormat.SampleRate));
+            double gateAttack = TimeCoefficient(_settings.GateAttackMilliseconds);
+            double gateRelease = TimeCoefficient(_settings.GateReleaseMilliseconds);
+            double gateThreshold = AudioClipEditing.DecibelsToLinear(_settings.GateThresholdDecibels);
+            double gateCloseThreshold = gateThreshold * AudioClipEditing.DecibelsToLinear(-3);
+            int gateHold = (int)Math.Round(_settings.GateHoldMilliseconds * 0.001 * WaveFormat.SampleRate);
+            double limiterCeiling = AudioClipEditing.DecibelsToLinear(_settings.LimiterCeilingDecibels);
+            double limiterRelease = TimeCoefficient(_settings.LimiterReleaseMilliseconds);
             for (int frame = 0; frame < read; frame += channels)
             {
                 double peak = 0;
@@ -159,18 +188,52 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
                     peak = Math.Max(peak, Math.Abs(buffer[index]));
                 }
 
-                double over = Math.Max(0, 20 * Math.Log10(Math.Max(peak, 1e-12)) - _settings.CompressorThresholdDecibels);
+                double gateGain = 1;
+                if (_settings.GateEnabled)
+                {
+                    if (peak >= gateThreshold || (_gateOpen && peak >= gateCloseThreshold))
+                    {
+                        _gateOpen = true;
+                        _gateHoldFrames = gateHold;
+                    }
+                    else if (_gateHoldFrames > 0)
+                    {
+                        _gateHoldFrames--;
+                    }
+                    else
+                    {
+                        _gateOpen = false;
+                    }
+
+                    double gateTarget = _gateOpen ? 1 : 0;
+                    double smoothing = _gateOpen ? gateAttack : gateRelease;
+                    _gateGain = smoothing * _gateGain + (1 - smoothing) * gateTarget;
+                    gateGain = _gateGain;
+                }
+
+                double over = Math.Max(0, 20 * Math.Log10(Math.Max(peak * gateGain, 1e-12)) - _settings.CompressorThresholdDecibels);
                 double target = over * (1 - 1 / _settings.CompressorRatio);
                 double coefficient = target > _gainReductionDecibels ? attack : release;
                 _gainReductionDecibels = coefficient * _gainReductionDecibels + (1 - coefficient) * target;
-                float gain = (float)AudioClipEditing.DecibelsToLinear(-_gainReductionDecibels);
+                double gain = gateGain * AudioClipEditing.DecibelsToLinear(-_gainReductionDecibels);
+                if (_settings.LimiterEnabled)
+                {
+                    double limit = peak * gain > limiterCeiling ? limiterCeiling / (peak * gain) : 1;
+                    _limiterGain = Math.Min(limit, limiterRelease * _limiterGain + (1 - limiterRelease));
+                    gain *= _limiterGain;
+                }
+
                 for (int channel = 0; channel < channels && frame + channel < read; channel++)
                 {
-                    buffer[offset + frame + channel] *= gain;
+                    buffer[offset + frame + channel] = (float)(buffer[offset + frame + channel] * gain);
                 }
+
             }
 
             return read;
         }
     }
+
+    private double TimeCoefficient(double milliseconds) =>
+        Math.Exp(-1 / (milliseconds * 0.001 * WaveFormat.SampleRate));
 }

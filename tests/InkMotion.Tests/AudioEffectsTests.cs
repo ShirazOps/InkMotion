@@ -127,6 +127,111 @@ public sealed class AudioEffectsTests
     }
 
     [Fact]
+    public void Gate_SuppressesQuietPassagesOpensSmoothlyAndReleasesAfterHold()
+    {
+        var settings = new AudioEffectSettings
+        {
+            Enabled = true, GateEnabled = true, GateThresholdDecibels = -20,
+            GateAttackMilliseconds = 1, GateHoldMilliseconds = 20, GateReleaseMilliseconds = 5,
+        };
+        float[] signal = Enumerable.Repeat(0.01f, 4800)
+            .Concat(Enumerable.Repeat(0.5f, 4800))
+            .Concat(Enumerable.Repeat(0.01f, 4800)).ToArray();
+        float[] output = Process(signal, settings);
+        Assert.All(output.Take(4800), sample => Assert.Equal(0, sample));
+        Assert.InRange(output[4800], 0, 0.02f);
+        Assert.InRange(output[9599], 0.499f, 0.501f);
+        Assert.InRange(output[9600 + 900], 0.0099f, 0.0101f);
+        Assert.True(output[^1] < 1e-7f);
+    }
+
+    [Fact]
+    public void Gate_HysteresisAvoidsChatterAndLinksStereoChannels()
+    {
+        float[] signal = Enumerable.Range(0, 4800).SelectMany(_ => new[] { 0.5f, 0.005f })
+            .Concat(Enumerable.Range(0, 4800).SelectMany(_ => new[] { 0.08f, 0.0008f })).ToArray();
+        var provider = new AudioEffectsSampleProvider(new Samples(signal, 2), new()
+        {
+            Enabled = true, GateEnabled = true, GateThresholdDecibels = -20, GateAttackMilliseconds = 1,
+        });
+        float[] output = new float[signal.Length];
+        provider.Read(output, 0, output.Length);
+        Assert.InRange(output[^2], 0.0799f, 0.0801f);
+        Assert.Equal(100, output[^2] / output[^1], 3);
+    }
+
+    [Fact]
+    public void Limiter_ImmediatelyCapsLinkedPeaksAndReleasesSmoothly()
+    {
+        float[] signal = Enumerable.Range(0, 4800).SelectMany(_ => new[] { 2f, -0.5f })
+            .Concat(Enumerable.Range(0, 48000).SelectMany(_ => new[] { 0.1f, -0.025f })).ToArray();
+        var provider = new AudioEffectsSampleProvider(new Samples(signal, 2), new()
+        {
+            Enabled = true, LimiterEnabled = true, LimiterCeilingDecibels = -6, LimiterReleaseMilliseconds = 10,
+        });
+        float[] output = new float[signal.Length];
+        provider.Read(output, 0, output.Length);
+        float ceiling = (float)Math.Pow(10, -6d / 20);
+        Assert.All(output, sample => Assert.True(Math.Abs(sample) <= ceiling + 1e-7));
+        Assert.Equal(ceiling, output[0], 6);
+        Assert.Equal(-4, output[0] / output[1], 5);
+        Assert.InRange(output[9600], 0.025f, 0.026f);
+        Assert.InRange(output[^2], 0.0999f, 0.1001f);
+        Assert.Equal(signal, Process(signal, new() { LimiterEnabled = true }));
+    }
+
+    [Fact]
+    public void Dynamics_ProduceIdenticalResultsAcrossReadBlockSizesAndResetTheirState()
+    {
+        float[] signal = Enumerable.Repeat(0.5f, 9600).Concat(Enumerable.Repeat(0.001f, 9600)).ToArray();
+        var settings = new AudioEffectSettings
+        {
+            Enabled = true, GateEnabled = true, LimiterEnabled = true,
+            CompressorRatio = 4, CompressorThresholdDecibels = -20,
+        };
+        float[] expected = Process(signal, settings);
+        var provider = new AudioEffectsSampleProvider(new Samples(signal), settings);
+        float[] actual = new float[signal.Length];
+        int read = 0;
+        while (read < actual.Length)
+        {
+            read += provider.Read(actual, read, Math.Min(127, actual.Length - read));
+        }
+
+        Assert.Equal(expected, actual);
+        provider = new AudioEffectsSampleProvider(new Samples(Enumerable.Repeat(0.5f, 9600).ToArray()), settings);
+        var first = new float[4800];
+        provider.Read(first, 0, first.Length);
+        provider.Reset();
+        var second = new float[4800];
+        provider.Read(second, 0, second.Length);
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void VersionTwelve_DefaultsToDisabledGateAndLimiterAndRetainsTheirSettingsOnRoundTrip()
+    {
+        EditorProject project = EditorProjectSerialiser.Deserialise("""{"Version":12,"AudioTracks":[{}]}""");
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
+        Assert.False(project.AudioTracks[0].Effects.GateEnabled);
+        Assert.False(project.AudioTracks[0].Effects.LimiterEnabled);
+        var effects = project.AudioTracks[0].Effects with
+        {
+            Enabled = true, GateEnabled = true, GateThresholdDecibels = -30,
+            GateAttackMilliseconds = 2, GateHoldMilliseconds = 30, GateReleaseMilliseconds = 50,
+            LimiterEnabled = true, LimiterCeilingDecibels = -3, LimiterReleaseMilliseconds = 20,
+        };
+        project.AudioTracks[0].Effects = effects;
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.Equal(effects, reopened.AudioTracks[0].Effects);
+        Assert.Equal(effects, AudioClipEditing.Clone(project.AudioTracks[0]).Effects);
+        Assert.False((effects with { GateHoldMilliseconds = double.NaN }).IsValid);
+        Assert.False((effects with { GateThresholdDecibels = -100 }).IsValid);
+        Assert.False((effects with { LimiterCeilingDecibels = 1 }).IsValid);
+        Assert.False((effects with { LimiterReleaseMilliseconds = 0 }).IsValid);
+    }
+
+    [Fact]
     public void Settings_RoundTripAndOlderProjectsDefaultToBypass()
     {
         EditorProject old = EditorProjectSerialiser.Deserialise("""{"Version":10,"AudioTracks":[{"AudioPath":"voice.wav"}]}""");
@@ -148,8 +253,10 @@ public sealed class AudioEffectsTests
             """{"Version":11,"AudioTracks":[{"Effects":null}]}"""));
     }
 
-    [Fact]
-    public void Export_AppliesTheSameEffectsAsTheSampleProvider()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Export_AppliesTheSameEffectsAsTheSampleProvider(bool dynamics)
     {
         string input = Path.Combine(Path.GetTempPath(), $"inkmotion-effects-{Guid.NewGuid():N}.wav");
         string output = Path.ChangeExtension(input, ".out.wav");
@@ -161,7 +268,9 @@ public sealed class AudioEffectsTests
                 writer.WriteSamples(tone, 0, tone.Length);
             }
 
-            var effects = new AudioEffectSettings { Enabled = true, LowPassHz = 1000 };
+            var effects = dynamics
+                ? new AudioEffectSettings { Enabled = true, GateEnabled = true, GateThresholdDecibels = -40, LimiterEnabled = true, LimiterCeilingDecibels = -24 }
+                : new AudioEffectSettings { Enabled = true, LowPassHz = 1000 };
             var project = new EditorProject
             {
                 AudioMixLayout = AudioChannelLayout.Mono,

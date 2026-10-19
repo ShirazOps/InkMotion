@@ -19,6 +19,14 @@ public sealed partial class MainWindow
         AudioCompressorRatioBox.Value = settings.CompressorRatio;
         AudioCompressorAttackBox.Value = settings.AttackMilliseconds;
         AudioCompressorReleaseBox.Value = settings.ReleaseMilliseconds;
+        AudioGateEnabled.IsChecked = settings.GateEnabled;
+        AudioGateThresholdBox.Value = settings.GateThresholdDecibels;
+        AudioGateAttackBox.Value = settings.GateAttackMilliseconds;
+        AudioGateReleaseBox.Value = settings.GateReleaseMilliseconds;
+        AudioGateHoldBox.Value = settings.GateHoldMilliseconds;
+        AudioLimiterEnabled.IsChecked = settings.LimiterEnabled;
+        AudioLimiterCeilingBox.Value = settings.LimiterCeilingDecibels;
+        AudioLimiterReleaseBox.Value = settings.LimiterReleaseMilliseconds;
     }
 
     private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();
@@ -44,6 +52,14 @@ public sealed partial class MainWindow
             CompressorRatio = AudioCompressorRatioBox.Value,
             AttackMilliseconds = AudioCompressorAttackBox.Value,
             ReleaseMilliseconds = AudioCompressorReleaseBox.Value,
+            GateEnabled = AudioGateEnabled.IsChecked == true,
+            GateThresholdDecibels = AudioGateThresholdBox.Value,
+            GateAttackMilliseconds = AudioGateAttackBox.Value,
+            GateReleaseMilliseconds = AudioGateReleaseBox.Value,
+            GateHoldMilliseconds = AudioGateHoldBox.Value,
+            LimiterEnabled = AudioLimiterEnabled.IsChecked == true,
+            LimiterCeilingDecibels = AudioLimiterCeilingBox.Value,
+            LimiterReleaseMilliseconds = AudioLimiterReleaseBox.Value,
         };
         if (!settings.IsValid)
         {
@@ -61,7 +77,7 @@ public sealed partial class MainWindow
         {
             selected.Project.Effects = settings;
             return true;
-        }, settings.Enabled ? "Audio filters, EQ and compression enabled for preview and export." : "Audio effects bypassed; settings retained.",
+        }, settings.Enabled ? "Audio processing chain enabled for preview and export." : "Audio effects bypassed; settings retained.",
             "Could not update audio effects.");
     }
 
