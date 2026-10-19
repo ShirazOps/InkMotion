@@ -334,7 +334,7 @@ public sealed class MediaFoundationVideoReader : IDisposable
 
 /// <summary>The Windows AAC encoder rejected the requested channel count (for example, 5.1 on some Windows Server images).</summary>
 public sealed class AudioEncoderUnavailableException(int channels, Exception inner)
-    : Exception($"Windows could not start the AAC encoder for {channels}-channel audio (0x{inner.HResult:X8}).", inner)
+    : InvalidOperationException($"Windows could not start the AAC encoder for {channels}-channel audio (0x{inner.HResult:X8}). Try a different AAC rate/bit rate or export a WAV mix separately.", inner)
 {
     public int Channels { get; } = channels;
 }
@@ -345,7 +345,6 @@ public sealed class AudioEncoderUnavailableException(int channels, Exception inn
 /// </summary>
 public sealed class MediaFoundationVideoWriter : IDisposable
 {
-    private const int AacBytesPerSecond = 24000;
     private readonly int _width;
     private readonly int _height;
     private IMFSinkWriter? _writer;
@@ -361,9 +360,12 @@ public sealed class MediaFoundationVideoWriter : IDisposable
         int bitRate,
         int audioChannels,
         int audioChannelMask,
-        bool useHardware)
+        bool useHardware,
+        int audioSampleRate = ExportPlanning.AudioSampleRate,
+        int audioBitRate = 192000)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ExportPlanning.ValidateEmbeddedAudio(audioSampleRate, audioBitRate);
         if (width <= 0 || height <= 0 || width % 2 != 0 || height % 2 != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(width), "Frame dimensions must be positive and even.");
@@ -393,7 +395,7 @@ public sealed class MediaFoundationVideoWriter : IDisposable
             {
                 try
                 {
-                    ConfigureAudio(audioChannels, audioChannelMask);
+                    ConfigureAudio(audioChannels, audioChannelMask, audioSampleRate, audioBitRate);
                 }
                 catch (COMException ex)
                 {
@@ -489,7 +491,7 @@ public sealed class MediaFoundationVideoWriter : IDisposable
         type.SetUINT64(MediaFoundationGuids.PixelAspectRatio, MediaFoundationGuids.Pack(1, 1));
     }
 
-    private void ConfigureAudio(int channels, int channelMask)
+    private void ConfigureAudio(int channels, int channelMask, int sampleRate, int bitRate)
     {
         IMFMediaType output = MediaFoundationApi.CreateMediaType();
         try
@@ -497,9 +499,9 @@ public sealed class MediaFoundationVideoWriter : IDisposable
             output.SetGUID(MediaFoundationGuids.MajorType, MediaFoundationGuids.MediaTypeAudio);
             output.SetGUID(MediaFoundationGuids.Subtype, MediaFoundationGuids.AudioFormatAac);
             output.SetUINT32(MediaFoundationGuids.AudioBitsPerSample, 16);
-            output.SetUINT32(MediaFoundationGuids.AudioSamplesPerSecond, ExportPlanning.AudioSampleRate);
+            output.SetUINT32(MediaFoundationGuids.AudioSamplesPerSecond, sampleRate);
             output.SetUINT32(MediaFoundationGuids.AudioChannels, channels);
-            output.SetUINT32(MediaFoundationGuids.AudioAverageBytesPerSecond, AacBytesPerSecond);
+            output.SetUINT32(MediaFoundationGuids.AudioAverageBytesPerSecond, bitRate / 8);
             if (channelMask != 0)
             {
                 output.SetUINT32(MediaFoundationGuids.AudioChannelMask, channelMask);
@@ -518,10 +520,10 @@ public sealed class MediaFoundationVideoWriter : IDisposable
             input.SetGUID(MediaFoundationGuids.MajorType, MediaFoundationGuids.MediaTypeAudio);
             input.SetGUID(MediaFoundationGuids.Subtype, MediaFoundationGuids.AudioFormatPcm);
             input.SetUINT32(MediaFoundationGuids.AudioBitsPerSample, 16);
-            input.SetUINT32(MediaFoundationGuids.AudioSamplesPerSecond, ExportPlanning.AudioSampleRate);
+            input.SetUINT32(MediaFoundationGuids.AudioSamplesPerSecond, sampleRate);
             input.SetUINT32(MediaFoundationGuids.AudioChannels, channels);
             input.SetUINT32(MediaFoundationGuids.AudioBlockAlignment, channels * 2);
-            input.SetUINT32(MediaFoundationGuids.AudioAverageBytesPerSecond, ExportPlanning.AudioSampleRate * channels * 2);
+            input.SetUINT32(MediaFoundationGuids.AudioAverageBytesPerSecond, sampleRate * channels * 2);
             if (channelMask != 0)
             {
                 input.SetUINT32(MediaFoundationGuids.AudioChannelMask, channelMask);

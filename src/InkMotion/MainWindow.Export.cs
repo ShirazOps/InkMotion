@@ -128,6 +128,14 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (VideoAudioRateSelector.SelectedItem is not ComboBoxItem { Tag: string audioRate } ||
+            VideoAudioBitRateSelector.SelectedItem is not ComboBoxItem { Tag: string audioBitRate })
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose the MP4 AAC sample rate and bit rate.";
+            return;
+        }
+
         var picker = new FileSavePicker
         {
             SuggestedFileName = _projectFile is null ? "Untitled" : Path.GetFileNameWithoutExtension(_projectFile.Name),
@@ -148,7 +156,9 @@ public sealed partial class MainWindow
             file.Path,
             InkSurface.ActualHeight,
             ExportHardwareToggle.IsOn,
-            ExportQualitySlider.Value / 100);
+            ExportQualitySlider.Value / 100,
+            int.Parse(audioRate),
+            int.Parse(audioBitRate));
         using var cancellation = new CancellationTokenSource();
         _exportCancellation = cancellation;
         SetExportRunning(true);
@@ -207,6 +217,8 @@ public sealed partial class MainWindow
         ExportFrameRateBox.IsEnabled = !running;
         ExportHardwareToggle.IsEnabled = !running;
         ExportQualitySlider.IsEnabled = !running;
+        VideoAudioRateSelector.IsEnabled = !running;
+        VideoAudioBitRateSelector.IsEnabled = !running;
         CancelExportButton.IsEnabled = running;
         CancelExportButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         ExportProgressBar.Visibility = running ? Visibility.Visible : Visibility.Collapsed;

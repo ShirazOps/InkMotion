@@ -13,6 +13,19 @@ public static class ExportPlanning
     public const string BaseInkLayerId = "ink-1";
     private const long TicksPerSecond = 10_000_000;
 
+    public static void ValidateEmbeddedAudio(int sampleRate, int bitRate)
+    {
+        if (sampleRate is not (44100 or 48000))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleRate), "MP4 AAC supports 44100 or 48000 Hz.");
+        }
+
+        if (bitRate is not (128000 or 160000 or 192000))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bitRate), "Choose 128, 160 or 192 kbps for MP4 AAC.");
+        }
+    }
+
     public static void ValidateOutputPath(EditorProject project, string outputPath)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -82,8 +95,8 @@ public static class ExportPlanning
         (long)Math.Round(frameIndex * TicksPerSecond / frameRate);
 
     /// <summary>Number of audio sample frames that must be written by the end of the given video frame.</summary>
-    public static long GetAudioFramesThrough(int frameIndex, double frameRate) =>
-        (long)Math.Round((frameIndex + 1) * (double)AudioSampleRate / frameRate);
+    public static long GetAudioFramesThrough(int frameIndex, double frameRate, int sampleRate = AudioSampleRate) =>
+        (long)Math.Round((frameIndex + 1) * (double)sampleRate / frameRate);
 
     /// <summary>Frame rate as an exact rational, so 24, 30 and 60 fps encode without drift.</summary>
     public static (int Numerator, int Denominator) GetFrameRateRatio(double frameRate)

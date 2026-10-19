@@ -383,6 +383,16 @@
                             <TextBlock Text="Lower quality / smaller" Style="{StaticResource HintTextStyle}" />
                             <TextBlock Text="Higher quality / larger" HorizontalAlignment="Right" Style="{StaticResource HintTextStyle}" />
                         </Grid>
+                        <ComboBox x:Name="VideoAudioRateSelector" Header="MP4 AAC sample rate" SelectedIndex="1" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="44.1 kHz" Tag="44100" />
+                            <ComboBoxItem Content="48 kHz" Tag="48000" />
+                        </ComboBox>
+                        <ComboBox x:Name="VideoAudioBitRateSelector" Header="MP4 AAC bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="128 kbps" Tag="128000" />
+                            <ComboBoxItem Content="160 kbps" Tag="160000" />
+                            <ComboBoxItem Content="192 kbps" Tag="192000" />
+                        </ComboBox>
+                        <TextBlock Text="MP4 uses lossy AAC; PCM bit depth does not apply. Encoder support depends on Windows. Use WAV below for 16-32-bit and rates up to 384 kHz." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -395,7 +405,7 @@
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
-                        <TextBlock Text="MP4 uses 48 kHz AAC. Export a separate audio mix below for other formats and rates. WAV preserves the project channel layout; MP3 and AAC use mono/stereo." Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Export a separate audio mix below for other formats and rates. WAV preserves the project channel layout; MP3 and AAC use mono/stereo." Style="{StaticResource HintTextStyle}" />
                         <UserControl x:Name="AudioExportOptions">
                             <StackPanel Spacing="10">
                                 <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">

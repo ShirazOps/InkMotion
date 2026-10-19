@@ -12,6 +12,60 @@ public sealed class VideoExportTests
     private static bool HasH264Encoder => H264EncoderProbe.Value;
 
     [Fact]
+    public void EmbeddedAudio_ValidatesBeforeCreatingAnOutputFile()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.ValidateEmbeddedAudio(384000, 192000));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.ValidateEmbeddedAudio(48000, 320000));
+        Assert.Equal(44100, ExportPlanning.GetAudioFramesThrough(119, 120, 44100));
+        Assert.Equal(1471471, ExportPlanning.GetAudioFramesThrough(999, 29.97, 44100));
+        string output = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        Assert.Throws<ArgumentOutOfRangeException>(() => VideoExporter.Export(
+            new(new(), VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720, AudioSampleRate: 96000),
+            null, CancellationToken.None));
+        Assert.False(File.Exists(output));
+    }
+
+    [Theory]
+    [InlineData(44100, 128000)]
+    [InlineData(44100, 160000)]
+    [InlineData(44100, 192000)]
+    [InlineData(48000, 128000)]
+    [InlineData(48000, 160000)]
+    [InlineData(48000, 192000)]
+    public void Export_EmbedsSelectedAacRateAndPreservesDuration(int rate, int bitRate)
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string tone = WriteToneWave(2, 1, 0.2f);
+        string output = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var project = new EditorProject { AudioTracks = [new() { AudioPath = tone }] };
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false, AudioSampleRate: rate, AudioBitRate: bitRate),
+                null, CancellationToken.None);
+            Assert.Equal(24, result.FrameCount);
+            using var audio = new MediaFoundationReader(output);
+            Assert.Equal(rate, audio.WaveFormat.SampleRate);
+            Assert.Equal(2, audio.WaveFormat.Channels);
+            Assert.InRange(audio.TotalTime.TotalSeconds, 0.95, 1.15);
+            float[] samples = new float[rate * 2];
+            int read = audio.ToSampleProvider().Read(samples, 0, samples.Length);
+            Assert.True(read > rate);
+            Assert.True(samples.Take(read).Max(value => Math.Abs(value)) > 0.1f);
+        }
+        finally
+        {
+            File.Delete(tone);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Quality_ChangesTheTargetBitRate()
     {
         var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);
@@ -386,7 +440,7 @@ public sealed class VideoExportTests
                 VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [new TimelineClipProject { SourcePath = first, SourceDurationSeconds = 1 }] }],
             };
             result = VideoExporter.Export(
-                new VideoExportRequest(surround, VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.H264, second, 720),
+                new VideoExportRequest(surround, VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.H264, second, 720, AudioSampleRate: 44100),
                 null,
                 CancellationToken.None);
 
@@ -404,12 +458,14 @@ public sealed class VideoExportTests
                 // Some Windows editions (such as Server CI images) only encode stereo AAC; the exporter then falls back.
                 Assert.Contains(result.AudioChannels, new[] { 6, 2 });
                 Assert.Equal(result.AudioChannels, audio.WaveFormat.Channels);
+                Assert.Equal(44100, audio.WaveFormat.SampleRate);
                 Assert.True(result.AudioChannels == 6 || result.Warnings.Any(w => w.Contains("stereo downmix", StringComparison.Ordinal)));
             }
 
             using (var wave = new WaveFileReader(stem))
             {
                 Assert.Equal(8, wave.WaveFormat.Channels);
+                Assert.Equal(44100, wave.WaveFormat.SampleRate);
                 Assert.InRange(wave.TotalTime.TotalSeconds, 0.95, 1.05);
             }
         }

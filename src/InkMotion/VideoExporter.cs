@@ -13,7 +13,9 @@ public sealed record VideoExportRequest(
     string OutputPath,
     double InkReferenceHeight,
     bool PreferHardware = true,
-    double Quality = 0.5);
+    double Quality = 0.5,
+    int AudioSampleRate = ExportPlanning.AudioSampleRate,
+    int AudioBitRate = 192000);
 
 public sealed record VideoExportProgress(int Frame, int FrameCount, string Stage)
 {
@@ -48,6 +50,7 @@ public static class VideoExporter
     {
         ArgumentNullException.ThrowIfNull(request);
         EditorProject project = request.Project;
+        ExportPlanning.ValidateEmbeddedAudio(request.AudioSampleRate, request.AudioBitRate);
         ExportPlanning.ValidateOutputPath(project, request.OutputPath);
         VideoExportProfile profile = request.Profile;
         var warnings = new List<string>();
@@ -55,7 +58,7 @@ public static class VideoExporter
         bool completed = false;
 
         progress?.Report(new VideoExportProgress(0, 0, "Preparing audio"));
-        using var mixer = new ExportAudioMixer(project);
+        using var mixer = new ExportAudioMixer(project, request.AudioSampleRate);
         warnings.AddRange(mixer.Warnings);
         double duration = GetDurationSeconds(project, mixer.DurationSeconds);
         int frameCount = ExportPlanning.GetFrameCount(duration, profile.FrameRate);
@@ -91,7 +94,7 @@ public static class VideoExporter
             if (hasAudio && mixInfo.ChannelCount > 2 && mixInfo.ChannelCount > encodedInfo.ChannelCount)
             {
                 stemPath = ExportPlanning.GetSurroundStemPath(request.OutputPath);
-                stem = new MultichannelWaveWriter(stemPath, ExportPlanning.AudioSampleRate, mixInfo.ChannelCount, mixInfo.ChannelMask);
+                stem = new MultichannelWaveWriter(stemPath, request.AudioSampleRate, mixInfo.ChannelCount, mixInfo.ChannelMask);
                 warnings.Add($"MP4 audio carries a {encodedInfo.DisplayName} downmix; the full {mixInfo.DisplayName} mix is in {Path.GetFileName(stemPath)}.");
             }
 
@@ -106,7 +109,7 @@ public static class VideoExporter
                 writer.WriteVideoFrame(pixels, time, ExportPlanning.GetFrameTime(frame + 1, profile.FrameRate) - time);
                 if (hasAudio)
                 {
-                    audio.WriteThrough(ExportPlanning.GetAudioFramesThrough(frame, profile.FrameRate));
+                    audio.WriteThrough(ExportPlanning.GetAudioFramesThrough(frame, profile.FrameRate, request.AudioSampleRate));
                 }
 
                 if (frame % 5 == 0 || frame == frameCount - 1)
@@ -165,7 +168,9 @@ public static class VideoExporter
             bitRate,
             audio?.ChannelCount ?? 0,
             audio?.ChannelMask ?? 0,
-            hardware);
+            hardware,
+            request.AudioSampleRate,
+            request.AudioBitRate);
 
         if (request.PreferHardware)
         {
@@ -254,8 +259,8 @@ public static class VideoExporter
                     }
                 }
 
-                long time = _written * 10_000_000L / ExportPlanning.AudioSampleRate;
-                long end = (_written + frames) * 10_000_000L / ExportPlanning.AudioSampleRate;
+                long time = _written * 10_000_000L / mixer.SampleRate;
+                long end = (_written + frames) * 10_000_000L / mixer.SampleRate;
                 writer.WriteAudio(_pcm, frames * outputChannels * 2, time, end - time);
                 _written += frames;
             }
