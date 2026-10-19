@@ -443,8 +443,9 @@
                                     <ComboBoxItem Content="24-bit" Tag="24" />
                                     <ComboBoxItem Content="32-bit" Tag="32" />
                                 </ComboBox>
-                                <ComboBox x:Name="AudioExportBitRateSelector" Header="Lossy audio bit rate" SelectedIndex="1" HorizontalAlignment="Stretch">
+                                <ComboBox x:Name="AudioExportBitRateSelector" Header="Lossy audio bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
                                     <ComboBoxItem Content="128 kbps" Tag="128000" />
+                                    <ComboBoxItem Content="160 kbps" Tag="160000" />
                                     <ComboBoxItem Content="192 kbps" Tag="192000" />
                                     <ComboBoxItem Content="256 kbps" Tag="256000" />
                                     <ComboBoxItem Content="320 kbps" Tag="320000" />
@@ -452,6 +453,8 @@
                             </StackPanel>
                         </UserControl>
                         <Button x:Name="ExportAudioButton" Content="Export audio mix…" Click="ExportAudio_Click" />
+                        <Button x:Name="CheckAudioEncodersButton" Content="Check installed audio encoders" Click="CheckAudioEncoders_Click" />
+                        <TextBlock x:Name="AudioEncoderCapabilitiesText" Text="Windows MP3/AAC format availability varies by PC. Export requires an exact rate, channel count and bit rate match; unsupported combinations report an error rather than substituting settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>

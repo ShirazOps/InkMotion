@@ -31,7 +31,7 @@ public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate,
             (!IsWave && SampleRate is not (44100 or 48000)) ||
             (Codec == AudioExportCodec.PcmWave && BitsPerSample is not (16 or 24 or 32)) ||
             (Codec == AudioExportCodec.FloatWave && BitsPerSample != 32) ||
-            (!IsWave && BitRate is not (128000 or 192000 or 256000 or 320000)))
+            (!IsWave && BitRate is not (128000 or 160000 or 192000 or 256000 or 320000)))
         {
             throw new ArgumentException("Unsupported audio export settings. Lossy formats require 44.1 or 48 kHz and 128–320 kbps.");
         }
@@ -65,6 +65,7 @@ public static class AudioExporter
         }
 
         bool completed = false;
+        bool outputStarted = false;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -78,6 +79,7 @@ public static class AudioExporter
                     throw new InvalidOperationException("This WAV would exceed the 4 GB RIFF limit. Choose a lower rate/depth or shorten the mix.");
                 }
 
+                outputStarted = true;
                 using var writer = new MultichannelWaveWriter(path, settings.SampleRate, info.ChannelCount, info.ChannelMask,
                     settings.BitsPerSample, settings.Codec == AudioExportCodec.FloatWave);
                 float[] buffer = new float[4096 * info.ChannelCount];
@@ -99,14 +101,7 @@ public static class AudioExporter
             else
             {
                 var provider = new SampleToWaveProvider16(source);
-                if (settings.Codec == AudioExportCodec.Mp3)
-                {
-                    MediaFoundationEncoder.EncodeToMp3(provider, path, settings.BitRate);
-                }
-                else
-                {
-                    MediaFoundationEncoder.EncodeToAac(provider, path, settings.BitRate);
-                }
+                AudioEncoderCapabilities.EncodeExact(provider, path, settings, () => outputStarted = true);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -116,7 +111,7 @@ public static class AudioExporter
         }
         finally
         {
-            if (!completed && File.Exists(path))
+            if (!completed && outputStarted && File.Exists(path))
             {
                 File.Delete(path);
             }

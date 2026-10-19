@@ -84,11 +84,7 @@ public sealed class AudioExporterTests
     [InlineData(AudioExportCodec.Aac)]
     public void CompressedExport_RoundTripsWhenTheWindowsEncoderIsAvailable(AudioExportCodec codec)
     {
-        NAudio.MediaFoundation.MediaFoundationApi.Startup();
-        Guid subtype = codec == AudioExportCodec.Mp3
-            ? NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_MP3
-            : NAudio.MediaFoundation.AudioSubtypes.MFAudioFormat_AAC;
-        if (MediaFoundationEncoder.GetOutputMediaTypes(subtype).Length == 0)
+        if (!AudioEncoderCapabilities.Discover().Any(format => format == new AudioEncoderFormat(codec, 48000, 2, 192000)))
         {
             return;
         }

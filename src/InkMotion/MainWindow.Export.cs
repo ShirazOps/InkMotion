@@ -9,6 +9,38 @@ namespace InkMotion;
 public sealed partial class MainWindow
 {
     private CancellationTokenSource? _exportCancellation;
+    private bool _checkingAudioEncoders;
+
+    private async void CheckAudioEncoders_Click(object sender, RoutedEventArgs e)
+    {
+        if (_checkingAudioEncoders || _exportCancellation is not null)
+        {
+            return;
+        }
+
+        _checkingAudioEncoders = true;
+        CheckAudioEncodersButton.IsEnabled = false;
+        AudioEncoderCapabilitiesText.Text = "Checking installed Windows audio encoder formats...";
+        try
+        {
+            IReadOnlyList<AudioEncoderFormat> formats = await Task.Run(AudioEncoderCapabilities.Discover);
+            string[] lines = formats.GroupBy(format => (format.Codec, format.SampleRate, format.Channels))
+                .Select(group => $"{group.Key.Codec} | {group.Key.SampleRate:N0} Hz | {group.Key.Channels} ch | " +
+                    string.Join(", ", group.Select(format => format.BitRate / 1000)) + " kbps").ToArray();
+            AudioEncoderCapabilitiesText.Text = "PCM/float WAV: built in; all listed WAV rates/depths.\n" +
+                (lines.Length == 0 ? "No matching Windows MP3/AAC encoder formats found." : string.Join(Environment.NewLine, lines)) +
+                "\nFor separate audio files only; MP4 encoder compatibility is checked when exporting video.";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException or NotSupportedException)
+        {
+            AudioEncoderCapabilitiesText.Text = $"Could not query Windows audio encoders: {ex.Message}";
+        }
+        finally
+        {
+            _checkingAudioEncoders = false;
+            CheckAudioEncodersButton.IsEnabled = _exportCancellation is null;
+        }
+    }
 
     private double GetExportFrameRate() => ExportFrameRateBox?.Value ?? 24;
 
@@ -212,6 +244,7 @@ public sealed partial class MainWindow
         ToolbarExportButton.IsEnabled = !running;
         ExportAudioButton.IsEnabled = !running;
         AudioExportOptions.IsEnabled = !running;
+        CheckAudioEncodersButton.IsEnabled = !running && !_checkingAudioEncoders;
         ExportResolutionSelector.IsEnabled = !running;
         ExportCodecSelector.IsEnabled = !running;
         ExportFrameRateBox.IsEnabled = !running;
