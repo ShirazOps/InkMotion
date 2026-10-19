@@ -74,7 +74,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
    - Existing: waveform lanes, multitrack placement, trim/split, whole-clip copy/paste/duplicate/remove, frame-based range selection/copy/cut/delete/silence (paste at playhead), volume/mute/solo, left/right speaker balance, fades, normalisation, tempo/pitch, channel layout and tag editing. Version 10 persists solo/balance and migrates previous projects to neutral defaults.
    - Added: version 11 saved/bypassable high/low-pass filters, three-band EQ and linked peak compression with shared preview/export processing; selected-track monitor peak/RMS and latched clipping indication.
    - Added: bounded source-range spectrum snapshots with a Hann-windowed FFT, logarithmic frequency plot, calibrated amplitude, peak/RMS and strongest non-DC bin; asynchronous analysis is cancelled when selection changes.
-   - Next: direct waveform range dragging and sample-level selection; clip joins; spatial panning; master metering; recording; sample-level waveform zoom; spectrogram and whole-range spectral averaging.
+   - Added: non-destructive joins of consecutive same-source segments on adjacent audio lanes, retaining outer fades and tags and rejecting gaps, overlaps, internal fades or processing mismatches; undo restores both parts.
+   - Next: direct waveform range dragging and sample-level selection; spatial panning; master metering; recording; sample-level waveform zoom; spectrogram and whole-range spectral averaging.
    - Added: version 13 linked noise gate with attack/hold/release and 3 dB hysteresis, plus instant sample-peak limiting with a configurable ceiling/release, persisted and shared by preview/export. Neither is spectral noise reduction or true-peak mastering.
    - Then: extend non-destructive effect chains with noise reduction, reverb/delay. Plug-in hosting is a later compatibility project, not an immediate placeholder.
 5. **Ink tools inspired by FlipaClip**
