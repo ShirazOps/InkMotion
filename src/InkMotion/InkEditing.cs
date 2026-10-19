@@ -2,6 +2,47 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static InkLayerProject DuplicateLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
+    {
+        int index = layers.FindIndex(layer => layer.Id == id);
+        if (index < 0)
+        {
+            throw new InvalidOperationException("Select an existing ink layer to duplicate.");
+        }
+
+        InkLayerProject copy = CloneLayer(layers[index]);
+        copy.Id = $"ink-{Guid.NewGuid():N}";
+        copy.Name += " copy";
+        copy.IsLocked = false;
+        List<List<List<InkPoint>>> drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            if (drawings[frame].Count > 0)
+            {
+                frames[frame].LayerStrokes.Add(copy.Id, drawings[frame]);
+            }
+        }
+
+        layers.Insert(index + 1, copy);
+        return copy;
+    }
+
+    public static void RemoveLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
+    {
+        InkLayerProject? layer = layers.FirstOrDefault(layer => layer.Id == id);
+        if (layer is null || id == ExportPlanning.BaseInkLayerId || layer.IsLocked ||
+            (layer.IsVisible && layers.Count(candidate => candidate.IsVisible) == 1))
+        {
+            throw new InvalidOperationException("Keep the base layer and at least one visible layer; unlock the drawing before removing it.");
+        }
+
+        layers.Remove(layer);
+        foreach (EditorFrame frame in frames)
+        {
+            frame.LayerStrokes.Remove(id);
+        }
+    }
+
     public static InkLayerProject CloneLayer(InkLayerProject layer) => new()
     {
         Id = layer.Id,

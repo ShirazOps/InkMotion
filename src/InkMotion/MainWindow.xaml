@@ -594,6 +594,12 @@
                         </StackPanel>
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
+                        <TextBox x:Name="InkLayerNameBox" Header="Layer name" MaxLength="200" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Rename" Tag="rename" Click="InkLayerAction_Click" />
+                            <Button Content="Duplicate" Tag="duplicate" Click="InkLayerAction_Click" />
+                            <Button Content="Remove" Tag="remove" Click="InkLayerAction_Click" />
+                        </StackPanel>
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
                         <ToggleButton x:Name="InkLayerLockButton" Content="Lock drawing" Click="InkLayerLock_Click" />
@@ -603,6 +609,8 @@
                             <Slider x:Name="InkLayerOpacitySlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="InkLayerOpacity_Changed" LostFocus="InkLayerOpacity_LostFocus" />
                         </StackPanel>
                         <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="InkBrushPresetSelector" Header="Round brush preset" PlaceholderText="Apply a preset" HorizontalAlignment="Stretch" SelectionChanged="InkBrushPreset_SelectionChanged" />
+                        <TextBlock Text="Presets set width, opacity and stabilisation, retaining hue. All use the same pressure-sensitive round brush; the highlighter has translucent overlapping dabs, not a separate blend mode." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Drawing stabilisation" Style="{StaticResource LabelTextStyle}" />
                         <Slider x:Name="InkStabilisationSlider" Minimum="0" Maximum="0.9" Value="0" StepFrequency="0.1" AutomationProperties.Name="Drawing stabilisation" />
                         <TextBlock Text="Off at the left; stronger smoothing adds pen lag. The stroke ends at the released pointer." Style="{StaticResource HintTextStyle}" TextWrapping="Wrap" />

@@ -72,6 +72,7 @@ public sealed partial class MainWindow : Window
         InitialiseVideoTimeline();
         UpdateSelectedAudioTrack();
         RefreshInkLayers();
+        InkBrushPresetSelector.ItemsSource = InkBrushPresets.All.Select(preset => preset.Name).ToArray();
         RefreshTimeline();
         RenderCurrentInk();
         UpdateFrameStatus();
@@ -142,6 +143,7 @@ public sealed partial class MainWindow : Window
         InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
         InkLayerLockButton.IsChecked = CurrentInkLayer.IsLocked;
         InkLayerLockButton.Content = CurrentInkLayer.IsLocked ? "Unlock drawing" : "Lock drawing";
+        InkLayerNameBox.Text = CurrentInkLayer.Name;
         InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
         InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
     }

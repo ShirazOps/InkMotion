@@ -82,7 +82,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
 5. **Ink tools inspired by FlipaClip**
    - Existing: pressure-sensitive pen with optional stabilisation, whole/partial-stroke eraser with adjustable radius, palette/custom colour and transparency/size, drag-to-draw lines/rectangles/ellipses, whole-stroke lasso/all selection with copy/paste/delete and offset/scale/rotation, layers/opacity/reordering, cel add/copy/paste/duplicate/delete/exposure (including text and layer content), keyframes/tweening, onion skin and text.
    - Added: saved drawing locks protecting strokes, opacity and layer ordering, with copy/selection and visibility still available; whole-cel/timing/text operations are explicitly outside the drawing lock.
-   - Next: brush presets; canvas colour sampling; fill; finer partial-stroke and text selection; rulers; canvas pan/zoom/rotation; layer merge.
+   - Added: layer renaming, independent all-cel drawing duplication (including base/locked sources) and undoable non-base layer removal with lock/last-visible protection. Named round-brush presets set width, alpha and stabilisation while preserving hue; no texture or special highlighter blend mode.
+   - Next: canvas colour sampling; fill; finer partial-stroke and text selection; rulers; canvas pan/zoom/rotation; layer merge; texture brushes.
    - Then: frame ranges, copy/move/group/loop, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
 
 Reference products define the intended workflows, not a licence to copy their UI assets or proprietary implementations: [DaVinci Resolve editing](https://www.blackmagicdesign.com/products/davinciresolve/edit), [Audacity](https://www.audacityteam.org/), [ocenaudio](https://www.ocenaudio.com/), and [FlipaClip](https://www.flipaclip.com/).

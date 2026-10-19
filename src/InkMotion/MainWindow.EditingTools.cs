@@ -72,7 +72,7 @@ public sealed partial class MainWindow
     {
         if (source.LayerStrokes.Keys.Any(id => !_inkLayers.Any(layer => layer.Id == id)))
         {
-            StatusText.Text = "This cel belongs to a different project's layers. Copy a cel from the current project.";
+            StatusText.Text = "This cel references removed or different-project layers. Copy a cel from the current project.";
             return;
         }
 
