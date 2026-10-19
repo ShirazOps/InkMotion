@@ -616,6 +616,8 @@ public sealed partial class MainWindow : Window
         UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
+        AudioSoloButton.IsEnabled = hasClip;
+        AudioBalanceBox.IsEnabled = hasClip && _audioMixLayout != AudioChannelLayout.Mono;
         MoveAudioClipButton.IsEnabled = hasClip;
         TrimAudioStartButton.IsEnabled = hasClip;
         TrimAudioEndButton.IsEnabled = hasClip;
@@ -640,6 +642,8 @@ public sealed partial class MainWindow : Window
             AudioPitchBox.Value = 0;
             AudioVolumeSlider.Value = 1;
             AudioMuteButton.IsChecked = false;
+            AudioSoloButton.IsChecked = false;
+            AudioBalanceBox.Value = 0;
             AudioTitleBox.Text = string.Empty;
             AudioArtistBox.Text = string.Empty;
             AudioAlbumBox.Text = string.Empty;
@@ -658,6 +662,8 @@ public sealed partial class MainWindow : Window
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
+        AudioSoloButton.IsChecked = track.Project.Solo;
+        AudioBalanceBox.Value = track.Project.Balance * 100;
         AudioFadeInBox.Value = track.Project.FadeInSeconds;
         AudioFadeOutBox.Value = track.Project.FadeOutSeconds;
         AudioTempoBox.Value = track.Project.TempoPercent;
@@ -2021,6 +2027,7 @@ public sealed partial class MainWindow : Window
 
     private void SyncAudioTracks(TimeSpan timelinePosition, bool startPlayback)
     {
+        bool hasSolo = HasSoloAudio;
         foreach (AudioTrackRuntime track in _audioTracks)
         {
             if (track.Player is not AudioClipPlayer player)
@@ -2028,6 +2035,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
+            player.SetSoloSuppressed(hasSolo && !track.Project.Solo);
             if (IsOriginalPreview)
             {
                 player.Pause();

@@ -301,7 +301,7 @@ public sealed partial class MainWindow
 
         TimelineClipProject clip = active.Clip;
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
-        _previewMediaPlayer.IsMuted = !IsOriginalPreview && active.Track.IsMuted;
+        _previewMediaPlayer.IsMuted = !IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio);
         PreviewPlayer.Opacity = IsOriginalPreview ? 1 : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);

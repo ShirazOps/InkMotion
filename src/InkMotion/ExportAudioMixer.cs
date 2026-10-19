@@ -6,8 +6,8 @@ namespace InkMotion;
 
 /// <summary>
 /// Offline mix of every audible source in a project, rendered at the requested rate in the project's channel layout.
-/// Audio tracks keep their trim, gain, fades, tempo and pitch; video clips contribute their own sound with the
-/// clip volume and fades applied.
+/// Audio tracks keep their trim, gain, fades, tempo, pitch and speaker balance. Solo isolates marked audio
+/// tracks; otherwise video clips contribute their sound with clip volume and fades applied.
 /// </summary>
 public sealed class ExportAudioMixer : IDisposable
 {
@@ -35,12 +35,14 @@ public sealed class ExportAudioMixer : IDisposable
 
         try
         {
+            bool hasSolo = project.AudioTracks.Any(track => track.Solo);
             foreach (AudioTrackProject track in project.AudioTracks)
             {
-                AddAudioTrack(track);
+                AddAudioTrack(track, suppressed: hasSolo && !track.Solo);
             }
 
-            foreach (TimelineTrackProject track in project.VideoTracks.Where(track => track.Kind == TimelineTrackKind.Video && !track.IsMuted))
+            foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
+                !hasSolo && track.Kind == TimelineTrackKind.Video && !track.IsMuted))
             {
                 foreach (TimelineClipProject clip in track.Clips)
                 {
@@ -81,7 +83,7 @@ public sealed class ExportAudioMixer : IDisposable
         _readers.Clear();
     }
 
-    private void AddAudioTrack(AudioTrackProject track)
+    private void AddAudioTrack(AudioTrackProject track, bool suppressed)
     {
         if (string.IsNullOrWhiteSpace(track.AudioPath))
         {
@@ -108,7 +110,7 @@ public sealed class ExportAudioMixer : IDisposable
             return;
         }
 
-        if (track.Muted)
+        if (track.Muted || suppressed)
         {
             DurationSeconds = Math.Max(DurationSeconds, AudioClipEditing.GetClipStartSeconds(track, _frameRate) + timelineDuration);
             SourceCount++;
@@ -123,7 +125,7 @@ public sealed class ExportAudioMixer : IDisposable
         var stretch = new TimeStretchSampleProvider(clip, clip.Seek);
         stretch.SetParameters(AudioClipEditing.GetTempoRatio(track), track.PitchSemitones);
         stretch.Seek(track.SourceInSeconds);
-        AddSource(stretch, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration);
+        AddSource(stretch, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration, track.Balance);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip)
@@ -158,11 +160,11 @@ public sealed class ExportAudioMixer : IDisposable
         AddSource(envelope, VideoTimelineEditing.GetStartSeconds(clip, _frameRate), duration);
     }
 
-    private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds)
+    private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds, double balance = 0)
     {
         ISampleProvider mixed = new ChannelMixingSampleProvider(
             source,
-            AudioChannelLayouts.CreateMixMatrix(source.WaveFormat.Channels, Layout));
+            AudioMixControls.CreateMatrix(source.WaveFormat.Channels, Layout, balance));
         if (mixed.WaveFormat.SampleRate != SampleRate)
         {
             mixed = new WdlResamplingSampleProvider(mixed, SampleRate);

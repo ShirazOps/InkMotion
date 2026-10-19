@@ -5,7 +5,8 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 9;
+    public const int CurrentVersion = 10;
+    public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -36,6 +37,8 @@ public sealed class AudioTrackProject
     public int StartFrame { get; set; } = 1;
     public double Volume { get; set; } = 1;
     public bool Muted { get; set; }
+    public bool Solo { get; set; }
+    public double Balance { get; set; }
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     public double FadeInSeconds { get; set; }
@@ -260,6 +263,10 @@ public static class EditorProjectSerialiser
         if (project.Version == 8)
         {
             MigrateVersionEight(project);
+        }
+        if (project.Version == 9)
+        {
+            project.Version = EditorProject.CurrentVersion;
         }
 
         EditorProjectValidation.Validate(project);
@@ -610,7 +617,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 9)
+        if (project.Version != EditorProject.CurrentVersion)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }

@@ -445,8 +445,11 @@
                         <TextBlock x:Name="AudioTrackLabel" Text="No audio track selected" TextWrapping="Wrap" Style="{StaticResource LabelTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleButton x:Name="AudioMuteButton" Content="Mute" Click="AudioMute_Click" />
+                            <ToggleButton x:Name="AudioSoloButton" Content="Solo" Click="AudioSolo_Click" IsEnabled="False" />
                             <Slider x:Name="AudioVolumeSlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="AudioVolume_Changed" />
                         </StackPanel>
+                        <NumberBox x:Name="AudioBalanceBox" Header="Balance (-100 left, +100 right)" Minimum="-100" Maximum="100" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioBalance_ValueChanged" IsEnabled="False" />
+                        <TextBlock Text="Balance attenuates left/right speakers; centre/LFE stay unchanged. Solo isolates marked audio tracks and bypasses video-source sound. Mute takes priority over solo." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />

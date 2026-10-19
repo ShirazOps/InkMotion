@@ -99,10 +99,13 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly ChannelMixingSampleProvider _monitorMix;
     private readonly WaveOutEvent _output;
     private bool _disposed;
+    private bool _soloSuppressed;
+    private AudioClipGainSettings _gainSettings;
 
     public AudioClipPlayer(string audioPath, AudioTrackProject project, AudioChannelLayout mixLayout)
     {
         _reader = new AudioFileReader(audioPath);
+        _gainSettings = AudioClipEditing.CreateGainSettings(project);
         try
         {
             DurationSeconds = _reader.TotalTime.TotalSeconds;
@@ -110,11 +113,11 @@ public sealed class AudioClipPlayer : IDisposable
             _clip = new AudioClipSampleProvider(
                 _reader,
                 DurationSeconds,
-                AudioClipEditing.CreateGainSettings(project),
+                _gainSettings,
                 seconds => _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, DurationSeconds)));
             _stretch = new TimeStretchSampleProvider(_clip, _clip.Seek);
             _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
-            _monitorMix = new ChannelMixingSampleProvider(_stretch, CreateMonitorMatrix(ChannelCount, mixLayout));
+            _monitorMix = new ChannelMixingSampleProvider(_stretch, CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
             _output = new WaveOutEvent { DesiredLatency = OutputLatencyMilliseconds, NumberOfBuffers = 2 };
             _output.Init(_monitorMix);
         }
@@ -138,16 +141,28 @@ public sealed class AudioClipPlayer : IDisposable
     /// Builds the monitoring matrix: the source is mapped into the project mix layout and then folded down
     /// to the stereo output device, so surround mixes can be auditioned on headphones or stereo speakers.
     /// </summary>
-    public static float[,] CreateMonitorMatrix(int sourceChannelCount, AudioChannelLayout mixLayout) =>
+    public static float[,] CreateMonitorMatrix(int sourceChannelCount, AudioChannelLayout mixLayout, double balance = 0) =>
         AudioChannelLayouts.Multiply(
             AudioChannelLayouts.CreateMixMatrix(mixLayout, AudioChannelLayout.Stereo),
-            AudioChannelLayouts.CreateMixMatrix(sourceChannelCount, mixLayout));
+            AudioMixControls.CreateMatrix(sourceChannelCount, mixLayout, balance));
 
     public void Update(AudioTrackProject project, AudioChannelLayout mixLayout)
     {
-        _clip.UpdateSettings(AudioClipEditing.CreateGainSettings(project));
+        _gainSettings = AudioClipEditing.CreateGainSettings(project);
+        _clip.UpdateSettings(_soloSuppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
         _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
-        _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout));
+        _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
+    }
+
+    public void SetSoloSuppressed(bool suppressed)
+    {
+        if (_soloSuppressed == suppressed)
+        {
+            return;
+        }
+
+        _soloSuppressed = suppressed;
+        _clip.UpdateSettings(suppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
     }
 
     public void Seek(double sourceSeconds) => _stretch.Seek(sourceSeconds);
