@@ -99,7 +99,8 @@
                     <Button Content="Add video…" Click="AddVideoClip_Click" />
                     <Button Content="Add image…" Click="AddImageClip_Click" />
                     <Button Content="Add title" Click="AddTitleClip_Click" />
-                    <ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, the playhead and timeline start" />
+                    <Button Content="Add marker" Click="AddMarker_Click" />
+                    <ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, markers, the playhead and timeline start" />
                     <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Trim start" Click="TrimClipStart_Click" />
@@ -240,6 +241,26 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
                         <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="TIMELINE MARKERS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Add" Click="AddMarker_Click" />
+                            <Button Content="Previous" Tag="previous" Click="MarkerAction_Click" />
+                            <Button Content="Next" Tag="next" Click="MarkerAction_Click" />
+                        </StackPanel>
+                        <ComboBox x:Name="MarkerSelector" Header="Named markers" HorizontalAlignment="Stretch" SelectionChanged="Marker_SelectionChanged" />
+                        <TextBox x:Name="MarkerNameBox" Header="Marker name" MaxLength="200" />
+                        <UserControl x:Name="MarkerActions" IsEnabled="False">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Go to" Tag="jump" Click="MarkerAction_Click" />
+                                    <Button Content="Rename" Tag="rename" Click="MarkerAction_Click" />
+                                    <Button Content="Delete" Tag="delete" Click="MarkerAction_Click" />
+                                </StackPanel>
+                                <Button Content="Move marker to playhead" Tag="move" Click="MarkerAction_Click" />
+                            </StackPanel>
+                        </UserControl>
+                        <TextBlock Text="Markers are project guides, not exported overlays. Clip dragging snaps to them; frame-rate changes preserve their time to the nearest frame." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="PROJECT SETTINGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="Frame rate" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">

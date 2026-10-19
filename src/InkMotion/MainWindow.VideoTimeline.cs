@@ -499,6 +499,7 @@ public sealed partial class MainWindow
         }
 
         RefreshVideoTrackHeaders();
+        RefreshMarkers();
         UpdateVideoInspector();
         UpdatePreviewEmptyState();
         CompositionSurface.Invalidate();
@@ -513,7 +514,8 @@ public sealed partial class MainWindow
         }
 
         double viewport = Math.Max(0, VideoTimelineScroller.ActualWidth);
-        double contentSeconds = Math.Max(GetPlaybackEndSeconds(), _playheadFramePosition / _frameRate) + 10;
+        double markerEnd = _timelineMarkers.Count == 0 ? 0 : (_timelineMarkers.Max(marker => marker.Frame) - 1d) / _frameRate;
+        double contentSeconds = Math.Max(markerEnd, Math.Max(GetPlaybackEndSeconds(), _playheadFramePosition / _frameRate)) + 10;
         double width = Math.Max(viewport, contentSeconds * _timelinePixelsPerSecond);
         double height = TimelineRulerHeight + (_videoTracks.Count * (TimelineLaneHeight + TimelineLaneSpacing));
         if (!(Math.Abs(VideoTimelineCanvas.Width - width) <= 0.5))
@@ -601,6 +603,17 @@ public sealed partial class MainWindow
             float half = (float)((tick + (step / 2)) * _timelinePixelsPerSecond);
             session.DrawLine(half, 18, half, TimelineRulerHeight, Color.FromArgb(255, 0x3E, 0x45, 0x51));
             session.DrawText(FormatTimelineTime(tick, step < 1), x + 3, 1, Color.FromArgb(255, 0x8F, 0x99, 0xAA), _timelineRulerFormat);
+        }
+
+        foreach (TimelineMarkerProject marker in _timelineMarkers)
+        {
+            float x = (float)((marker.Frame - 1d) / _frameRate * _timelinePixelsPerSecond);
+            if (x >= left - 4 && x <= right + 4)
+            {
+                var colour = Color.FromArgb(255, 0xFF, 0xCB, 0x66);
+                session.DrawLine(x, 8, x, (float)VideoTimelineCanvas.ActualHeight, colour);
+                session.FillCircle(x, 5, 3, colour);
+            }
         }
 
         float playheadX = (float)(_playheadFramePosition / _frameRate * _timelinePixelsPerSecond);
@@ -804,7 +817,8 @@ public sealed partial class MainWindow
                     AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate),
                     AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) +
                         AudioClipEditing.GetTimelineDuration(track.Project, track.SourceDurationSeconds),
-                })).Append(0).Append(CurrentPlaybackSeconds);
+                })).Concat(_timelineMarkers.Select(marker => (marker.Frame - 1d) / _frameRate))
+                .Append(0).Append(CurrentPlaybackSeconds);
             startFrame = VideoEditTools.SnapStart(target, drag.Clip, startFrame, anchors, _frameRate,
                 toleranceSeconds: 8 / _timelinePixelsPerSecond);
         }

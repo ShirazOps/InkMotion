@@ -1559,8 +1559,24 @@ public sealed partial class MainWindow : Window
 
         PausePlayback();
         FinishActiveEdit();
+        int[] markerFrames;
+        try
+        {
+            markerFrames = _timelineMarkers.Select(marker => TimelineMarkers.ConvertFrame(marker.Frame, _frameRate, rate)).ToArray();
+        }
+        catch (InvalidOperationException ex)
+        {
+            StatusText.Text = ex.Message;
+            UpdateFrameRateSelector();
+            return;
+        }
+
         BeginEdit();
         VideoTimelineEditing.RescaleFrameRate(_videoTracks, _frameRate, rate);
+        for (int index = 0; index < _timelineMarkers.Count; index++)
+        {
+            _timelineMarkers[index].Frame = markerFrames[index];
+        }
         _frameRate = rate;
         MarkEditChanged();
         CommitEdit();
@@ -2105,6 +2121,7 @@ public sealed partial class MainWindow : Window
         {
             FrameRate = _frameRate,
             VideoTracks = _videoTracks.Select(VideoTimelineEditing.Clone).ToList(),
+            Markers = _timelineMarkers.Select(TimelineMarkers.Clone).ToList(),
             AudioPath = firstLoadedTrack?.AudioPath,
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
             AudioMuted = firstLoadedTrack?.Muted ?? false,
@@ -2144,6 +2161,8 @@ public sealed partial class MainWindow : Window
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         RestoreVideoTracks(project.VideoTracks);
+        _timelineMarkers.Clear();
+        _timelineMarkers.AddRange(project.Markers.Select(TimelineMarkers.Clone));
         _audioMixLayout = project.AudioMixLayout;
         RestoreAudioTrackModels(project.AudioTracks);
         UpdateAudioMixLayoutSelector();

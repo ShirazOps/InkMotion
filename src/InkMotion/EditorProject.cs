@@ -5,13 +5,14 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 13;
+    public const int CurrentVersion = 14;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
     public List<TimelineTrackProject> VideoTracks { get; set; } = [];
+    public List<TimelineMarkerProject> Markers { get; set; } = [];
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
@@ -279,6 +280,10 @@ public static class EditorProjectSerialiser
             project.Version = 12;
         }
         if (project.Version == 12)
+        {
+            project.Version = 13;
+        }
+        if (project.Version == 13)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -640,6 +645,13 @@ internal static class EditorProjectValidation
         {
             throw new InvalidDataException("The project frame rate must be 12, 24, 30, or 60 fps.");
         }
+
+        if (project.Markers is null)
+        {
+            throw new InvalidDataException("Timeline markers must be a list.");
+        }
+
+        TimelineMarkers.Validate(project.Markers);
 
         if (!double.IsFinite(project.AudioVolume) || project.AudioVolume is < 0 or > 1)
         {
