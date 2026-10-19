@@ -791,6 +791,24 @@ public sealed partial class MainWindow
             !_videoTracks[index].IsLocked
                 ? _videoTracks[index]
                 : drag.Track;
+        if (VideoSnappingButton.IsChecked == true)
+        {
+            IEnumerable<double> anchors = _videoTracks.SelectMany(track => track.Clips
+                .Where(clip => !ReferenceEquals(clip, drag.Clip))
+                .SelectMany(clip => new[]
+                {
+                    VideoTimelineEditing.GetStartSeconds(clip, _frameRate),
+                    VideoTimelineEditing.GetEndSeconds(clip, track.Kind, _frameRate),
+                })).Concat(_audioTracks.Where(track => track.HasSource).SelectMany(track => new[]
+                {
+                    AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate),
+                    AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) +
+                        AudioClipEditing.GetTimelineDuration(track.Project, track.SourceDurationSeconds),
+                })).Append(0).Append(CurrentPlaybackSeconds);
+            startFrame = VideoEditTools.SnapStart(target, drag.Clip, startFrame, anchors, _frameRate,
+                toleranceSeconds: 8 / _timelinePixelsPerSecond);
+        }
+
         if (startFrame == drag.Clip.StartFrame && ReferenceEquals(target, drag.Track))
         {
             return;
@@ -1160,6 +1178,59 @@ public sealed partial class MainWindow
         "Split the clip at the playhead.",
         "Move the playhead inside the selected clip to split it.");
 
+    private void SlipVideoClip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => VideoEditTools.Slip(location.Track, location.Clip, frames / _frameRate),
+            $"Source slipped by {frames:+0;-0} project frame; timeline position and length are unchanged.",
+            "Select an unlocked video clip with unused source footage in that direction.");
+    }
+
+    private async void RelinkTimelineClip_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryGetEditableClip(out TimelineClipLocation selected) || selected.Track.Kind == TimelineTrackKind.Text)
+        {
+            return;
+        }
+
+        StorageFile? file = await PickTimelineFileAsync(selected.Track.Kind == TimelineTrackKind.Video
+            ? VideoFileTypes.SupportedExtensions : VideoTimelineEditing.ImageExtensions);
+        if (file is null)
+        {
+            return;
+        }
+
+        double duration = selected.Track.Kind == TimelineTrackKind.Video ? await ProbeVideoDurationAsync(file) : 0;
+        if (SelectedTimelineClip?.Clip != selected.Clip || selected.Track.IsLocked ||
+            !_videoTracks.Contains(selected.Track) || !selected.Track.Clips.Contains(selected.Clip))
+        {
+            StatusText.Text = "The clip selection changed while choosing a source. Relink the selected clip again.";
+            return;
+        }
+
+        BeginEdit();
+        bool relinked = VideoEditTools.Relink(selected.Track, selected.Clip, file.Path, duration);
+        if (relinked)
+        {
+            RegisterTimelineSource(file);
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        StatusText.Text = relinked
+            ? "Source relinked; timeline placement, source range and clip properties are preserved."
+            : "The replacement source is unavailable or shorter than the clip's source range.";
+    }
+
     private void MoveClipToPlayhead_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoTimelineEditing.TryMove(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
         "Moved the clip to the playhead.",
@@ -1221,6 +1292,12 @@ public sealed partial class MainWindow
         bool isVideo = kind == TimelineTrackKind.Video;
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
+        VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
+        ClipSourceRangeText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipSourceRangeText.Text = isVideo
+            ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
+            : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipDurationBox.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;

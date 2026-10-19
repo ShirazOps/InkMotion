@@ -99,6 +99,7 @@
                     <Button Content="Add video…" Click="AddVideoClip_Click" />
                     <Button Content="Add image…" Click="AddImageClip_Click" />
                     <Button Content="Add title" Click="AddTitleClip_Click" />
+                    <ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, the playhead and timeline start" />
                     <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="Trim start" Click="TrimClipStart_Click" />
@@ -303,6 +304,12 @@
                             <Button Grid.Row="2" Grid.Column="1" Content="Ripple delete" HorizontalAlignment="Stretch" Click="RippleDeleteClip_Click" ToolTipService.ToolTip="Delete the clip and close the gap" />
                         </Grid>
                         <StackPanel x:Name="ClipPropertiesPanel" Spacing="10">
+                            <Button x:Name="RelinkTimelineClipButton" Content="Relink source..." Click="RelinkTimelineClip_Click" />
+                            <TextBlock x:Name="ClipSourceRangeText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <StackPanel x:Name="VideoSlipActions" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Slip source -1" Tag="-1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame earlier without moving the clip" />
+                                <Button Content="Slip source +1" Tag="1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame later without moving the clip" />
+                            </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Grid ColumnSpacing="6">
