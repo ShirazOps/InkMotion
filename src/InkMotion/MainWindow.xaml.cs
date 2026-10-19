@@ -2484,6 +2484,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _audioSpectrumCancellation?.Cancel();
+        _audioSpectrumCancellation = null;
         _playbackTimer.Stop();
         DisposeAudioTracks();
         DisposeVideoTimeline();

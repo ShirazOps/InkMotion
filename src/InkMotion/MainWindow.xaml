@@ -120,6 +120,7 @@
                     <Button Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioEndButton}" />
                     <Button Content="Split" Click="SplitAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
                     <Button Content="Normalise" Click="NormaliseAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=NormaliseAudioButton}" />
+                    <Button Content="Spectrum" Click="AnalyseAudioSpectrum_Click" IsEnabled="{Binding IsEnabled, ElementName=AnalyseAudioSpectrumButton}" />
                     <Button Content="Copy clip" Click="CopyAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
                     <Button x:Name="PasteAudioClipButton" Content="Paste at playhead" Click="PasteAudioClip_Click" IsEnabled="False" />
                     <Button Content="Duplicate" Click="DuplicateAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
@@ -521,6 +522,14 @@
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
                             </StackPanel>
                         </UserControl>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="SOURCE FREQUENCY ANALYSIS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="AnalyseAudioSpectrumButton" Content="Analyse selected source range" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <canvas:CanvasControl x:Name="AudioSpectrumSurface" Height="150" Draw="AudioSpectrumSurface_Draw" AutomationProperties.Name="Source spectrum, logarithmic frequency from 20 Hz to Nyquist, minus 120 to zero dBFS" />
+                        <TextBlock Text="20 Hz to Nyquist (logarithmic) | 0 dBFS at top, -120 at bottom" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="AudioSpectrumText" Text="Analyse the start of the selected source range (up to 32768 samples)." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Snapshot of source audio before tempo, pitch, gain, fades and effects. Channel powers are averaged, so opposite-phase stereo does not cancel. Not a spectrogram or whole-clip average." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioArtistBox" PlaceholderText="Artist" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />

@@ -11,6 +11,7 @@ public sealed partial class MainWindow
     {
         if (!_isInitialising)
         {
+            ClearAudioSpectrum();
             RefreshAudioTracks();
         }
     }
@@ -23,6 +24,7 @@ public sealed partial class MainWindow
         {
             _audioRangeTrack = track;
             SelectWholeAudioRange();
+            ClearAudioSpectrum();
         }
     }
 
