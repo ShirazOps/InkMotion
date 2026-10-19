@@ -213,6 +213,7 @@ public sealed partial class MainWindow : Window
         try
         {
             EditorProject project = EditorProjectSerialiser.Deserialise(await FileIO.ReadTextAsync(file));
+            ClearEditingClipboard();
             ClearHistory();
             RestoreProjectState(project);
             string? audioWarning = await LoadAudioTracksAsync(project.AudioTracks);
@@ -615,6 +616,7 @@ public sealed partial class MainWindow : Window
         TrimAudioStartButton.IsEnabled = hasClip;
         TrimAudioEndButton.IsEnabled = hasClip;
         SplitAudioButton.IsEnabled = hasClip;
+        RemoveAudioClipButton.IsEnabled = hasSelection;
         AudioFadeInBox.IsEnabled = hasClip;
         AudioFadeOutBox.IsEnabled = hasClip;
         AudioTempoBox.IsEnabled = hasClip;
@@ -1361,30 +1363,7 @@ public sealed partial class MainWindow : Window
 
     private void DuplicateFrame_Click(object sender, RoutedEventArgs e)
     {
-        PausePlayback();
-        FinishActiveEdit();
-        BeginEdit();
-        EditorFrame sourceFrame = CurrentFrame;
-        EditorFrame clonedSource = CloneFrame(sourceFrame);
-        var duplicate = new EditorFrame
-        {
-            Number = sourceFrame.Number + 1,
-            ExposureFrames = sourceFrame.ExposureFrames,
-            IsKeyframe = sourceFrame.IsKeyframe,
-            InterpolationMode = sourceFrame.InterpolationMode,
-            Strokes = clonedSource.Strokes,
-            LayerStrokes = clonedSource.LayerStrokes,
-        };
-        _frames.Insert(_selectedFrameIndex + 1, duplicate);
-        for (int i = _selectedFrameIndex + 2; i < _frames.Count; i++)
-        {
-            _frames[i].Number++;
-        }
-
-        MarkEditChanged();
-        CommitEdit();
-        RefreshTimeline();
-        SelectFrame(_selectedFrameIndex + 1);
+        InsertCelCopy(CurrentFrame);
     }
 
     private void DeleteFrame_Click(object sender, RoutedEventArgs e)
@@ -1991,43 +1970,7 @@ public sealed partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(project.Comments) ||
         project.Year > 0;
 
-    private static EditorFrame CloneFrame(EditorFrame frame) => new()
-    {
-        Number = frame.Number,
-        ExposureFrames = frame.ExposureFrames,
-        IsKeyframe = frame.IsKeyframe,
-        InterpolationMode = frame.InterpolationMode,
-        TextOverlays = frame.TextOverlays.Select(text => new InkTextOverlay
-        {
-            Text = text.Text,
-            X = text.X,
-            Y = text.Y,
-            FontFamily = text.FontFamily,
-            FontSize = text.FontSize,
-            Colour = text.Colour,
-        }).ToList(),
-        Strokes = frame.Strokes
-            .Select(stroke => stroke.Select(point => new InkPoint
-            {
-                X = point.X,
-                Y = point.Y,
-                Pressure = point.Pressure,
-                BrushWidth = point.BrushWidth,
-                BrushColour = point.BrushColour,
-            }).ToList())
-            .ToList(),
-            LayerStrokes = frame.LayerStrokes.ToDictionary(
-                pair => pair.Key,
-                pair => pair.Value.Select(stroke => stroke.Select(point => new InkPoint
-                {
-                    X = point.X,
-                    Y = point.Y,
-                    Pressure = point.Pressure,
-                    BrushWidth = point.BrushWidth,
-                    BrushColour = point.BrushColour,
-                }).ToList()).ToList(),
-                StringComparer.Ordinal),
-    };
+    private static EditorFrame CloneFrame(EditorFrame frame) => InkEditing.Clone(frame);
 
     private void RestoreProjectState(EditorProject project)
     {

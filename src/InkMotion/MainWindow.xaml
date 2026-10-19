@@ -104,9 +104,12 @@
                             <Button Content="Trim start" Click="TrimClipStart_Click" />
                             <Button Content="Trim end" Click="TrimClipEnd_Click" />
                             <Button Content="Split" Click="SplitClip_Click" />
+                            <Button Content="Duplicate" Click="DuplicateVideoClip_Click" />
                             <Button Content="Ripple delete" Click="RippleDeleteClip_Click" />
                         </StackPanel>
                     </UserControl>
+                    <Button Content="Copy clip" Click="CopyVideoClip_Click" />
+                    <Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" />
                     <TextBlock Text="Clip and track tools in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
                 </StackPanel>
                 <StackPanel x:Name="AudioActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
@@ -116,6 +119,10 @@
                     <Button Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioEndButton}" />
                     <Button Content="Split" Click="SplitAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
                     <Button Content="Normalise" Click="NormaliseAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=NormaliseAudioButton}" />
+                    <Button Content="Copy clip" Click="CopyAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button x:Name="PasteAudioClipButton" Content="Paste at playhead" Click="PasteAudioClip_Click" IsEnabled="False" />
+                    <Button Content="Duplicate" Click="DuplicateAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button x:Name="RemoveAudioClipButton" Content="Remove track" Click="DeleteAudioClip_Click" IsEnabled="False" />
                     <TextBlock Text="Trim, split, mix and tags in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
                 </StackPanel>
                 <StackPanel x:Name="InkActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
@@ -123,7 +130,13 @@
                     <Button Content="Eraser" Click="SelectEraser_Click" />
                     <Button Content="Add cel" Click="AddFrame_Click" />
                     <Button Content="Duplicate cel" Click="DuplicateFrame_Click" />
+                    <Button Content="Copy cel" Click="CopyCel_Click" />
+                    <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
+                        <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />
+                    </StackPanel>
                     <TextBlock Text="Brushes, text and animation in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
                 </StackPanel>
                 <StackPanel x:Name="ExportActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">

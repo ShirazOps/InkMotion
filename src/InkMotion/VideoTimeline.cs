@@ -534,6 +534,20 @@ public static class VideoTimelineEditing
         Clips = track.Clips.Select(Clone).ToList(),
     };
 
+    public static TimelineClipProject CopyForPlacement(TimelineClipProject source, int startFrame)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (startFrame < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(startFrame));
+        }
+
+        TimelineClipProject copy = Clone(source);
+        copy.Id = Guid.NewGuid().ToString("N");
+        copy.StartFrame = startFrame;
+        return copy;
+    }
+
     public static TimelineClipProject Clone(TimelineClipProject clip) => new()
     {
         Id = clip.Id,

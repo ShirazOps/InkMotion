@@ -22,6 +22,9 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Set the ink brush colour and size for new strokes; existing strokes keep their saved appearance.
 - Create independent ink layers, switch the active drawing layer, control visibility and opacity, and preserve each layer through save/load and undo/redo.
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
+- Copy and paste complete ink cels after the selection, preserving text, all layer strokes, exposure and animation settings. Duplicate cels also retain text. Raise or lower the active ink layer in the bottom-to-top rendering stack, with undo/redo and saved ordering.
+- Copy video, image or title clips and paste at the playhead, or duplicate immediately after the source clip. Copies retain source ranges and editable properties but receive new identities. Placement avoids locked tracks and preserves overlaps on another compatible track.
+- Copy audio clips and paste at the playhead, duplicate after their timeline duration, or remove them from the project without deleting source files. Copies retain trimming, fades, tempo/pitch, volume and tags, are placed on separate tracks and support undo/redo. The internal editing clipboard is cleared when another project opens.
 - Delete selected frames while maintaining a valid, sequentially numbered timeline and at least one frame per project.
 - Use optional onion-skin guides for the previous and next drawings, with adjustable opacity.
 - Mark frames as keyframes to define the endpoints for in-between animation.
