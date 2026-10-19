@@ -21,7 +21,7 @@ public static class InkEditing
         LayerStrokes = frame.LayerStrokes.ToDictionary(pair => pair.Key, pair => CloneStrokes(pair.Value), StringComparer.Ordinal),
     };
 
-    private static List<List<InkPoint>> CloneStrokes(List<List<InkPoint>> strokes) =>
+    public static List<List<InkPoint>> CloneStrokes(List<List<InkPoint>> strokes) =>
         strokes.Select(stroke => stroke.Select(point => new InkPoint
         {
             X = point.X,

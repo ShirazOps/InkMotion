@@ -50,6 +50,8 @@ public sealed partial class MainWindow : Window
     private bool _isPlaying;
     private bool _isEraser;
     private Point? _lastEraserPoint;
+    private InkShape? _inkShape;
+    private Point _shapeStartPoint;
     private bool _isRestoringProject;
     private bool _isInitialising = true;
     private string _workspace = "Video";
@@ -1508,6 +1510,8 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isEraser = false;
+        _inkShape = null;
+        _isInkLasso = false;
         StatusText.Text = "Pen tool selected.";
     }
 
@@ -1515,6 +1519,8 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isEraser = true;
+        _inkShape = null;
+        _isInkLasso = false;
         StatusText.Text = "Erase mode selected.";
     }
 
@@ -1589,6 +1595,18 @@ public sealed partial class MainWindow : Window
         }
 
         PausePlayback();
+        if (_isInkLasso)
+        {
+            FinishActiveEdit();
+            ClearInkSelection();
+            _activePointerId = e.Pointer.PointerId;
+            InkSurface.CapturePointer(e.Pointer);
+            AddLassoPoint(e.GetCurrentPoint(InkSurface).Position);
+            e.Handled = true;
+            return;
+        }
+
+        ClearInkSelection();
         BeginEdit();
         PromoteInterpolatedFrameForEditing();
         var pointerPoint = e.GetCurrentPoint(InkSurface);
@@ -1602,7 +1620,15 @@ public sealed partial class MainWindow : Window
         {
             _activeStroke = [];
             CurrentStrokes.Add(_activeStroke);
-            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
+            if (_inkShape is not null)
+            {
+                _shapeStartPoint = pointerPoint.Position;
+                UpdateInkShape(pointerPoint.Position);
+            }
+            else
+            {
+                AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
+            }
         }
 
         e.Handled = true;
@@ -1611,13 +1637,24 @@ public sealed partial class MainWindow : Window
     private void InkSurface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
         var pointerPoint = e.GetCurrentPoint(InkSurface);
-        if (_activePointerId == e.Pointer.PointerId && _isEraser)
+        if (_activePointerId == e.Pointer.PointerId && _isInkLasso)
+        {
+            AddLassoPoint(pointerPoint.Position);
+        }
+        else if (_activePointerId == e.Pointer.PointerId && _isEraser)
         {
             EraseAt(pointerPoint.Position);
         }
         else if (_activePointerId == e.Pointer.PointerId)
         {
-            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
+            if (_inkShape is not null)
+            {
+                UpdateInkShape(pointerPoint.Position);
+            }
+            else
+            {
+                AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
+            }
         }
 
         e.Handled = true;
@@ -1628,13 +1665,25 @@ public sealed partial class MainWindow : Window
         if (_activePointerId == e.Pointer.PointerId)
         {
             var pointerPoint = e.GetCurrentPoint(InkSurface);
-            if (_isEraser)
+            if (_isInkLasso)
+            {
+                AddLassoPoint(pointerPoint.Position);
+                FinishInkLasso();
+            }
+            else if (_isEraser)
             {
                 EraseAt(pointerPoint.Position);
             }
             else
             {
-                AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure, finalPoint: true);
+                if (_inkShape is not null)
+                {
+                    UpdateInkShape(pointerPoint.Position);
+                }
+                else
+                {
+                    AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure, finalPoint: true);
+                }
             }
             InkSurface.ReleasePointerCapture(e.Pointer);
             FinishActiveEdit();
@@ -1825,6 +1874,8 @@ public sealed partial class MainWindow : Window
         {
             TimelineCompositor.DrawInkText(args.DrawingSession, renderedText.Overlay, renderedText.Opacity, width, height, 1);
         }
+
+        DrawInkSelection(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
@@ -1836,7 +1887,59 @@ public sealed partial class MainWindow : Window
                 System.Globalization.CultureInfo.InvariantCulture, out uint argb))
         {
             _brushColour = argb;
+            if (InkCustomColourPicker is not null)
+            {
+                InkCustomColourPicker.Color = ToColour(argb);
+            }
         }
+    }
+
+    private void InkCustomColour_Changed(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        if (_isInitialising)
+        {
+            return;
+        }
+
+        Windows.UI.Color colour = args.NewColor;
+        _brushColour = ((uint)colour.A << 24) | ((uint)colour.R << 16) | ((uint)colour.G << 8) | colour.B;
+        InkColourSelector.SelectedItem = InkColourSelector.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string tag &&
+                uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out uint argb) && argb == _brushColour);
+    }
+
+    private void SelectInkShape_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name } || !Enum.TryParse(name, out InkShape shape))
+        {
+            return;
+        }
+
+        FinishActiveEdit();
+        _isEraser = false;
+        _inkShape = shape;
+        _isInkLasso = false;
+        StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
+    }
+
+    private void UpdateInkShape(Point point)
+    {
+        if (_activeStroke is null || _inkShape is not InkShape shape ||
+            InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
+        {
+            return;
+        }
+
+        List<InkPoint> points = InkStrokeEditing.CreateShape(shape,
+            Math.Clamp(_shapeStartPoint.X / InkSurface.ActualWidth, 0, 1),
+            Math.Clamp(_shapeStartPoint.Y / InkSurface.ActualHeight, 0, 1),
+            Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
+            Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour);
+        _activeStroke.Clear();
+        _activeStroke.AddRange(points);
+        MarkEditChanged();
+        RenderCurrentInk();
     }
 
     private void InkWidth_Changed(
@@ -2125,6 +2228,11 @@ public sealed partial class MainWindow : Window
         _activePointerId = null;
         _activeStroke = null;
         _lastEraserPoint = null;
+        if (_inkLasso.Count > 0)
+        {
+            _inkLasso.Clear();
+            InkSurface.Invalidate();
+        }
         CommitEdit();
     }
 

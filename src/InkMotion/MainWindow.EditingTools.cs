@@ -13,6 +13,8 @@ public sealed partial class MainWindow
 
     private void ClearEditingClipboard()
     {
+        ClearInkSelection();
+        _copiedInkSelection.Clear();
         _copiedCel = null;
         _copiedAudio = null;
         _copiedAudioPeaks = [];

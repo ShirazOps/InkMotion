@@ -1,7 +1,45 @@
 namespace InkMotion;
 
+public enum InkShape
+{
+    Line,
+    Rectangle,
+    Ellipse,
+}
+
 public static class InkStrokeEditing
 {
+    public static List<InkPoint> CreateShape(InkShape shape, double x0, double y0, double x1, double y1, double brushWidth, uint colour)
+    {
+        if (!Enum.IsDefined(shape) || new[] { x0, y0, x1, y1 }.Any(value => !double.IsFinite(value) || value < 0 || value > 1) ||
+            !double.IsFinite(brushWidth) || brushWidth <= 0 || brushWidth > 64)
+        {
+            throw new ArgumentOutOfRangeException(nameof(shape), "A shape needs valid canvas coordinates and brush width.");
+        }
+
+        InkPoint Point(double x, double y) => new() { X = x, Y = y, BrushWidth = brushWidth, BrushColour = colour, Pressure = 0.5 };
+        if (shape == InkShape.Line)
+        {
+            return [Point(x0, y0), Point(x1, y1)];
+        }
+
+        if (shape == InkShape.Rectangle)
+        {
+            return [Point(x0, y0), Point(x1, y0), Point(x1, y1), Point(x0, y1), Point(x0, y0)];
+        }
+
+        double centreX = (x0 + x1) / 2;
+        double centreY = (y0 + y1) / 2;
+        double radiusX = Math.Abs(x1 - x0) / 2;
+        double radiusY = Math.Abs(y1 - y0) / 2;
+        return Enumerable.Range(0, 65).Select(index =>
+        {
+            double angle = index * Math.PI / 32;
+            return Point(Math.Clamp(centreX + radiusX * Math.Cos(angle), 0, 1),
+                Math.Clamp(centreY + radiusY * Math.Sin(angle), 0, 1));
+        }).ToList();
+    }
+
     public static bool Erase(
         List<List<InkPoint>> strokes, double x, double y, double width, double height,
         double radius, bool wholeStroke)

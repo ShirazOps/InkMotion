@@ -4,6 +4,34 @@ namespace InkMotion.Tests;
 
 public sealed class InkStrokeEditingTests
 {
+    [Theory]
+    [InlineData(InkShape.Line, 2)]
+    [InlineData(InkShape.Rectangle, 5)]
+    [InlineData(InkShape.Ellipse, 65)]
+    public void Shapes_AreEditableStrokesWithTheSelectedStyle(InkShape shape, int count)
+    {
+        List<InkPoint> stroke = InkStrokeEditing.CreateShape(shape, 0.8, 0.7, 0.2, 0.3, 6, 0x80123456);
+        Assert.Equal(count, stroke.Count);
+        Assert.All(stroke, point =>
+        {
+            Assert.InRange(point.X, 0.2 - 1e-8, 0.8 + 1e-8);
+            Assert.InRange(point.Y, 0.3 - 1e-8, 0.7 + 1e-8);
+            Assert.Equal(6, point.BrushWidth);
+            Assert.Equal(0x80123456u, point.BrushColour);
+            Assert.Equal(0.5, point.Pressure);
+        });
+        if (shape != InkShape.Line)
+        {
+            Assert.Equal(stroke[0].X, stroke[^1].X, 8);
+            Assert.Equal(stroke[0].Y, stroke[^1].Y, 8);
+        }
+
+        var project = new EditorProject { Frames = [new() { Strokes = [stroke] }] };
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.Equal(count, reopened.Frames[0].Strokes.Single().Count);
+        Assert.Equal(0x80123456u, reopened.Frames[0].Strokes[0][0].BrushColour);
+    }
+
     [Fact]
     public void PartialErase_SplitsSparseSegmentAndInterpolatesPressure()
     {

@@ -251,6 +251,42 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_PreservesTransformedShapesAndPartiallyErasedGaps()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-shapes-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            List<List<InkPoint>> strokes =
+                [InkStrokeEditing.CreateShape(InkShape.Line, 0.3, 0.7, 0.7, 0.7, 40, 0xFF00FF00)];
+            Assert.True(InkSelectionEditing.Transform(strokes, 0, -0.2, 1, 0, 1280, 720));
+            Assert.True(InkStrokeEditing.Erase(strokes, 640, 360, 1280, 720, 40, wholeStroke: false));
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                Frames = [new() { ExposureFrames = 12, IsKeyframe = true, Strokes = strokes }],
+            };
+            project = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+            VideoExporter.Export(new(project, VideoExportProfile.Create(ExportResolution.P720, 24),
+                VideoExportCodec.H264, output, 720, PreferHardware: false), null, CancellationToken.None);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.2));
+            var remaining = GetPixel(video, 448, 360);
+            var erased = GetPixel(video, 640, 360);
+            Assert.True(remaining.G > 160 && remaining.R < 80 && remaining.B < 80);
+            Assert.True(erased.R < 50 && erased.G < 50 && erased.B < 50);
+        }
+        finally
+        {
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Export_120FpsKeepsInkTimingAndUsesSoftwareWhenRequested()
     {
         if (!HasH264Encoder)
