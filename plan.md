@@ -74,8 +74,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
    - Next: time-range selection; range cut/copy/paste/delete/silence; clip joins; solo/pan; metering and clipping indication; recording; sample-level waveform zoom; spectrogram and frequency analysis.
    - Then: non-destructive effect chains with EQ, high/low-pass filters, compression/limiting, gate/noise reduction, reverb/delay, preview and bypass. Save processing settings in projects and apply the same processing on export. Plug-in hosting is a later compatibility project, not an immediate placeholder.
 5. **Ink tools inspired by FlipaClip**
-   - Existing: pressure-sensitive pen, whole-stroke eraser, colour/size, layers/opacity/reordering, cel add/copy/paste/duplicate/delete/exposure (including text and layer content), keyframes/tweening, onion skin and text.
-   - Next: brush presets and smoothing; partial eraser; colour picker; fill; lasso/selection transforms; selection copy/paste; shapes and rulers; canvas pan/zoom/rotation; layer lock/merge.
+   - Existing: pressure-sensitive pen with optional stabilisation, whole/partial-stroke eraser with adjustable radius, colour/size, layers/opacity/reordering, cel add/copy/paste/duplicate/delete/exposure (including text and layer content), keyframes/tweening, onion skin and text.
+   - Next: brush presets; colour picker; fill; lasso/selection transforms; selection copy/paste; shapes and rulers; canvas pan/zoom/rotation; layer lock/merge.
    - Then: frame ranges, copy/move/group/loop, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
 
 Reference products define the intended workflows, not a licence to copy their UI assets or proprietary implementations: [DaVinci Resolve editing](https://www.blackmagicdesign.com/products/davinciresolve/edit), [Audacity](https://www.audacityteam.org/), [ocenaudio](https://www.ocenaudio.com/), and [FlipaClip](https://www.flipaclip.com/).

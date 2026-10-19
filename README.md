@@ -20,6 +20,7 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Preserve Windows pen pressure in ink strokes, including through project save/load, undo, and in-between animation.
 - Render the ink overlay through Win2D/Direct2D on the GPU; Windows' media playback stack uses hardware video decoding when the installed codec and driver support it.
 - Set the ink brush colour and size for new strokes; existing strokes keep their saved appearance.
+- Choose whole-stroke or partial-stroke erasing on the active ink layer, with an adjustable radius. Partial erasing splits stroke paths at the erased region and preserves pressure and brush styling on the remaining portions. Optional drawing stabilisation smooths new pointer samples; stronger smoothing adds pen lag, and releasing the pointer anchors the final point. These are session tool preferences; the resulting edited strokes are saved and exported.
 - Create independent ink layers, switch the active drawing layer, control visibility and opacity, and preserve each layer through save/load and undo/redo.
 - Keep independent ink drawings on timeline frames, move between them, and duplicate a drawing to a new frame.
 - Copy and paste complete ink cels after the selection, preserving text, all layer strokes, exposure and animation settings. Duplicate cels also retain text. Raise or lower the active ink layer in the bottom-to-top rendering stack, with undo/redo and saved ordering.

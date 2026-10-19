@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
     private StorageFile? _projectFile;
     private bool _isPlaying;
     private bool _isEraser;
+    private Point? _lastEraserPoint;
     private bool _isRestoringProject;
     private bool _isInitialising = true;
     private string _workspace = "Video";
@@ -1502,6 +1503,19 @@ public sealed partial class MainWindow : Window
         StatusText.Text = "Erase mode selected.";
     }
 
+    private void InkEraserMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitialising)
+        {
+            return;
+        }
+
+        FinishActiveEdit();
+        StatusText.Text = InkEraserModeSelector.SelectedIndex == 1
+            ? "Partial eraser selected; only touched portions of active-layer strokes are removed."
+            : "Whole-stroke eraser selected.";
+    }
+
     private void FrameRate_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (sender is not ComboBox { SelectedItem: ComboBoxItem item } ||
@@ -1599,7 +1613,14 @@ public sealed partial class MainWindow : Window
         if (_activePointerId == e.Pointer.PointerId)
         {
             var pointerPoint = e.GetCurrentPoint(InkSurface);
-            AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure);
+            if (_isEraser)
+            {
+                EraseAt(pointerPoint.Position);
+            }
+            else
+            {
+                AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure, finalPoint: true);
+            }
             InkSurface.ReleasePointerCapture(e.Pointer);
             FinishActiveEdit();
         }
@@ -1665,7 +1686,7 @@ public sealed partial class MainWindow : Window
         StatusText.Text = $"Last text overlay removed from cel {CurrentFrame.Number}.";
     }
 
-    private void AddPoint(Point point, double pressure)
+    private void AddPoint(Point point, double pressure, bool finalPoint = false)
     {
         if (_activeStroke is null || InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
         {
@@ -1680,6 +1701,8 @@ public sealed partial class MainWindow : Window
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
         };
+        inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
+            finalPoint ? 0 : InkStabilisationSlider.Value);
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
             _activeStroke[^1].Y != inkPoint.Y ||
@@ -1698,14 +1721,21 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        double radiusX = 18 / Math.Max(1, InkSurface.ActualWidth);
-        double radiusY = 18 / Math.Max(1, InkSurface.ActualHeight);
-        double normalisedX = point.X / InkSurface.ActualWidth;
-        double normalisedY = point.Y / InkSurface.ActualHeight;
-        bool changed = CurrentStrokes.RemoveAll(stroke =>
-            stroke.Any(inkPoint =>
-                Math.Abs(inkPoint.X - normalisedX) <= radiusX &&
-                Math.Abs(inkPoint.Y - normalisedY) <= radiusY)) > 0;
+        double radius = InkEraserRadiusSlider.Value;
+        Point previous = _lastEraserPoint ?? point;
+        double distance = Math.Sqrt(Math.Pow(point.X - previous.X, 2) + Math.Pow(point.Y - previous.Y, 2));
+        int steps = Math.Max(1, (int)Math.Ceiling(distance / Math.Max(1, radius / 2)));
+        bool changed = false;
+        for (int step = 1; step <= steps; step++)
+        {
+            double t = (double)step / steps;
+            changed |= InkStrokeEditing.Erase(CurrentStrokes,
+                previous.X + (point.X - previous.X) * t, previous.Y + (point.Y - previous.Y) * t,
+                InkSurface.ActualWidth, InkSurface.ActualHeight, radius,
+                wholeStroke: InkEraserModeSelector.SelectedIndex == 0);
+        }
+
+        _lastEraserPoint = point;
 
         if (changed)
         {
@@ -2079,6 +2109,7 @@ public sealed partial class MainWindow : Window
 
         _activePointerId = null;
         _activeStroke = null;
+        _lastEraserPoint = null;
         CommitEdit();
     }
 
