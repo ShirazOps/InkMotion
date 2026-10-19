@@ -73,6 +73,7 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
         UpdateFrameStatus();
         UpdateExportProfileReadout();
+        UpdateAudioExportOptions();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -1559,10 +1560,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        VideoExportProfile profile = VideoExportProfile.Create(resolution, _frameRate);
-        double megabits = ExportPlanning.GetVideoBitRate(profile, GetSelectedExportCodec()) / 1_000_000d;
+        double frameRate = GetExportFrameRate();
+        if (!double.IsFinite(frameRate) || frameRate < 24 || frameRate > 120)
+        {
+            ExportProfileReadout.Text = "Choose an output frame rate from 24 to 120 fps.";
+            return;
+        }
+
+        VideoExportProfile profile = VideoExportProfile.Create(resolution, frameRate);
+        double megabits = ExportPlanning.GetVideoBitRate(profile, GetSelectedExportCodec(), (ExportQualitySlider?.Value ?? 50) / 100) / 1_000_000d;
         ExportProfileReadout.Text =
-            $"{profile.Width} × {profile.Height} · {profile.FrameRate:0} fps · {megabits:0.#} Mbps";
+            $"{profile.Width} × {profile.Height} · {profile.FrameRate:0.###} fps · target {megabits:0.#} Mbps (~{megabits * 60 / 8:0} MB/min video)";
     }
 
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)

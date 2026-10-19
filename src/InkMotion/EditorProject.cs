@@ -108,7 +108,7 @@ public sealed record VideoExportProfile(ExportResolution Resolution, int Width, 
             throw new ArgumentOutOfRangeException(nameof(resolution));
         }
 
-        if (!ProjectFrameRates.Supported.Contains(frameRate))
+        if (!double.IsFinite(frameRate) || (frameRate != 12 && (frameRate < 24 || frameRate > 120)))
         {
             throw new ArgumentOutOfRangeException(nameof(frameRate));
         }

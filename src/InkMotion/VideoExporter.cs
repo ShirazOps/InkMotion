@@ -12,7 +12,8 @@ public sealed record VideoExportRequest(
     VideoExportCodec Codec,
     string OutputPath,
     double InkReferenceHeight,
-    bool PreferHardware = true);
+    bool PreferHardware = true,
+    double Quality = 0.5);
 
 public sealed record VideoExportProgress(int Frame, int FrameCount, string Stage)
 {
@@ -47,6 +48,7 @@ public static class VideoExporter
     {
         ArgumentNullException.ThrowIfNull(request);
         EditorProject project = request.Project;
+        ExportPlanning.ValidateOutputPath(project, request.OutputPath);
         VideoExportProfile profile = request.Profile;
         var warnings = new List<string>();
         string? stemPath = null;
@@ -153,7 +155,7 @@ public static class VideoExporter
         out bool usedHardware)
     {
         VideoExportProfile profile = request.Profile;
-        int bitRate = ExportPlanning.GetVideoBitRate(profile, request.Codec);
+        int bitRate = ExportPlanning.GetVideoBitRate(profile, request.Codec, request.Quality);
         MediaFoundationVideoWriter Create(bool hardware) => new(
             request.OutputPath,
             profile.Width,
@@ -325,7 +327,7 @@ public static class VideoExporter
                     TimelineCompositor.DrawInkFrame(
                         session,
                         _project,
-                        ExportPlanning.GetInkFrameIndex(_project, frame),
+                        ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
                         width,
                         height,
                         _inkScale);

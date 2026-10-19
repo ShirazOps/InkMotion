@@ -11,6 +11,32 @@ public sealed class VideoExportTests
     // so the encode tests run only where the software encoder actually starts.
     private static bool HasH264Encoder => H264EncoderProbe.Value;
 
+    [Fact]
+    public void Quality_ChangesTheTargetBitRate()
+    {
+        var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);
+        int low = ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, 0);
+        int high = ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, 1);
+        Assert.Equal(low * 4, high);
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, double.NaN));
+    }
+
+    [Theory]
+    [InlineData(0, 120, 0)]
+    [InlineData(119, 120, 0)]
+    [InlineData(120, 120, 1)]
+    [InlineData(24, 24, 1)]
+    [InlineData(60, 60, 1)]
+    public void IndependentOutputRate_PreservesInkExposure(int outputFrame, double rate, int expectedCel)
+    {
+        var project = new EditorProject
+        {
+            FrameRate = 24,
+            Frames = [new() { ExposureFrames = 24 }, new() { Number = 2, ExposureFrames = 24 }],
+        };
+        Assert.Equal(expectedCel, ExportPlanning.GetInkFrameIndex(project, outputFrame, rate));
+    }
+
     private static bool ProbeH264Encoder()
     {
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-probe-{Guid.NewGuid():N}.mp4");
@@ -221,6 +247,50 @@ public sealed class VideoExportTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Export_120FpsKeepsInkTimingAndUsesSoftwareWhenRequested()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-120fps-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                Frames = [new() { ExposureFrames = 6, IsKeyframe = true }, new() { Number = 2, ExposureFrames = 6, IsKeyframe = true }],
+            };
+            for (int cel = 0; cel < 2; cel++)
+            {
+                uint colour = cel == 0 ? 0xFFFF0000 : 0xFF0000FF;
+                project.Frames[cel].Strokes.Add([
+                    new() { X = 0.3, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+                    new() { X = 0.7, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+                ]);
+            }
+
+            var result = VideoExporter.Export(new(project, VideoExportProfile.Create(ExportResolution.P720, 120),
+                VideoExportCodec.H264, output, 720, PreferHardware: false), null, CancellationToken.None);
+            Assert.Equal(60, result.FrameCount);
+            Assert.Equal(0.5, result.DurationSeconds, 3);
+            Assert.False(result.UsedHardwareEncoder);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            var red = GetPixel(video, 640, 504);
+            Assert.True(red.R > 180 && red.B < 80);
+            Assert.True(video.TryGetFrame(0.4));
+            var blue = GetPixel(video, 640, 504);
+            Assert.True(blue.B > 180 && blue.R < 80);
+        }
+        finally
+        {
+            File.Delete(output);
         }
     }
 

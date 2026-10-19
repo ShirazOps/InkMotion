@@ -337,7 +337,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Export" Style="{StaticResource PanelTitleTextStyle}" />
-                        <TextBlock Text="Render the whole timeline to an MP4 file at the project frame rate." Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Render the edited timeline to MP4. Original/Modified only affects the viewer, not export." Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="RESOLUTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="ExportResolutionSelector" SelectedIndex="1" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="720p · 1280 × 720" Tag="P720" />
@@ -345,11 +345,20 @@
                             <ComboBoxItem Content="1440p · 2560 × 1440" Tag="P1440" />
                             <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
                         </ComboBox>
-                        <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
+                        <NumberBox x:Name="ExportFrameRateBox" Header="Output frame rate (24–120 fps)" Minimum="24" Maximum="120"
+                                   Value="24" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExportFrameRate_Changed" />
+                        <TextBlock x:Name="ExportProfileReadout" TextWrapping="Wrap" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="ExportCodecSelector" Header="Codec" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
                             <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
                         </ComboBox>
+                        <ToggleSwitch x:Name="ExportHardwareToggle" Header="GPU encoding" OnContent="Prefer hardware (software fallback)" OffContent="Software encoding" IsOn="True" />
+                        <Slider x:Name="ExportQualitySlider" Header="Video quality / file size" Minimum="0" Maximum="100" Value="50"
+                                StepFrequency="1" ValueChanged="ExportSettings_Changed" AutomationProperties.Name="Video quality and file size" />
+                        <Grid>
+                            <TextBlock Text="Lower quality / smaller" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="Higher quality / larger" HorizontalAlignment="Right" Style="{StaticResource HintTextStyle}" />
+                        </Grid>
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -360,6 +369,32 @@
                         </Grid>
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="MP4 uses 48 kHz AAC. Export a separate audio mix below for other formats and rates. WAV preserves the project channel layout; MP3 and AAC use mono/stereo." Style="{StaticResource HintTextStyle}" />
+                        <UserControl x:Name="AudioExportOptions">
+                            <StackPanel Spacing="10">
+                                <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
+                                    <ComboBoxItem Content="PCM · WAV" />
+                                    <ComboBoxItem Content="32-bit float · WAV" />
+                                    <ComboBoxItem Content="MP3 · Windows encoder required" />
+                                    <ComboBoxItem Content="AAC · M4A · Windows encoder required" />
+                                </ComboBox>
+                                <ComboBox x:Name="AudioExportRateSelector" Header="Sample rate (Hz)" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="AudioExportDepthSelector" Header="PCM bit depth" SelectedIndex="1" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="16-bit" Tag="16" />
+                                    <ComboBoxItem Content="24-bit" Tag="24" />
+                                    <ComboBoxItem Content="32-bit" Tag="32" />
+                                </ComboBox>
+                                <ComboBox x:Name="AudioExportBitRateSelector" Header="Lossy audio bit rate" SelectedIndex="1" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="128 kbps" Tag="128000" />
+                                    <ComboBoxItem Content="192 kbps" Tag="192000" />
+                                    <ComboBoxItem Content="256 kbps" Tag="256000" />
+                                    <ComboBoxItem Content="320 kbps" Tag="320000" />
+                                </ComboBox>
+                            </StackPanel>
+                        </UserControl>
+                        <Button x:Name="ExportAudioButton" Content="Export audio mix…" Click="ExportAudio_Click" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>

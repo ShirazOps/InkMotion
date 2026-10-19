@@ -10,6 +10,99 @@ public sealed partial class MainWindow
 {
     private CancellationTokenSource? _exportCancellation;
 
+    private double GetExportFrameRate() => ExportFrameRateBox?.Value ?? 24;
+
+    private void AudioExportCodec_Changed(object sender, SelectionChangedEventArgs e) => UpdateAudioExportOptions();
+
+    private void UpdateAudioExportOptions()
+    {
+        if (AudioExportRateSelector is null || AudioExportDepthSelector is null || AudioExportBitRateSelector is null)
+        {
+            return;
+        }
+
+        bool wave = AudioExportCodecSelector.SelectedIndex < 2;
+        bool floatingPoint = AudioExportCodecSelector.SelectedIndex == 1;
+        AudioExportRateSelector.ItemsSource = wave ? AudioExportSettings.SampleRates : new[] { 44100, 48000 };
+        AudioExportRateSelector.SelectedItem = 48000;
+        AudioExportDepthSelector.IsEnabled = wave && !floatingPoint;
+        AudioExportDepthSelector.SelectedIndex = floatingPoint ? 2 : 1;
+        AudioExportBitRateSelector.IsEnabled = !wave;
+    }
+
+    private async void ExportAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_exportCancellation is not null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        if (AudioExportRateSelector.SelectedItem is not int rate ||
+            AudioExportDepthSelector.SelectedItem is not ComboBoxItem { Tag: string depth } ||
+            AudioExportBitRateSelector.SelectedItem is not ComboBoxItem { Tag: string bitRate })
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose the audio output rate, bit depth and bit rate.";
+            return;
+        }
+
+        var settings = new AudioExportSettings((AudioExportCodec)AudioExportCodecSelector.SelectedIndex, rate,
+            int.Parse(depth), int.Parse(bitRate));
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = _projectFile is null ? "Untitled mix" : Path.GetFileNameWithoutExtension(_projectFile.Name),
+            DefaultFileExtension = settings.Extension,
+        };
+        picker.FileTypeChoices.Add("Audio mix", [settings.Extension]);
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        EditorProject snapshot = CreateProjectSnapshot();
+        using var cancellation = new CancellationTokenSource();
+        _exportCancellation = cancellation;
+        SetExportRunning(true);
+        ExportStatusText.Text = "Rendering audio mix…";
+        var progress = new Progress<double>(fraction =>
+        {
+            ExportProgressBar.IsIndeterminate = false;
+            ExportProgressBar.Value = fraction;
+            ExportStatusText.Text = $"Rendering audio mix · {fraction:P0}";
+        });
+        try
+        {
+            AudioExportResult result = await Task.Run(() => AudioExporter.Export(snapshot, settings, file.Path, progress, cancellation.Token));
+            ExportStatusText.Text = $"Exported {Path.GetFileName(file.Path)} · {result.SampleRate:N0} Hz · {result.Channels} channels" +
+                (result.Warnings.Count == 0 ? "" : Environment.NewLine + string.Join(Environment.NewLine, result.Warnings));
+            StatusText.Text = "Audio mix exported.";
+        }
+        catch (OperationCanceledException)
+        {
+            ExportStatusText.Text = "Audio export cancelled; the partial file was removed.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException)
+        {
+            ExportStatusText.Text = $"Audio export failed: {ex.Message}";
+            StatusText.Text = "Audio export failed.";
+        }
+        finally
+        {
+            _exportCancellation = null;
+            SetExportRunning(false);
+        }
+    }
+
+    private void ExportSettings_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e) =>
+        UpdateExportProfileReadout();
+
+    private void ExportFrameRate_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
+        UpdateExportProfileReadout();
+
     private VideoExportCodec GetSelectedExportCodec() =>
         ExportCodecSelector?.SelectedItem is ComboBoxItem { Tag: string tag } &&
         Enum.TryParse(tag, out VideoExportCodec codec)
@@ -27,6 +120,14 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
+        double frameRate = GetExportFrameRate();
+        if (!double.IsFinite(frameRate) || frameRate < 24 || frameRate > 120)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose an output frame rate from 24 to 120 fps.";
+            return;
+        }
+
         var picker = new FileSavePicker
         {
             SuggestedFileName = _projectFile is null ? "Untitled" : Path.GetFileNameWithoutExtension(_projectFile.Name),
@@ -42,10 +143,12 @@ public sealed partial class MainWindow
 
         var request = new VideoExportRequest(
             CreateProjectSnapshot(),
-            VideoExportProfile.Create(resolution, _frameRate),
+            VideoExportProfile.Create(resolution, frameRate),
             GetSelectedExportCodec(),
             file.Path,
-            InkSurface.ActualHeight);
+            InkSurface.ActualHeight,
+            ExportHardwareToggle.IsOn,
+            ExportQualitySlider.Value / 100);
         using var cancellation = new CancellationTokenSource();
         _exportCancellation = cancellation;
         SetExportRunning(true);
@@ -97,8 +200,13 @@ public sealed partial class MainWindow
     {
         ExportVideoButton.IsEnabled = !running;
         ToolbarExportButton.IsEnabled = !running;
+        ExportAudioButton.IsEnabled = !running;
+        AudioExportOptions.IsEnabled = !running;
         ExportResolutionSelector.IsEnabled = !running;
         ExportCodecSelector.IsEnabled = !running;
+        ExportFrameRateBox.IsEnabled = !running;
+        ExportHardwareToggle.IsEnabled = !running;
+        ExportQualitySlider.IsEnabled = !running;
         CancelExportButton.IsEnabled = running;
         CancelExportButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         ExportProgressBar.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
