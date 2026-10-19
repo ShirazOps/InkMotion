@@ -5,7 +5,52 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private long _lastAudioMeterTick;
     private bool HasSoloAudio => _audioTracks.Any(track => track.Project.Solo);
+
+    private void UpdateAudioMeter()
+    {
+        if (_workspace != "Audio")
+        {
+            foreach (AudioTrackRuntime track in _audioTracks)
+            {
+                track.Player?.TakeMeterReading();
+            }
+            return;
+        }
+
+        AudioMeterReading? selectedReading = null;
+        for (int index = 0; index < _audioTracks.Count; index++)
+        {
+            AudioMeterReading? reading = _audioTracks[index].Player?.TakeMeterReading();
+            if (index == _selectedAudioTrackIndex)
+            {
+                selectedReading = reading;
+            }
+        }
+
+        if (selectedReading is null)
+        {
+            AudioMeterProgress.Value = 0;
+            AudioMeterText.Text = "Selected track monitor: no audio";
+            return;
+        }
+
+        AudioMeterProgress.Value = Math.Clamp((selectedReading.PeakDecibels + 60) / 60 * 100, 0, 100);
+        AudioMeterText.Text = $"Track monitor peak {MeterDecibels(selectedReading.PeakDecibels)} / RMS {MeterDecibels(selectedReading.RmsDecibels)} dBFS" +
+            (selectedReading.Clipped ? " - CLIP (latched)" : string.Empty);
+    }
+
+    private static string MeterDecibels(double value) => double.IsNegativeInfinity(value) ? "-inf" : value.ToString("0.0");
+
+    private void ResetAudioClipIndicator_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (AudioTrackRuntime track in _audioTracks)
+        {
+            track.Player?.TakeMeterReading(resetClip: true);
+        }
+        UpdateAudioMeter();
+    }
 
     private void AudioSolo_Click(object sender, RoutedEventArgs e)
     {

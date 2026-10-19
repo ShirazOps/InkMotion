@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 10;
+    public const int CurrentVersion = 11;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -39,6 +39,7 @@ public sealed class AudioTrackProject
     public bool Muted { get; set; }
     public bool Solo { get; set; }
     public double Balance { get; set; }
+    public AudioEffectSettings Effects { get; set; } = new();
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     public double FadeInSeconds { get; set; }
@@ -265,6 +266,10 @@ public static class EditorProjectSerialiser
             MigrateVersionEight(project);
         }
         if (project.Version == 9)
+        {
+            project.Version = 10;
+        }
+        if (project.Version == 10)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -645,7 +650,7 @@ internal static class EditorProjectValidation
 
         if (project.AudioTracks.Any(track => !AudioClipEditing.HasValidClipSettings(track)))
         {
-            throw new InvalidDataException("Audio clips must have valid in and out points, fades, gain, tempo, and pitch.");
+            throw new InvalidDataException("Audio clips must have valid in/out points, fades, gain, tempo, pitch, balance and effect settings.");
         }
 
         if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))

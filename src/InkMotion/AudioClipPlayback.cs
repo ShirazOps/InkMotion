@@ -96,7 +96,9 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioFileReader _reader;
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
+    private readonly AudioEffectsSampleProvider _effects;
     private readonly ChannelMixingSampleProvider _monitorMix;
+    private readonly AudioMeterSampleProvider _meter;
     private readonly WaveOutEvent _output;
     private bool _disposed;
     private bool _soloSuppressed;
@@ -117,9 +119,12 @@ public sealed class AudioClipPlayer : IDisposable
                 seconds => _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, DurationSeconds)));
             _stretch = new TimeStretchSampleProvider(_clip, _clip.Seek);
             _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
-            _monitorMix = new ChannelMixingSampleProvider(_stretch, CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
+            _effects = new AudioEffectsSampleProvider(_stretch, project.Effects);
+            _effects.SetSuppressed(_gainSettings.LinearGain == 0);
+            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
+            _meter = new AudioMeterSampleProvider(_monitorMix);
             _output = new WaveOutEvent { DesiredLatency = OutputLatencyMilliseconds, NumberOfBuffers = 2 };
-            _output.Init(_monitorMix);
+            _output.Init(_meter);
         }
         catch
         {
@@ -133,6 +138,8 @@ public sealed class AudioClipPlayer : IDisposable
     public int ChannelCount { get; }
 
     public bool IsPlaying => !_disposed && _output.PlaybackState == PlaybackState.Playing;
+
+    public AudioMeterReading TakeMeterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
 
     public double AudiblePositionSeconds =>
         Math.Max(0, _stretch.PositionSeconds - (IsPlaying ? OutputLatencyMilliseconds / 2000d * _stretch.TempoRatio : 0));
@@ -151,6 +158,8 @@ public sealed class AudioClipPlayer : IDisposable
         _gainSettings = AudioClipEditing.CreateGainSettings(project);
         _clip.UpdateSettings(_soloSuppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
         _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
+        _effects.Update(project.Effects);
+        _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
     }
 
@@ -163,9 +172,14 @@ public sealed class AudioClipPlayer : IDisposable
 
         _soloSuppressed = suppressed;
         _clip.UpdateSettings(suppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
+        _effects.SetSuppressed(suppressed || _gainSettings.LinearGain == 0);
     }
 
-    public void Seek(double sourceSeconds) => _stretch.Seek(sourceSeconds);
+    public void Seek(double sourceSeconds)
+    {
+        _stretch.Seek(sourceSeconds);
+        _effects.Reset();
+    }
 
     public void Play()
     {

@@ -1,0 +1,79 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+
+namespace InkMotion;
+
+public sealed partial class MainWindow
+{
+    private void UpdateAudioEffectsInspector(AudioTrackProject? track)
+    {
+        AudioEffectsControls.IsEnabled = track is not null;
+        AudioEffectSettings settings = track?.Effects ?? new();
+        AudioEffectsEnabled.IsChecked = settings.Enabled;
+        AudioHighPassBox.Value = settings.HighPassHz;
+        AudioLowPassBox.Value = settings.LowPassHz;
+        AudioBassBox.Value = settings.BassDecibels;
+        AudioMidBox.Value = settings.MidDecibels;
+        AudioTrebleBox.Value = settings.TrebleDecibels;
+        AudioCompressorThresholdBox.Value = settings.CompressorThresholdDecibels;
+        AudioCompressorRatioBox.Value = settings.CompressorRatio;
+        AudioCompressorAttackBox.Value = settings.AttackMilliseconds;
+        AudioCompressorReleaseBox.Value = settings.ReleaseMilliseconds;
+    }
+
+    private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();
+
+    private void AudioEffectNumberChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) => ApplyAudioEffects();
+
+    private void ApplyAudioEffects()
+    {
+        if (_isInitialising || _isRestoringProject || !TryGetSelectedAudioClip(out AudioTrackRuntime? track))
+        {
+            return;
+        }
+
+        var settings = new AudioEffectSettings
+        {
+            Enabled = AudioEffectsEnabled.IsChecked == true,
+            HighPassHz = AudioHighPassBox.Value,
+            LowPassHz = AudioLowPassBox.Value,
+            BassDecibels = AudioBassBox.Value,
+            MidDecibels = AudioMidBox.Value,
+            TrebleDecibels = AudioTrebleBox.Value,
+            CompressorThresholdDecibels = AudioCompressorThresholdBox.Value,
+            CompressorRatio = AudioCompressorRatioBox.Value,
+            AttackMilliseconds = AudioCompressorAttackBox.Value,
+            ReleaseMilliseconds = AudioCompressorReleaseBox.Value,
+        };
+        if (!settings.IsValid)
+        {
+            StatusText.Text = "Use valid effect values: filters are off at 0 Hz or 20-20000 Hz, with high-pass below low-pass.";
+            UpdateSelectedAudioTrack();
+            return;
+        }
+
+        if (settings == track.Project.Effects)
+        {
+            return;
+        }
+
+        ApplyAudioClipEdit(selected =>
+        {
+            selected.Project.Effects = settings;
+            return true;
+        }, settings.Enabled ? "Audio filters, EQ and compression enabled for preview and export." : "Audio effects bypassed; settings retained.",
+            "Could not update audio effects.");
+    }
+
+    private void ResetAudioEffects_Click(object sender, RoutedEventArgs e) =>
+        ApplyAudioClipEdit(selected =>
+        {
+            if (selected.Project.Effects == new AudioEffectSettings())
+            {
+                return false;
+            }
+
+            selected.Project.Effects = new();
+            return true;
+        }, "Audio effects reset and bypassed.", "Audio effects are already at their defaults.");
+}

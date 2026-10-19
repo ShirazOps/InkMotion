@@ -44,6 +44,7 @@ public static class AudioClipEditing
     public const double MaximumPitchSemitones = 12;
 
     public static bool HasValidClipSettings(AudioTrackProject track) =>
+        track.Effects is { IsValid: true } &&
         double.IsFinite(track.Balance) && track.Balance is >= -1 and <= 1 &&
         double.IsFinite(track.SourceInSeconds) &&
         track.SourceInSeconds >= 0 &&
@@ -191,6 +192,7 @@ public static class AudioClipEditing
         Muted = track.Muted,
         Solo = track.Solo,
         Balance = track.Balance,
+        Effects = track.Effects with { },
         SourceInSeconds = track.SourceInSeconds,
         SourceOutSeconds = track.SourceOutSeconds,
         FadeInSeconds = track.FadeInSeconds,

@@ -450,6 +450,10 @@
                         </StackPanel>
                         <NumberBox x:Name="AudioBalanceBox" Header="Balance (-100 left, +100 right)" Minimum="-100" Maximum="100" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioBalance_ValueChanged" IsEnabled="False" />
                         <TextBlock Text="Balance attenuates left/right speakers; centre/LFE stay unchanged. Solo isolates marked audio tracks and bypasses video-source sound. Mute takes priority over solo." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
+                        <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button Content="Reset clip indicator" Click="ResetAudioClipIndicator_Click" />
+                        <TextBlock Text="Meters show this track's stereo monitor after effects/balance, not the summed master mix. Full scale or higher latches CLIP." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
@@ -489,6 +493,24 @@
                             <Button x:Name="ResetAudioGainButton" Content="Reset gain" Click="ResetAudioGain_Click" IsEnabled="False" />
                         </StackPanel>
                         <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="NON-DESTRUCTIVE EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <UserControl x:Name="AudioEffectsControls" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <ToggleButton x:Name="AudioEffectsEnabled" Content="Enable filters, EQ and compression" Click="AudioEffectsChanged" />
+                                <TextBlock Text="Applied after tempo/pitch, before balance. Filters are off at 0 Hz; frequencies above 45% of the source rate are capped. EQ can add headroom demands; lower clip gain if clipping occurs." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <NumberBox x:Name="AudioHighPassBox" Header="High-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="20" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioLowPassBox" Header="Low-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="100" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioBassBox" Header="Bass shelf at 120 Hz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioMidBox" Header="Mid EQ at 1 kHz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioTrebleBox" Header="Treble shelf at 6 kHz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorThresholdBox" Header="Compressor threshold (dBFS)" Minimum="-60" Maximum="0" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorRatioBox" Header="Compressor ratio (1 = off)" Minimum="1" Maximum="20" Value="1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorAttackBox" Header="Attack (ms)" Minimum="0.1" Maximum="200" Value="10" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorReleaseBox" Header="Release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="10" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Linked peak compressor with no make-up gain, look-ahead or brick-wall limiting. Bypass retains settings. Playback/seek resets filter and compressor history." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
+                            </StackPanel>
+                        </UserControl>
                         <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
                         <TextBox x:Name="AudioArtistBox" PlaceholderText="Artist" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />

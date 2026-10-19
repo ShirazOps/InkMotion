@@ -401,7 +401,7 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Theory]
-    [InlineData("""{"Version":11,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
+    [InlineData("""{"Version":12,"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":0,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"ExposureFrames":1000,"Strokes":[]}],"SelectedFrameIndex":0}""")]
     [InlineData("""{"Version":6,"Frames":[{"Number":1,"TextOverlays":[{"Text":"","FontFamily":"Segoe UI","FontSize":24}],"Strokes":[]}],"SelectedFrameIndex":0}""")]

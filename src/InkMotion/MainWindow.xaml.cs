@@ -633,6 +633,7 @@ public sealed partial class MainWindow : Window
         if (!hasSelection)
         {
             _isRestoringProject = true;
+            UpdateAudioEffectsInspector(null);
             AudioTrackLabel.Text = "No audio track selected";
             AudioClipRangeText.Text = "No clip selected";
             AudioGainText.Text = "Clip gain: 0.0 dB";
@@ -657,6 +658,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         _isRestoringProject = true;
+        UpdateAudioEffectsInspector(hasClip ? track.Project : null);
         AudioTrackLabel.Text = string.IsNullOrWhiteSpace(track.Project.AudioPath)
             ? $"Audio track {_selectedAudioTrackIndex + 1} — empty"
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
@@ -2282,6 +2284,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (Environment.TickCount64 - _lastAudioMeterTick >= 100)
+        {
+            UpdateAudioMeter();
+            _lastAudioMeterTick = Environment.TickCount64;
+        }
+
         TimeSpan position = _timelineStartPosition + _timelineClock.Elapsed;
         double end = GetPlaybackEndSeconds();
         if (end > 0 && position.TotalSeconds >= end)
@@ -2340,6 +2348,7 @@ public sealed partial class MainWindow : Window
 
         _playbackTimer.Stop();
         _isPlaying = false;
+        UpdateAudioMeter();
         SetPlayButtonState(isPlaying: false);
     }
 

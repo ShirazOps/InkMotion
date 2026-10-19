@@ -125,7 +125,8 @@ public sealed class ExportAudioMixer : IDisposable
         var stretch = new TimeStretchSampleProvider(clip, clip.Seek);
         stretch.SetParameters(AudioClipEditing.GetTempoRatio(track), track.PitchSemitones);
         stretch.Seek(track.SourceInSeconds);
-        AddSource(stretch, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration, track.Balance);
+        var effects = new AudioEffectsSampleProvider(stretch, track.Effects);
+        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration, track.Balance);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip)
