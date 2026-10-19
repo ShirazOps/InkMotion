@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 11;
+    public const int CurrentVersion = 12;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -28,6 +28,7 @@ public sealed class InkLayerProject
     public string Id { get; set; } = "ink-1";
     public string Name { get; set; } = "Ink 1";
     public bool IsVisible { get; set; } = true;
+    public bool IsLocked { get; set; }
     public double Opacity { get; set; } = 1;
 }
 
@@ -270,6 +271,10 @@ public static class EditorProjectSerialiser
             project.Version = 10;
         }
         if (project.Version == 10)
+        {
+            project.Version = 11;
+        }
+        if (project.Version == 11)
         {
             project.Version = EditorProject.CurrentVersion;
         }

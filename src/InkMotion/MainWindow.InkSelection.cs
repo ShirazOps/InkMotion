@@ -91,6 +91,11 @@ public sealed partial class MainWindow
 
         if (action == "paste")
         {
+            if (!EnsureInkLayerEditable())
+            {
+                return;
+            }
+
             if (_copiedInkSelection.Count == 0)
             {
                 StatusText.Text = "Copy an ink stroke selection first.";
@@ -123,6 +128,11 @@ public sealed partial class MainWindow
         {
             _copiedInkSelection = InkEditing.CloneStrokes(_selectedInkStrokes);
             StatusText.Text = "Stroke selection copied with its pressure and brush styling.";
+            return;
+        }
+
+        if (!EnsureInkLayerEditable())
+        {
             return;
         }
 

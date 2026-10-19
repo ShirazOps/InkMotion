@@ -2,6 +2,15 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static InkLayerProject CloneLayer(InkLayerProject layer) => new()
+    {
+        Id = layer.Id,
+        Name = layer.Name,
+        IsVisible = layer.IsVisible,
+        IsLocked = layer.IsLocked,
+        Opacity = layer.Opacity,
+    };
+
     public static EditorFrame Clone(EditorFrame frame) => new()
     {
         Number = frame.Number,
@@ -54,7 +63,8 @@ public static class InkEditing
     {
         int index = layers.FindIndex(layer => layer.Id == id);
         int target = index + offset;
-        if (index < 0 || target < 0 || target >= layers.Count || Math.Abs(offset) != 1)
+        if (index < 0 || target < 0 || target >= layers.Count || Math.Abs(offset) != 1 ||
+            layers[index].IsLocked || layers[target].IsLocked)
         {
             return false;
         }

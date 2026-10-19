@@ -5,6 +5,31 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private bool EnsureInkLayerEditable()
+    {
+        if (!CurrentInkLayer.IsLocked)
+        {
+            return true;
+        }
+
+        StatusText.Text = $"{CurrentInkLayer.Name} is drawing-locked. Unlock it in the Ink Editor inspector to edit its strokes.";
+        return false;
+    }
+
+    private void InkLayerLock_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        CurrentInkLayer.IsLocked = InkLayerLockButton.IsChecked == true;
+        MarkEditChanged();
+        CommitEdit();
+        UpdateInkLayerControls();
+        StatusText.Text = CurrentInkLayer.IsLocked
+            ? "Drawing locked: strokes, opacity and layer order are protected. Cel timing/text and visibility remain editable."
+            : "Drawing unlocked.";
+    }
+
     private EditorFrame? _copiedCel;
     private AudioTrackProject? _copiedAudio;
     private float[] _copiedAudioPeaks = [];
@@ -81,7 +106,7 @@ public sealed partial class MainWindow
         CommitEdit();
         RefreshInkLayers();
         RenderCurrentInk();
-        StatusText.Text = moved ? "Ink layer order changed." : "The layer is already at the edge of the stack.";
+        StatusText.Text = moved ? "Ink layer order changed." : "Cannot move past the stack edge or a drawing-locked layer.";
     }
 
     private void CopyVideoClip_Click(object sender, RoutedEventArgs e)

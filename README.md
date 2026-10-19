@@ -47,7 +47,8 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Play and scrub audio alongside video, or play an audio-only timeline.
 - Generate in-between frames by interpolating corresponding keyframe strokes, resampling point paths when their point counts differ. Edit an in-between frame to make it a new keyframe.
 - View Video, Ink, multiple Audio, and Effects track lanes, with each audio lane showing its clip and start frame.
-- Save and reopen version 11 `.inkmotion` project files, including linked video and audio paths, audio track settings/effects and tags, frame drawings, typed overlays, ink layers, exposure lengths, and keyframe tween settings. Versions 1-10 are migrated when opened; older audio tracks default to neutral balance, no solo and bypassed effects.
+- Lock an ink layer's drawing to prevent accidental pen/shape/eraser, selection paste/delete/transform, opacity and layer-order changes. Locked layers still render and can be selected/copied or hidden. This is a drawing lock, not a cel/timeline lock: whole-cel operations, exposure/keyframe changes and cel-global text remain editable. The lock supports undo/redo and project save/load.
+- Save and reopen version 12 `.inkmotion` project files, including linked video and audio paths, audio track settings/effects and tags, frame drawings, typed overlays, ink layers/drawing locks, exposure lengths, and keyframe tween settings. Versions 1-11 are migrated when opened; older audio tracks default to neutral balance, no solo and bypassed effects, and older ink layers are unlocked.
 - Preserve the chosen project frame rate (12, 24, 30, or 60 fps) in the project file.
 - Undo and redo completed ink strokes, erasures, frame additions, duplication and deletion, keyframe changes, and ink-layer visibility/opacity changes.
 

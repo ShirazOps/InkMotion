@@ -559,6 +559,8 @@
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
+                        <ToggleButton x:Name="InkLayerLockButton" Content="Lock drawing" Click="InkLayerLock_Click" />
+                        <TextBlock Text="Drawing lock protects layer strokes, opacity and order. Visibility, cel timing, keyframes, whole-cel operations and cel-global text are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Opacity" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkLayerOpacitySlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="InkLayerOpacity_Changed" LostFocus="InkLayerOpacity_LostFocus" />

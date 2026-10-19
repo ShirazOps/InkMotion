@@ -140,8 +140,10 @@ public sealed partial class MainWindow : Window
     {
         InkLayerVisibilityButton.IsChecked = CurrentInkLayer.IsVisible;
         InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
+        InkLayerLockButton.IsChecked = CurrentInkLayer.IsLocked;
+        InkLayerLockButton.Content = CurrentInkLayer.IsLocked ? "Unlock drawing" : "Lock drawing";
         InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
-        InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible;
+        InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
     }
 
     private void InkLayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -183,7 +185,7 @@ public sealed partial class MainWindow : Window
         object sender,
         Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
     {
-        if (_isRestoringProject || _isInitialising)
+        if (_isRestoringProject || _isInitialising || CurrentInkLayer.IsLocked)
         {
             return;
         }
@@ -1602,6 +1604,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (!_isInkLasso && !EnsureInkLayerEditable())
+        {
+            e.Handled = true;
+            return;
+        }
+
         PausePlayback();
         if (_isInkLasso)
         {
@@ -2111,13 +2119,7 @@ public sealed partial class MainWindow : Window
 
     private static AudioTrackProject CloneAudioTrack(AudioTrackProject track) => AudioClipEditing.Clone(track);
 
-    private static InkLayerProject CloneInkLayer(InkLayerProject layer) => new()
-    {
-        Id = layer.Id,
-        Name = layer.Name,
-        IsVisible = layer.IsVisible,
-        Opacity = layer.Opacity,
-    };
+    private static InkLayerProject CloneInkLayer(InkLayerProject layer) => InkEditing.CloneLayer(layer);
 
     private static bool HasAudioTags(AudioTrackProject project) =>
         project.TagsInitialised ||

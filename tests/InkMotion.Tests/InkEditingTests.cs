@@ -5,6 +5,38 @@ namespace InkMotion.Tests;
 public sealed class InkEditingTests
 {
     [Fact]
+    public void DrawingLock_PersistsClonesAndPreventsReorderingAcrossLockedLayers()
+    {
+        var project = new EditorProject
+        {
+            InkLayers = [new(), new() { Id = "locked", Name = "Reference", IsLocked = true }, new() { Id = "top" }],
+        };
+        Assert.False(InkEditing.MoveLayer(project.InkLayers, "locked", -1));
+        Assert.False(InkEditing.MoveLayer(project.InkLayers, "top", -1));
+        Assert.False(InkEditing.MoveLayer(project.InkLayers, "ink-1", 1));
+        Assert.Equal(new[] { "ink-1", "locked", "top" }, project.InkLayers.Select(layer => layer.Id));
+        InkLayerProject clone = InkEditing.CloneLayer(project.InkLayers[1]);
+        Assert.True(clone.IsLocked);
+        clone.IsLocked = false;
+        Assert.True(project.InkLayers[1].IsLocked);
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.True(reopened.InkLayers[1].IsLocked);
+        Assert.False(reopened.InkLayers[0].IsLocked);
+        reopened.InkLayers[1].IsLocked = false;
+        Assert.True(InkEditing.MoveLayer(reopened.InkLayers, "top", -1));
+    }
+
+    [Fact]
+    public void VersionEleven_MigratesToUnlockedLayersWithoutChangingDrawings()
+    {
+        EditorProject project = EditorProjectSerialiser.Deserialise(
+            """{"Version":11,"Frames":[{"Number":1,"Strokes":[[{"X":0.25,"Y":0.5}]]}]}""");
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
+        Assert.False(project.InkLayers[0].IsLocked);
+        Assert.Equal(0.25, project.Frames[0].Strokes[0][0].X);
+    }
+
+    [Fact]
     public void InsertCopy_PreservesTextLayersExposureAndIndependentPoints()
     {
         var source = new EditorFrame
