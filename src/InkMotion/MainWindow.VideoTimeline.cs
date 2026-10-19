@@ -290,6 +290,7 @@ public sealed partial class MainWindow
             _previewMediaPlayer.Source = _previewMediaSource;
             previous?.Dispose();
             PreviewPlayer.Opacity = 0;
+            UpdatePreviewEmptyState();
             return;
         }
 
@@ -299,9 +300,9 @@ public sealed partial class MainWindow
         }
 
         TimelineClipProject clip = active.Clip;
-        _previewMediaPlayer.Volume = clip.Volume;
-        _previewMediaPlayer.IsMuted = active.Track.IsMuted;
-        PreviewPlayer.Opacity = VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
+        _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
+        _previewMediaPlayer.IsMuted = !IsOriginalPreview && active.Track.IsMuted;
+        PreviewPlayer.Opacity = IsOriginalPreview ? 1 : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
         double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
@@ -336,6 +337,7 @@ public sealed partial class MainWindow
         _previewSourcePath = null;
         _previewReady = false;
         PreviewPlayer.Opacity = 1;
+        UpdatePreviewEmptyState();
     }
 
     private void PreviewMediaPlayer_MediaOpened(MediaPlayer sender, object args)
@@ -498,7 +500,7 @@ public sealed partial class MainWindow
 
         RefreshVideoTrackHeaders();
         UpdateVideoInspector();
-        EmptyState.Visibility = HasTimelineClips ? Visibility.Collapsed : Visibility.Visible;
+        UpdatePreviewEmptyState();
         CompositionSurface.Invalidate();
         InvalidateVideoTimeline();
     }
@@ -1192,6 +1194,7 @@ public sealed partial class MainWindow
         MoveTrackUpButton.IsEnabled = trackIndex > 0;
         MoveTrackDownButton.IsEnabled = trackIndex >= 0 && trackIndex < _videoTracks.Count - 1;
         DeleteTrackButton.IsEnabled = _videoTracks.Count > 1 && track is { IsLocked: false };
+        ToolbarClipActions.IsEnabled = SelectedTimelineClip is { Track.IsLocked: false };
 
         if (SelectedTimelineClip is not TimelineClipLocation location)
         {

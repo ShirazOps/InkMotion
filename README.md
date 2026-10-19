@@ -4,7 +4,8 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 
 ## First milestone
 
-- Switch between four pages with the **Video Editor**, **Audio Editor**, **Ink Editor**, and **Export** buttons at the top of the window. The dark, maximised layout puts the preview top left, a page-specific inspector on the right, and the timeline across the bottom, with a shared transport bar (frame readout, previous/play/next, undo/redo) under the preview.
+- Switch between four pages with the **Video Editor**, **Audio Editor**, **Ink Editor**, and **Export** buttons at the top of the window. A second row provides page-specific actions. All four pages share the video/audio viewer on the left, a page-specific inspector on the right, and a timeline across the bottom, with a shared transport bar (frame readout, previous/play/next, undo/redo) under the preview.
+- Use **Original / Modified** above the viewer to compare the active video source at the playhead with the edited timeline. Original bypasses video opacity, clip volume/mute, image/title/ink overlays and added audio; it keeps the timeline's source-in mapping to compare the same source frame. Switching pauses playback and never changes the project or export. Original is not a second timeline of the entire unedited project; it is blank where no visible video clip is active. Modified shows ink on every page, with drawing input and optional onion-skin guides restricted to Ink Editor.
 - Use the **File** menu in the title bar to open (Ctrl+O) and save (Ctrl+S) projects, add video, image, title, and audio clips, and go to the Export page; the **Edit** menu provides undo and redo.
 - Build native x86 and x64 Windows targets, and create an x86/x64 MSIX upload bundle for the Microsoft Store with the Partner Centre identity supplied from repository secrets.
 - Use the Video Editor for video preview and playback, the Audio Editor for multitrack clip placement, waveform previews, mixing, and tag editing, and the Ink Editor for pen-first drawing and cel animation.
@@ -38,6 +39,8 @@ InkMotion is a native Windows video editor in early development, built with C#, 
 - Undo and redo completed ink strokes, erasures, frame additions, duplication and deletion, keyframe changes, and ink-layer visibility/opacity changes.
 
 ## Planned editing milestones
+
+The shared layout is the first increment of the expanded editor design. The next increments cover independent 24-120 fps export, GPU/software encoding choice, video quality/file-size control, and codec-dependent audio export at 44.1-384 kHz and 16-32 bits. These are requirements, not currently available output settings. The video, audio and ink tool inventories and delivery sequence are recorded in [the workspace roadmap](plan.md#expanded-editor-delivery-sequence).
 
 The new workspaces organise the current capabilities; they do not yet provide a full nonlinear editing or audio workstation. The Audio Editor displays decoded per-clip waveforms, and supports trim, split, fades, normalisation, tempo, pitch, and mix layouts up to 12.1. The video timeline preview plays the topmost visible video clip at the playhead, with image and title overlays composited on the GPU; real-time blending of several overlapping video tracks is planned, so the preview can differ from export, which composites every visible track in timeline order. Multichannel output to surround devices is planned; MP4 audio is limited to 5.1 AAC, with larger layouts delivered as a separate WAV.
 

@@ -7,6 +7,7 @@
     <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}" RequestedTheme="Dark">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="26" />
         </Grid.RowDefinitions>
@@ -90,7 +91,49 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Padding="8" RowSpacing="8" ColumnSpacing="8">
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                      HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled"
+                      Background="{StaticResource PanelBrush}">
+            <Grid Padding="12,8" MinHeight="48">
+                <StackPanel x:Name="VideoActionBar" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add video…" Click="AddVideoClip_Click" />
+                    <Button Content="Add image…" Click="AddImageClip_Click" />
+                    <Button Content="Add title" Click="AddTitleClip_Click" />
+                    <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Trim start" Click="TrimClipStart_Click" />
+                            <Button Content="Trim end" Click="TrimClipEnd_Click" />
+                            <Button Content="Split" Click="SplitClip_Click" />
+                            <Button Content="Ripple delete" Click="RippleDeleteClip_Click" />
+                        </StackPanel>
+                    </UserControl>
+                    <TextBlock Text="Clip and track tools in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="AudioActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button Content="Add audio clip…" Click="OpenAudio_Click" />
+                    <Button Content="Add audio track" Click="AddAudioTrack_Click" />
+                    <Button Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioStartButton}" />
+                    <Button Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioEndButton}" />
+                    <Button Content="Split" Click="SplitAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button Content="Normalise" Click="NormaliseAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=NormaliseAudioButton}" />
+                    <TextBlock Text="Trim, split, mix and tags in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="InkActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button Content="Pen" Click="SelectPen_Click" />
+                    <Button Content="Eraser" Click="SelectEraser_Click" />
+                    <Button Content="Add cel" Click="AddFrame_Click" />
+                    <Button Content="Duplicate cel" Click="DuplicateFrame_Click" />
+                    <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                    <TextBlock Text="Brushes, text and animation in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="ExportActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button x:Name="ToolbarExportButton" Content="Export video…" Click="ExportVideo_Click" Style="{StaticResource AccentButtonStyle}" />
+                    <TextBlock Text="Output settings and progress in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Padding="8" RowSpacing="8" ColumnSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="3*" MinHeight="276" />
                 <RowDefinition Height="2*" MinHeight="170" />
@@ -102,11 +145,23 @@
 
             <Grid Grid.Row="0" Grid.Column="0" RowSpacing="8">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="48" />
                 </Grid.RowDefinitions>
 
-                <Grid x:Name="PreviewStage" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
+                <Grid Style="{StaticResource PanelStyle}" Padding="12,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="PreviewCaption" Text="MODIFIED" VerticalAlignment="Center" FontSize="10" CharacterSpacing="100" Foreground="{StaticResource TextMutedBrush}" />
+                    <ToggleSwitch x:Name="OriginalPreviewToggle" Grid.Column="1" OffContent="Modified" OnContent="Original"
+                                  Toggled="OriginalPreview_Toggled" AutomationProperties.Name="Preview original source"
+                                  ToolTipService.ToolTip="Compare the active video source at the timeline position, without clip volume, mute, opacity, overlays or added audio. Switching pauses playback. This does not change the export." />
+                </Grid>
+
+                <Grid x:Name="PreviewStage" Grid.Row="1" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
                     <Grid Margin="12">
                         <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
                         <canvas:CanvasControl
@@ -126,30 +181,13 @@
                             SizeChanged="InkSurface_SizeChanged"
                             Visibility="Collapsed" />
                         <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
-                            <TextBlock Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
-                            <TextBlock Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                            <TextBlock x:Name="EmptyPreviewHeading" Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                            <TextBlock x:Name="EmptyPreviewHint" Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
                         </StackPanel>
                     </Grid>
-                    <TextBlock x:Name="PreviewCaption" Text="PROGRAM" Margin="12,8" VerticalAlignment="Top" FontSize="10" CharacterSpacing="100" Foreground="{StaticResource TextMutedBrush}" IsHitTestVisible="False" />
                 </Grid>
 
-                <Grid x:Name="AudioWorkspacePanel" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="460">
-                        <FontIcon Glyph="&#xE8D6;" FontSize="40" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="Multitrack audio" Style="{StaticResource PanelTitleTextStyle}" HorizontalAlignment="Center" />
-                        <TextBlock Text="Arrange clips on the tracks below. Select a clip to trim, split, fade, normalise, change its tempo or pitch, and edit its tags." Style="{StaticResource HintTextStyle}" TextAlignment="Center" />
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                            <Button Click="AddAudioTrack_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add audio track" /></StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource AccentButtonStyle}" Click="OpenAudio_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8E5;" FontSize="12" /><TextBlock Text="Add audio clip…" /></StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
-
-                <Grid x:Name="TransportBar" Grid.Row="1" Style="{StaticResource PanelStyle}" Padding="10,4">
+                <Grid x:Name="TransportBar" Grid.Row="2" Style="{StaticResource PanelStyle}" Padding="10,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -521,7 +559,7 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="2" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+        <Grid Grid.Row="3" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

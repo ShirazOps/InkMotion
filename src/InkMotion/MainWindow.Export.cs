@@ -96,6 +96,7 @@ public sealed partial class MainWindow
     private void SetExportRunning(bool running)
     {
         ExportVideoButton.IsEnabled = !running;
+        ToolbarExportButton.IsEnabled = !running;
         ExportResolutionSelector.IsEnabled = !running;
         ExportCodecSelector.IsEnabled = !running;
         CancelExportButton.IsEnabled = running;

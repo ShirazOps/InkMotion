@@ -47,6 +47,36 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 - Keep Store identity values in repository secrets, tied to Partner Centre; never guess them or commit them or signing certificates.
 - Add focused tests for project models, timeline operations, migrations, and export-profile validation as each phase lands.
 
+## Expanded editor delivery sequence
+
+The expanded design uses one shell: four page buttons in the first row; relevant actions in the second row; a shared video/audio viewer on the left with Original/Modified comparison; page-specific tools and options on the right; and the corresponding timeline below. Deliver real processing and project persistence with each tool, not placeholder controls.
+
+1. **Shared layout and preview comparison**
+   - Implemented: page-specific action row and the shared viewer in Audio Editor as well as Video Editor, Ink Editor and Export.
+   - Implemented: Modified shows image/title/ink overlays across pages. Only Ink Editor accepts drawing input and shows onion-skin guides.
+   - Implemented: Original compares the active visible video at the same source-mapped timeline position, bypassing opacity, clip volume/mute, overlays and added audio. A mode change pauses playback and does not change project data or export settings. Where there is no active video source, show an explicit empty state.
+   - Still required for full preview/export parity: real-time multi-video compositing and all future effects. Original is source comparison, not a separately maintained unedited project.
+2. **Export controls and encoding**
+   - Keep resolution separate from frame rate. Add independent output frame rates from 24 to 120 fps, including common fractional rates, with time-based ink exposure resampling and synchronised audio.
+   - Add explicit GPU encoding on/off, report actual encoder use, and reject unsupported combinations clearly. Never silently ignore a hardware selection.
+   - Add a low-quality/small-file to high-quality/large-file slider mapped to verified encoder quality/bit-rate settings; label file-size estimates as estimates.
+   - Add codec/container capability discovery and selectable audio codecs. Candidate formats: AAC in MP4, PCM WAV, FLAC, MP3 and Opus in appropriate containers. Availability, licensing and channel limits must be verified before enabling each format.
+   - Support selectable 44.1, 48, 88.2, 96, 176.4, 192, 352.8 and 384 kHz audio where supported, and 16/24-bit PCM or 32-bit float where meaningful. Lossy codecs use bit rate rather than pretending to preserve a selectable PCM bit depth. Add real resampling, dither when reducing PCM depth, format probing and round-trip tests.
+3. **Video tools inspired by DaVinci Resolve Studio**
+   - Existing: trim, split, move, ripple delete, track ordering/visibility/locking/mute, opacity, fades, volume, images and styled titles.
+   - Next: media bins and relinking; source in/out; select/blade/trim modes; insert/overwrite; snapping; linked audio/video; ripple/roll/slip/slide edits; markers; transitions; crop/rotate/transform keyframes; speed changes and reverse.
+   - Then: colour controls (exposure, contrast, white balance, saturation, curves, LUTs), scopes, stabilisation, masks/tracking, chroma key, compositing and effects. Multicam, proxy/optimised media and noise reduction need separate verified increments; this is not a claim of full Resolve parity.
+4. **Audio tools inspired by Audacity and ocenaudio**
+   - Existing: waveform lanes, multitrack placement, trim/split, volume/mute, fades, normalisation, tempo/pitch, channel layout and tag editing.
+   - Next: time-range selection; cut/copy/paste/delete/silence; clip duplication and joins; solo/pan; metering and clipping indication; recording; sample-level waveform zoom; spectrogram and frequency analysis.
+   - Then: non-destructive effect chains with EQ, high/low-pass filters, compression/limiting, gate/noise reduction, reverb/delay, preview and bypass. Save processing settings in projects and apply the same processing on export. Plug-in hosting is a later compatibility project, not an immediate placeholder.
+5. **Ink tools inspired by FlipaClip**
+   - Existing: pressure-sensitive pen, whole-stroke eraser, colour/size, layers/opacity, cel add/duplicate/delete/exposure, keyframes/tweening, onion skin and text.
+   - Next: brush presets and smoothing; partial eraser; colour picker; fill; lasso/selection transforms; copy/paste; shapes and rulers; canvas pan/zoom/rotation; layer reorder/lock/merge.
+   - Then: frame ranges, copy/move/group/loop, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
+
+Reference products define the intended workflows, not a licence to copy their UI assets or proprietary implementations: [DaVinci Resolve editing](https://www.blackmagicdesign.com/products/davinciresolve/edit), [Audacity](https://www.audacityteam.org/), [ocenaudio](https://www.ocenaudio.com/), and [FlipaClip](https://www.flipaclip.com/).
+
 ## Initial implementation increment
 
 Implement the workspace shell and reorganise the existing editor into Video Editor, Audio Editor, and Ink Editor views. Reuse the current controls and handlers, keep the current feature set operational, and establish the layout/selection structure for later track and export work without adding placeholder features that imply functionality that does not exist yet. The user-facing editing shell is organised into the three areas; deeper clip, waveform, DSP, and export capabilities remain subsequent increments.

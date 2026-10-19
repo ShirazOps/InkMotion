@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
     private bool _isEraser;
     private bool _isRestoringProject;
     private bool _isInitialising = true;
+    private string _workspace = "Video";
     private TimeSpan _timelinePosition;
     private TimeSpan _timelineStartPosition;
 
@@ -326,6 +327,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWorkspace(string workspace)
     {
+        _workspace = workspace;
         SetPageButtonState(VideoWorkspaceButton, workspace == "Video");
         SetPageButtonState(AudioWorkspaceButton, workspace == "Audio");
         SetPageButtonState(InkWorkspaceButton, workspace == "Ink");
@@ -335,8 +337,10 @@ public sealed partial class MainWindow : Window
         bool isAudioWorkspace = workspace == "Audio";
         bool isInkWorkspace = workspace == "Ink";
         bool isExportWorkspace = workspace == "Export";
-        PreviewStage.Visibility = isAudioWorkspace ? Visibility.Collapsed : Visibility.Visible;
-        AudioWorkspacePanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoActionBar.Visibility = isVideoWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        AudioActionBar.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkActionBar.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        ExportActionBar.Visibility = isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
         VideoInspectorPanel.Visibility = isVideoWorkspace ? Visibility.Visible : Visibility.Collapsed;
         AudioInspectorPanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkInspectorPanel.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
@@ -344,8 +348,7 @@ public sealed partial class MainWindow : Window
         VideoTimelineWorkspace.Visibility = isVideoWorkspace || isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
         AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        InkSurface.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        PreviewCaption.Text = isInkWorkspace ? "PROGRAM  ·  DRAWING ON INK LAYER" : isExportWorkspace ? "EXPORT PREVIEW" : "PROGRAM";
+        UpdatePreviewMode();
         WorkspaceStatusText.Text = workspace switch
         {
             "Audio" => "Audio Editor",
@@ -358,12 +361,55 @@ public sealed partial class MainWindow : Window
         {
             RefreshAudioTracks();
         }
-        else if (isInkWorkspace)
+        UpdateTitleBarPassthrough();
+    }
+
+    private bool IsOriginalPreview => OriginalPreviewToggle?.IsOn == true;
+
+    private void OriginalPreview_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising)
         {
-            RenderCurrentInk();
+            return;
         }
 
-        UpdateTitleBarPassthrough();
+        PausePlayback();
+        FinishActiveEdit();
+        UpdatePreviewMode();
+        SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: true);
+        SyncAudioTracks(TimeSpan.FromSeconds(CurrentPlaybackSeconds), startPlayback: false);
+        StatusText.Text = IsOriginalPreview
+            ? "Original source at the playhead; overlays and added audio are bypassed. Export is unchanged."
+            : "Modified timeline preview. Export is unchanged.";
+    }
+
+    private void UpdatePreviewMode()
+    {
+        CompositionSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
+        InkSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
+        InkSurface.IsHitTestVisible = _workspace == "Ink" && !IsOriginalPreview;
+        PreviewCaption.Text = IsOriginalPreview ? "ORIGINAL SOURCE · AT PLAYHEAD" : "MODIFIED";
+        RenderCurrentInk();
+        CompositionSurface.Invalidate();
+    }
+
+    private void UpdatePreviewEmptyState()
+    {
+        if (IsOriginalPreview)
+        {
+            EmptyState.Visibility = _previewMediaSource is null ? Visibility.Visible : Visibility.Collapsed;
+            EmptyPreviewHeading.Text = "No original video at the playhead";
+            EmptyPreviewHint.Text = "Original compares the active video source, not added images, titles, ink or audio.";
+        }
+        else
+        {
+            bool hasInk = _renderedStrokes.Count > 0 || _renderedText.Count > 0;
+            EmptyState.Visibility = HasTimelineClips || hasInk ? Visibility.Collapsed : Visibility.Visible;
+            EmptyPreviewHeading.Text = _workspace == "Audio" ? "Audio and video preview" : "Your canvas is ready";
+            EmptyPreviewHint.Text = _workspace == "Audio"
+                ? "Add audio to the tracks below. Add video to see it alongside your mix."
+                : "Add a video, image or title, then draw in Ink Editor.";
+        }
     }
 
     private static void SetPageButtonState(Button button, bool selected)
@@ -1685,7 +1731,7 @@ public sealed partial class MainWindow : Window
     {
         _renderedStrokes.Clear();
         _renderedText.Clear();
-        if (OnionSkinToggle?.IsChecked == true)
+        if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)
         {
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
             if (_selectedFrameIndex > 0)
@@ -1704,6 +1750,7 @@ public sealed partial class MainWindow : Window
         DrawVisibleLayers(_selectedFrameIndex, null, 1);
         DrawVisibleText(_selectedFrameIndex, 1);
         InkSurface.Invalidate();
+        UpdatePreviewEmptyState();
     }
 
     private void DrawVisibleText(int frameIndex, double opacity)
@@ -1843,6 +1890,12 @@ public sealed partial class MainWindow : Window
         {
             if (track.Player is not AudioClipPlayer player)
             {
+                continue;
+            }
+
+            if (IsOriginalPreview)
+            {
+                player.Pause();
                 continue;
             }
 
