@@ -440,6 +440,25 @@
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
+                        <UserControl x:Name="AudioRangeActions" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Timeline frame range (end excluded)" Style="{StaticResource LabelTextStyle}" />
+                                <NumberBox x:Name="AudioRangeStartBox" Header="Range start" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
+                                <NumberBox x:Name="AudioRangeEndBox" Header="Range end" Minimum="1" Maximum="2147483647" Value="2" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Start here" Tag="start" Click="AudioRangeBoundary_Click" ToolTipService.ToolTip="Use the playhead as the range start" />
+                                    <Button Content="End here" Tag="end" Click="AudioRangeBoundary_Click" ToolTipService.ToolTip="Use the playhead as the excluded range end" />
+                                    <Button Content="All" Tag="all" Click="AudioRangeBoundary_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Copy" Tag="copy" Click="AudioRangeAction_Click" />
+                                    <Button Content="Cut" Tag="cut" Click="AudioRangeAction_Click" />
+                                    <Button Content="Delete" Tag="delete" Click="AudioRangeAction_Click" />
+                                    <Button Content="Silence" Tag="silence" Click="AudioRangeAction_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Cut/delete leaves a gap; silence creates a muted segment. Split portions use separate tracks and retain outer fades." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
+                        </UserControl>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="TrimAudioStartButton" Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio before the playhead" />
                             <Button x:Name="TrimAudioEndButton" Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio after the playhead" />

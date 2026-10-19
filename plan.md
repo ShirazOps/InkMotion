@@ -70,8 +70,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
    - Next: media bins and relinking; source in/out; select/blade/trim modes; insert/overwrite; snapping; linked audio/video; ripple/roll/slip/slide edits; markers; transitions; crop/rotate/transform keyframes; speed changes and reverse.
    - Then: colour controls (exposure, contrast, white balance, saturation, curves, LUTs), scopes, stabilisation, masks/tracking, chroma key, compositing and effects. Multicam, proxy/optimised media and noise reduction need separate verified increments; this is not a claim of full Resolve parity.
 4. **Audio tools inspired by Audacity and ocenaudio**
-   - Existing: waveform lanes, multitrack placement, trim/split, whole-clip copy/paste/duplicate/remove, volume/mute, fades, normalisation, tempo/pitch, channel layout and tag editing.
-   - Next: time-range selection; range cut/copy/paste/delete/silence; clip joins; solo/pan; metering and clipping indication; recording; sample-level waveform zoom; spectrogram and frequency analysis.
+   - Existing: waveform lanes, multitrack placement, trim/split, whole-clip copy/paste/duplicate/remove, frame-based range selection/copy/cut/delete/silence (paste at playhead), volume/mute, fades, normalisation, tempo/pitch, channel layout and tag editing.
+   - Next: direct waveform range dragging and sample-level selection; clip joins; solo/pan; metering and clipping indication; recording; sample-level waveform zoom; spectrogram and frequency analysis.
    - Then: non-destructive effect chains with EQ, high/low-pass filters, compression/limiting, gate/noise reduction, reverb/delay, preview and bypass. Save processing settings in projects and apply the same processing on export. Plug-in hosting is a later compatibility project, not an immediate placeholder.
 5. **Ink tools inspired by FlipaClip**
    - Existing: pressure-sensitive pen with optional stabilisation, whole/partial-stroke eraser with adjustable radius, colour/size, layers/opacity/reordering, cel add/copy/paste/duplicate/delete/exposure (including text and layer content), keyframes/tweening, onion skin and text.

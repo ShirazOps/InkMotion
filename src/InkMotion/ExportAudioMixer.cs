@@ -63,7 +63,7 @@ public sealed class ExportAudioMixer : IDisposable
 
     public int SourceCount { get; private set; }
 
-    /// <summary>Timeline time at which the last audible source ends.</summary>
+    /// <summary>Timeline time at which the last included source ends, including muted audio segments.</summary>
     public double DurationSeconds { get; private set; }
 
     public IReadOnlyList<string> Warnings => _warnings;
@@ -83,7 +83,7 @@ public sealed class ExportAudioMixer : IDisposable
 
     private void AddAudioTrack(AudioTrackProject track)
     {
-        if (track.Muted || string.IsNullOrWhiteSpace(track.AudioPath))
+        if (string.IsNullOrWhiteSpace(track.AudioPath))
         {
             return;
         }
@@ -105,6 +105,13 @@ public sealed class ExportAudioMixer : IDisposable
         double timelineDuration = AudioClipEditing.GetTimelineDuration(track, sourceDuration);
         if (!double.IsFinite(timelineDuration) || timelineDuration <= 0)
         {
+            return;
+        }
+
+        if (track.Muted)
+        {
+            DurationSeconds = Math.Max(DurationSeconds, AudioClipEditing.GetClipStartSeconds(track, _frameRate) + timelineDuration);
+            SourceCount++;
             return;
         }
 

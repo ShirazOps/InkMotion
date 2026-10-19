@@ -611,6 +611,7 @@ public sealed partial class MainWindow : Window
     {
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
         MoveAudioClipButton.IsEnabled = hasClip;
@@ -1137,6 +1138,20 @@ public sealed partial class MainWindow : Window
         {
             float fadeStart = width - (float)(track.Project.FadeOutSeconds / clipDuration) * width;
             args.DrawingSession.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
+        }
+
+        if (ReferenceEquals(track, _audioRangeTrack) &&
+            double.IsFinite(AudioRangeStartBox.Value) && double.IsFinite(AudioRangeEndBox.Value))
+        {
+            double frameLength = clipDuration * _frameRate;
+            float x0 = (float)Math.Clamp((AudioRangeStartBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
+            float x1 = (float)Math.Clamp((AudioRangeEndBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
+            if (x1 > x0)
+            {
+                args.DrawingSession.FillRectangle(x0, 0, x1 - x0, (float)sender.ActualHeight, ToColour(0x4064C8FF));
+                args.DrawingSession.DrawLine(x0, 0, x0, (float)sender.ActualHeight, fadeColour);
+                args.DrawingSession.DrawLine(x1, 0, x1, (float)sender.ActualHeight, fadeColour);
+            }
         }
     }
 
