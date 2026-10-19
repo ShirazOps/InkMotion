@@ -33,11 +33,22 @@ public sealed class VideoExportProfileTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(25)]
-    [InlineData(120)]
+    [InlineData(23)]
+    [InlineData(121)]
+    [InlineData(double.NaN)]
     public void Create_RejectsAnUnsupportedFrameRate(double frameRate)
     {
         Assert.Throws<ArgumentOutOfRangeException>(
             () => VideoExportProfile.Create(ExportResolution.P1080, frameRate));
     }
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(25)]
+    [InlineData(29.97)]
+    [InlineData(60)]
+    [InlineData(119.88)]
+    [InlineData(120)]
+    public void Create_AcceptsIndependentOutputFrameRates(double rate) =>
+        Assert.Equal(rate, VideoExportProfile.Create(ExportResolution.P1080, rate).FrameRate);
 }

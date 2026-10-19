@@ -11,6 +11,86 @@ public sealed class VideoExportTests
     // so the encode tests run only where the software encoder actually starts.
     private static bool HasH264Encoder => H264EncoderProbe.Value;
 
+    [Fact]
+    public void EmbeddedAudio_ValidatesBeforeCreatingAnOutputFile()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.ValidateEmbeddedAudio(384000, 192000));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.ValidateEmbeddedAudio(48000, 320000));
+        Assert.Equal(44100, ExportPlanning.GetAudioFramesThrough(119, 120, 44100));
+        Assert.Equal(1471471, ExportPlanning.GetAudioFramesThrough(999, 29.97, 44100));
+        string output = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        Assert.Throws<ArgumentOutOfRangeException>(() => VideoExporter.Export(
+            new(new(), VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720, AudioSampleRate: 96000),
+            null, CancellationToken.None));
+        Assert.False(File.Exists(output));
+    }
+
+    [Theory]
+    [InlineData(44100, 128000)]
+    [InlineData(44100, 160000)]
+    [InlineData(44100, 192000)]
+    [InlineData(48000, 128000)]
+    [InlineData(48000, 160000)]
+    [InlineData(48000, 192000)]
+    public void Export_EmbedsSelectedAacRateAndPreservesDuration(int rate, int bitRate)
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string tone = WriteToneWave(2, 1, 0.2f);
+        string output = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var project = new EditorProject { AudioTracks = [new() { AudioPath = tone }] };
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false, AudioSampleRate: rate, AudioBitRate: bitRate),
+                null, CancellationToken.None);
+            Assert.Equal(24, result.FrameCount);
+            using var audio = new MediaFoundationReader(output);
+            Assert.Equal(rate, audio.WaveFormat.SampleRate);
+            Assert.Equal(2, audio.WaveFormat.Channels);
+            Assert.InRange(audio.TotalTime.TotalSeconds, 0.95, 1.15);
+            float[] samples = new float[rate * 2];
+            int read = audio.ToSampleProvider().Read(samples, 0, samples.Length);
+            Assert.True(read > rate);
+            Assert.True(samples.Take(read).Max(value => Math.Abs(value)) > 0.1f);
+        }
+        finally
+        {
+            File.Delete(tone);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
+    public void Quality_ChangesTheTargetBitRate()
+    {
+        var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);
+        int low = ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, 0);
+        int high = ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, 1);
+        Assert.Equal(low * 4, high);
+        Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.GetVideoBitRate(profile, VideoExportCodec.H264, double.NaN));
+    }
+
+    [Theory]
+    [InlineData(0, 120, 0)]
+    [InlineData(119, 120, 0)]
+    [InlineData(120, 120, 1)]
+    [InlineData(24, 24, 1)]
+    [InlineData(60, 60, 1)]
+    public void IndependentOutputRate_PreservesInkExposure(int outputFrame, double rate, int expectedCel)
+    {
+        var project = new EditorProject
+        {
+            FrameRate = 24,
+            Frames = [new() { ExposureFrames = 24 }, new() { Number = 2, ExposureFrames = 24 }],
+        };
+        Assert.Equal(expectedCel, ExportPlanning.GetInkFrameIndex(project, outputFrame, rate));
+    }
+
     private static bool ProbeH264Encoder()
     {
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-probe-{Guid.NewGuid():N}.mp4");
@@ -225,6 +305,86 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_PreservesTransformedShapesAndPartiallyErasedGaps()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-shapes-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            List<List<InkPoint>> strokes =
+                [InkStrokeEditing.CreateShape(InkShape.Line, 0.3, 0.7, 0.7, 0.7, 40, 0xFF00FF00)];
+            Assert.True(InkSelectionEditing.Transform(strokes, 0, -0.2, 1, 0, 1280, 720));
+            Assert.True(InkStrokeEditing.Erase(strokes, 640, 360, 1280, 720, 40, wholeStroke: false));
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                Frames = [new() { ExposureFrames = 12, IsKeyframe = true, Strokes = strokes }],
+            };
+            project = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+            VideoExporter.Export(new(project, VideoExportProfile.Create(ExportResolution.P720, 24),
+                VideoExportCodec.H264, output, 720, PreferHardware: false), null, CancellationToken.None);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.2));
+            var remaining = GetPixel(video, 448, 360);
+            var erased = GetPixel(video, 640, 360);
+            Assert.True(remaining.G > 160 && remaining.R < 80 && remaining.B < 80);
+            Assert.True(erased.R < 50 && erased.G < 50 && erased.B < 50);
+        }
+        finally
+        {
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
+    public void Export_120FpsKeepsInkTimingAndUsesSoftwareWhenRequested()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-120fps-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                Frames = [new() { ExposureFrames = 6, IsKeyframe = true }, new() { Number = 2, ExposureFrames = 6, IsKeyframe = true }],
+            };
+            for (int cel = 0; cel < 2; cel++)
+            {
+                uint colour = cel == 0 ? 0xFFFF0000 : 0xFF0000FF;
+                project.Frames[cel].Strokes.Add([
+                    new() { X = 0.3, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+                    new() { X = 0.7, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+                ]);
+            }
+
+            var result = VideoExporter.Export(new(project, VideoExportProfile.Create(ExportResolution.P720, 120),
+                VideoExportCodec.H264, output, 720, PreferHardware: false), null, CancellationToken.None);
+            Assert.Equal(60, result.FrameCount);
+            Assert.Equal(0.5, result.DurationSeconds, 3);
+            Assert.False(result.UsedHardwareEncoder);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            var red = GetPixel(video, 640, 504);
+            Assert.True(red.R > 180 && red.B < 80);
+            Assert.True(video.TryGetFrame(0.4));
+            var blue = GetPixel(video, 640, 504);
+            Assert.True(blue.B > 180 && blue.R < 80);
+        }
+        finally
+        {
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Export_EncodesInkTitlesAndAudioThenReadsBack()
     {
         if (!HasH264Encoder)
@@ -280,7 +440,7 @@ public sealed class VideoExportTests
                 VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [new TimelineClipProject { SourcePath = first, SourceDurationSeconds = 1 }] }],
             };
             result = VideoExporter.Export(
-                new VideoExportRequest(surround, VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.H264, second, 720),
+                new VideoExportRequest(surround, VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.H264, second, 720, AudioSampleRate: 44100),
                 null,
                 CancellationToken.None);
 
@@ -298,12 +458,14 @@ public sealed class VideoExportTests
                 // Some Windows editions (such as Server CI images) only encode stereo AAC; the exporter then falls back.
                 Assert.Contains(result.AudioChannels, new[] { 6, 2 });
                 Assert.Equal(result.AudioChannels, audio.WaveFormat.Channels);
+                Assert.Equal(44100, audio.WaveFormat.SampleRate);
                 Assert.True(result.AudioChannels == 6 || result.Warnings.Any(w => w.Contains("stereo downmix", StringComparison.Ordinal)));
             }
 
             using (var wave = new WaveFileReader(stem))
             {
                 Assert.Equal(8, wave.WaveFormat.Channels);
+                Assert.Equal(44100, wave.WaveFormat.SampleRate);
                 Assert.InRange(wave.TotalTime.TotalSeconds, 0.95, 1.05);
             }
         }

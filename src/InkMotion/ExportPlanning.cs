@@ -13,6 +13,33 @@ public static class ExportPlanning
     public const string BaseInkLayerId = "ink-1";
     private const long TicksPerSecond = 10_000_000;
 
+    public static void ValidateEmbeddedAudio(int sampleRate, int bitRate)
+    {
+        if (sampleRate is not (44100 or 48000))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleRate), "MP4 AAC supports 44100 or 48000 Hz.");
+        }
+
+        if (bitRate is not (128000 or 160000 or 192000))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bitRate), "Choose 128, 160 or 192 kbps for MP4 AAC.");
+        }
+    }
+
+    public static void ValidateOutputPath(EditorProject project, string outputPath)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        string fullPath = Path.GetFullPath(outputPath);
+        IEnumerable<string?> sources = project.AudioTracks.Select(track => track.AudioPath)
+            .Concat(project.VideoTracks.SelectMany(track => track.Clips).Select(clip => clip.SourcePath));
+        if (sources.OfType<string>().Any(path => !string.IsNullOrWhiteSpace(path) &&
+            string.Equals(Path.GetFullPath(path), fullPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("Choose a different output file: export cannot overwrite a source used by this project.");
+        }
+    }
+
     public static string CodecName(VideoExportCodec codec) => codec switch
     {
         VideoExportCodec.H264 => "H.264",
@@ -21,12 +48,17 @@ public static class ExportPlanning
     };
 
     /// <summary>Average video bit rate: bits per pixel per frame, scaled by resolution and frame rate.</summary>
-    public static int GetVideoBitRate(VideoExportProfile profile, VideoExportCodec codec)
+    public static int GetVideoBitRate(VideoExportProfile profile, VideoExportCodec codec, double quality = 0.5)
     {
         ArgumentNullException.ThrowIfNull(profile);
+        if (!double.IsFinite(quality) || quality < 0 || quality > 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quality));
+        }
+
         double bitsPerPixel = codec == VideoExportCodec.Hevc ? 0.09 : 0.15;
-        double bitRate = profile.Width * (double)profile.Height * profile.FrameRate * bitsPerPixel;
-        return (int)Math.Clamp(Math.Round(bitRate), 2_000_000, 120_000_000);
+        double bitRate = profile.Width * (double)profile.Height * profile.FrameRate * bitsPerPixel * Math.Pow(4, quality - 0.5);
+        return (int)Math.Clamp(Math.Round(bitRate), 1_000_000, 240_000_000);
     }
 
     /// <summary>
@@ -63,8 +95,8 @@ public static class ExportPlanning
         (long)Math.Round(frameIndex * TicksPerSecond / frameRate);
 
     /// <summary>Number of audio sample frames that must be written by the end of the given video frame.</summary>
-    public static long GetAudioFramesThrough(int frameIndex, double frameRate) =>
-        (long)Math.Round((frameIndex + 1) * (double)AudioSampleRate / frameRate);
+    public static long GetAudioFramesThrough(int frameIndex, double frameRate, int sampleRate = AudioSampleRate) =>
+        (long)Math.Round((frameIndex + 1) * (double)sampleRate / frameRate);
 
     /// <summary>Frame rate as an exact rational, so 24, 30 and 60 fps encode without drift.</summary>
     public static (int Numerator, int Denominator) GetFrameRateRatio(double frameRate)
@@ -110,6 +142,18 @@ public static class ExportPlanning
     {
         ArgumentNullException.ThrowIfNull(project);
         return InkTimeline.GetFrameIndexAtPosition(project.Frames, Math.Max(0, outputFrameIndex));
+    }
+
+    public static int GetInkFrameIndex(EditorProject project, int outputFrameIndex, double outputFrameRate)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        if (!double.IsFinite(outputFrameRate) || outputFrameRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(outputFrameRate));
+        }
+
+        int projectFrame = (int)Math.Floor(Math.Max(0, outputFrameIndex) * project.FrameRate / outputFrameRate + 1e-9);
+        return GetInkFrameIndex(project, projectFrame);
     }
 
     /// <summary>

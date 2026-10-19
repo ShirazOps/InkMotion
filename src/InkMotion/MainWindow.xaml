@@ -7,6 +7,7 @@
     <Grid x:Name="RootGrid" Background="{StaticResource AppBackgroundBrush}" RequestedTheme="Dark">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="26" />
         </Grid.RowDefinitions>
@@ -90,7 +91,70 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="1" Padding="8" RowSpacing="8" ColumnSpacing="8">
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                      HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled"
+                      Background="{StaticResource PanelBrush}">
+            <Grid Padding="12,8" MinHeight="48">
+                <StackPanel x:Name="VideoActionBar" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Add video…" Click="AddVideoClip_Click" />
+                    <Button Content="Add image…" Click="AddImageClip_Click" />
+                    <Button Content="Add title" Click="AddTitleClip_Click" />
+                    <Button Content="Add marker" Click="AddMarker_Click" />
+                    <ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, markers, the playhead and timeline start" />
+                    <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Trim start" Click="TrimClipStart_Click" />
+                            <Button Content="Trim end" Click="TrimClipEnd_Click" />
+                            <Button Content="Split" Click="SplitClip_Click" />
+                            <Button Content="Duplicate" Click="DuplicateVideoClip_Click" />
+                            <Button Content="Ripple delete" Click="RippleDeleteClip_Click" />
+                        </StackPanel>
+                    </UserControl>
+                    <Button Content="Copy clip" Click="CopyVideoClip_Click" />
+                    <Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" />
+                    <TextBlock Text="Clip and track tools in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="AudioActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button Content="Add audio clip…" Click="OpenAudio_Click" />
+                    <Button Content="Add audio track" Click="AddAudioTrack_Click" />
+                    <Button Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioStartButton}" />
+                    <Button Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioEndButton}" />
+                    <Button Content="Split" Click="SplitAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button Content="Join next track" Click="JoinAudioClips_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button Content="Normalise" Click="NormaliseAudio_Click" IsEnabled="{Binding IsEnabled, ElementName=NormaliseAudioButton}" />
+                    <Button Content="Spectrum" Click="AnalyseAudioSpectrum_Click" IsEnabled="{Binding IsEnabled, ElementName=AnalyseAudioSpectrumButton}" />
+                    <Button Content="Copy clip" Click="CopyAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button x:Name="PasteAudioClipButton" Content="Paste at playhead" Click="PasteAudioClip_Click" IsEnabled="False" />
+                    <Button Content="Duplicate" Click="DuplicateAudioClip_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                    <Button x:Name="RemoveAudioClipButton" Content="Remove track" Click="DeleteAudioClip_Click" IsEnabled="False" />
+                    <TextBlock Text="Trim, split, mix and tags in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="InkActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button Content="Pen" Click="SelectPen_Click" />
+                    <Button Content="Eraser" Click="SelectEraser_Click" />
+                    <Button Content="Line" Tag="Line" Click="SelectInkShape_Click" />
+                    <Button Content="Rectangle" Tag="Rectangle" Click="SelectInkShape_Click" />
+                    <Button Content="Ellipse" Tag="Ellipse" Click="SelectInkShape_Click" />
+                    <Button Content="Lasso" Click="SelectInkLasso_Click" />
+                    <Button Content="Add cel" Click="AddFrame_Click" />
+                    <Button Content="Duplicate cel" Click="DuplicateFrame_Click" />
+                    <Button Content="Copy cel" Click="CopyCel_Click" />
+                    <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
+                    <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
+                        <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />
+                    </StackPanel>
+                    <TextBlock Text="Brushes, text and animation in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+                <StackPanel x:Name="ExportActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                    <Button x:Name="ToolbarExportButton" Content="Export video…" Click="ExportVideo_Click" Style="{StaticResource AccentButtonStyle}" />
+                    <TextBlock Text="Output settings and progress in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Padding="8" RowSpacing="8" ColumnSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="3*" MinHeight="276" />
                 <RowDefinition Height="2*" MinHeight="170" />
@@ -102,11 +166,23 @@
 
             <Grid Grid.Row="0" Grid.Column="0" RowSpacing="8">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="48" />
                 </Grid.RowDefinitions>
 
-                <Grid x:Name="PreviewStage" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
+                <Grid Style="{StaticResource PanelStyle}" Padding="12,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="PreviewCaption" Text="MODIFIED" VerticalAlignment="Center" FontSize="10" CharacterSpacing="100" Foreground="{StaticResource TextMutedBrush}" />
+                    <ToggleSwitch x:Name="OriginalPreviewToggle" Grid.Column="1" OffContent="Modified" OnContent="Original"
+                                  Toggled="OriginalPreview_Toggled" AutomationProperties.Name="Preview original source"
+                                  ToolTipService.ToolTip="Compare the active video source at the timeline position, without clip volume, mute, opacity, overlays or added audio. Switching pauses playback. This does not change the export." />
+                </Grid>
+
+                <Grid x:Name="PreviewStage" Grid.Row="1" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
                     <Grid Margin="12">
                         <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
                         <canvas:CanvasControl
@@ -126,30 +202,13 @@
                             SizeChanged="InkSurface_SizeChanged"
                             Visibility="Collapsed" />
                         <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
-                            <TextBlock Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
-                            <TextBlock Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                            <TextBlock x:Name="EmptyPreviewHeading" Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
+                            <TextBlock x:Name="EmptyPreviewHint" Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
                         </StackPanel>
                     </Grid>
-                    <TextBlock x:Name="PreviewCaption" Text="PROGRAM" Margin="12,8" VerticalAlignment="Top" FontSize="10" CharacterSpacing="100" Foreground="{StaticResource TextMutedBrush}" IsHitTestVisible="False" />
                 </Grid>
 
-                <Grid x:Name="AudioWorkspacePanel" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
-                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="460">
-                        <FontIcon Glyph="&#xE8D6;" FontSize="40" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="Multitrack audio" Style="{StaticResource PanelTitleTextStyle}" HorizontalAlignment="Center" />
-                        <TextBlock Text="Arrange clips on the tracks below. Select a clip to trim, split, fade, normalise, change its tempo or pitch, and edit its tags." Style="{StaticResource HintTextStyle}" TextAlignment="Center" />
-                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                            <Button Click="AddAudioTrack_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add audio track" /></StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource AccentButtonStyle}" Click="OpenAudio_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8E5;" FontSize="12" /><TextBlock Text="Add audio clip…" /></StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
-
-                <Grid x:Name="TransportBar" Grid.Row="1" Style="{StaticResource PanelStyle}" Padding="10,4">
+                <Grid x:Name="TransportBar" Grid.Row="2" Style="{StaticResource PanelStyle}" Padding="10,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -183,6 +242,26 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
                         <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="TIMELINE MARKERS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Add" Click="AddMarker_Click" />
+                            <Button Content="Previous" Tag="previous" Click="MarkerAction_Click" />
+                            <Button Content="Next" Tag="next" Click="MarkerAction_Click" />
+                        </StackPanel>
+                        <ComboBox x:Name="MarkerSelector" Header="Named markers" HorizontalAlignment="Stretch" SelectionChanged="Marker_SelectionChanged" />
+                        <TextBox x:Name="MarkerNameBox" Header="Marker name" MaxLength="200" />
+                        <UserControl x:Name="MarkerActions" IsEnabled="False">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Go to" Tag="jump" Click="MarkerAction_Click" />
+                                    <Button Content="Rename" Tag="rename" Click="MarkerAction_Click" />
+                                    <Button Content="Delete" Tag="delete" Click="MarkerAction_Click" />
+                                </StackPanel>
+                                <Button Content="Move marker to playhead" Tag="move" Click="MarkerAction_Click" />
+                            </StackPanel>
+                        </UserControl>
+                        <TextBlock Text="Markers are project guides, not exported overlays. Clip dragging snaps to them; frame-rate changes preserve their time to the nearest frame." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="PROJECT SETTINGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="Frame rate" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">
@@ -252,6 +331,12 @@
                             <Button Grid.Row="2" Grid.Column="1" Content="Ripple delete" HorizontalAlignment="Stretch" Click="RippleDeleteClip_Click" ToolTipService.ToolTip="Delete the clip and close the gap" />
                         </Grid>
                         <StackPanel x:Name="ClipPropertiesPanel" Spacing="10">
+                            <Button x:Name="RelinkTimelineClipButton" Content="Relink source..." Click="RelinkTimelineClip_Click" />
+                            <TextBlock x:Name="ClipSourceRangeText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <StackPanel x:Name="VideoSlipActions" Orientation="Horizontal" Spacing="6">
+                                <Button Content="Slip source -1" Tag="-1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame earlier without moving the clip" />
+                                <Button Content="Slip source +1" Tag="1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame later without moving the clip" />
+                            </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Grid ColumnSpacing="6">
@@ -299,7 +384,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Export" Style="{StaticResource PanelTitleTextStyle}" />
-                        <TextBlock Text="Render the whole timeline to an MP4 file at the project frame rate." Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Render the edited timeline to MP4. Original/Modified only affects the viewer, not export." Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="RESOLUTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="ExportResolutionSelector" SelectedIndex="1" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="720p · 1280 × 720" Tag="P720" />
@@ -307,11 +392,30 @@
                             <ComboBoxItem Content="1440p · 2560 × 1440" Tag="P1440" />
                             <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
                         </ComboBox>
-                        <TextBlock x:Name="ExportProfileReadout" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
+                        <NumberBox x:Name="ExportFrameRateBox" Header="Output frame rate (24–120 fps)" Minimum="24" Maximum="120"
+                                   Value="24" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExportFrameRate_Changed" />
+                        <TextBlock x:Name="ExportProfileReadout" TextWrapping="Wrap" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="ExportCodecSelector" Header="Codec" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
                             <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
                         </ComboBox>
+                        <ToggleSwitch x:Name="ExportHardwareToggle" Header="GPU encoding" OnContent="Prefer hardware (software fallback)" OffContent="Software encoding" IsOn="True" />
+                        <Slider x:Name="ExportQualitySlider" Header="Video quality / file size" Minimum="0" Maximum="100" Value="50"
+                                StepFrequency="1" ValueChanged="ExportSettings_Changed" AutomationProperties.Name="Video quality and file size" />
+                        <Grid>
+                            <TextBlock Text="Lower quality / smaller" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="Higher quality / larger" HorizontalAlignment="Right" Style="{StaticResource HintTextStyle}" />
+                        </Grid>
+                        <ComboBox x:Name="VideoAudioRateSelector" Header="MP4 AAC sample rate" SelectedIndex="1" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="44.1 kHz" Tag="44100" />
+                            <ComboBoxItem Content="48 kHz" Tag="48000" />
+                        </ComboBox>
+                        <ComboBox x:Name="VideoAudioBitRateSelector" Header="MP4 AAC bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="128 kbps" Tag="128000" />
+                            <ComboBoxItem Content="160 kbps" Tag="160000" />
+                            <ComboBoxItem Content="192 kbps" Tag="192000" />
+                        </ComboBox>
+                        <TextBlock Text="MP4 uses lossy AAC; PCM bit depth does not apply. Encoder support depends on Windows. Use WAV below for 16-32-bit and rates up to 384 kHz." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -322,6 +426,35 @@
                         </Grid>
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="Export a separate audio mix below for other formats and rates. WAV preserves the project channel layout; MP3 and AAC use mono/stereo." Style="{StaticResource HintTextStyle}" />
+                        <UserControl x:Name="AudioExportOptions">
+                            <StackPanel Spacing="10">
+                                <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
+                                    <ComboBoxItem Content="PCM · WAV" />
+                                    <ComboBoxItem Content="32-bit float · WAV" />
+                                    <ComboBoxItem Content="MP3 · Windows encoder required" />
+                                    <ComboBoxItem Content="AAC · M4A · Windows encoder required" />
+                                </ComboBox>
+                                <ComboBox x:Name="AudioExportRateSelector" Header="Sample rate (Hz)" HorizontalAlignment="Stretch" />
+                                <ComboBox x:Name="AudioExportDepthSelector" Header="PCM bit depth" SelectedIndex="1" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="16-bit" Tag="16" />
+                                    <ComboBoxItem Content="24-bit" Tag="24" />
+                                    <ComboBoxItem Content="32-bit" Tag="32" />
+                                </ComboBox>
+                                <ComboBox x:Name="AudioExportBitRateSelector" Header="Lossy audio bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="128 kbps" Tag="128000" />
+                                    <ComboBoxItem Content="160 kbps" Tag="160000" />
+                                    <ComboBoxItem Content="192 kbps" Tag="192000" />
+                                    <ComboBoxItem Content="256 kbps" Tag="256000" />
+                                    <ComboBoxItem Content="320 kbps" Tag="320000" />
+                                </ComboBox>
+                            </StackPanel>
+                        </UserControl>
+                        <Button x:Name="ExportAudioButton" Content="Export audio mix…" Click="ExportAudio_Click" />
+                        <Button x:Name="CheckAudioEncodersButton" Content="Check installed audio encoders" Click="CheckAudioEncoders_Click" />
+                        <TextBlock x:Name="AudioEncoderCapabilitiesText" Text="Windows MP3/AAC format availability varies by PC. Export requires an exact rate, channel count and bit rate match; unsupported combinations report an error rather than substituting settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>
@@ -348,18 +481,46 @@
                         <TextBlock x:Name="AudioTrackLabel" Text="No audio track selected" TextWrapping="Wrap" Style="{StaticResource LabelTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <ToggleButton x:Name="AudioMuteButton" Content="Mute" Click="AudioMute_Click" />
+                            <ToggleButton x:Name="AudioSoloButton" Content="Solo" Click="AudioSolo_Click" IsEnabled="False" />
                             <Slider x:Name="AudioVolumeSlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="AudioVolume_Changed" />
                         </StackPanel>
+                        <NumberBox x:Name="AudioBalanceBox" Header="Balance (-100 left, +100 right)" Minimum="-100" Maximum="100" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioBalance_ValueChanged" IsEnabled="False" />
+                        <TextBlock Text="Balance attenuates left/right speakers; centre/LFE stay unchanged. Solo isolates marked audio tracks and bypasses video-source sound. Mute takes priority over solo." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
+                        <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button Content="Reset clip indicator" Click="ResetAudioClipIndicator_Click" />
+                        <TextBlock Text="Meters show this track's stereo monitor after effects/balance, not the summed master mix. Full scale or higher latches CLIP." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
+                        <UserControl x:Name="AudioRangeActions" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Timeline frame range (end excluded)" Style="{StaticResource LabelTextStyle}" />
+                                <NumberBox x:Name="AudioRangeStartBox" Header="Range start" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
+                                <NumberBox x:Name="AudioRangeEndBox" Header="Range end" Minimum="1" Maximum="2147483647" Value="2" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Start here" Tag="start" Click="AudioRangeBoundary_Click" ToolTipService.ToolTip="Use the playhead as the range start" />
+                                    <Button Content="End here" Tag="end" Click="AudioRangeBoundary_Click" ToolTipService.ToolTip="Use the playhead as the excluded range end" />
+                                    <Button Content="All" Tag="all" Click="AudioRangeBoundary_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Copy" Tag="copy" Click="AudioRangeAction_Click" />
+                                    <Button Content="Cut" Tag="cut" Click="AudioRangeAction_Click" />
+                                    <Button Content="Delete" Tag="delete" Click="AudioRangeAction_Click" />
+                                    <Button Content="Silence" Tag="silence" Click="AudioRangeAction_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Cut/delete leaves a gap; silence creates a muted segment. Split portions use separate tracks and retain outer fades." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
+                        </UserControl>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button x:Name="TrimAudioStartButton" Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio before the playhead" />
                             <Button x:Name="TrimAudioEndButton" Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="False" ToolTipService.ToolTip="Remove audio after the playhead" />
                             <Button x:Name="SplitAudioButton" Content="Split" Click="SplitAudio_Click" IsEnabled="False" ToolTipService.ToolTip="Split the clip at the playhead onto a new track" />
                         </StackPanel>
                         <NumberBox x:Name="AudioFadeInBox" Header="Fade in (seconds)" Minimum="0" Maximum="600" SmallChange="0.1" LargeChange="1" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioFade_ValueChanged" IsEnabled="False" />
+                        <Button Content="Join with next audio track" Click="JoinAudioClips_Click" IsEnabled="{Binding IsEnabled, ElementName=SplitAudioButton}" />
+                        <TextBlock Text="Joins consecutive portions of the same source with matching processing/tags and no fades at the join. Keeps outer fades; removes the next track. Effects then run continuously rather than resetting at the old split." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <NumberBox x:Name="AudioFadeOutBox" Header="Fade out (seconds)" Minimum="0" Maximum="600" SmallChange="0.1" LargeChange="1" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioFade_ValueChanged" IsEnabled="False" />
                         <NumberBox x:Name="AudioTempoBox" Header="Tempo (%) — keeps pitch" Minimum="50" Maximum="200" SmallChange="1" LargeChange="10" Value="100" SpinButtonPlacementMode="Compact" ValueChanged="AudioTempoPitch_ValueChanged" IsEnabled="False" />
                         <NumberBox x:Name="AudioPitchBox" Header="Pitch (semitones) — keeps tempo" Minimum="-12" Maximum="12" SmallChange="1" LargeChange="12" Value="0" SpinButtonPlacementMode="Compact" ValueChanged="AudioTempoPitch_ValueChanged" IsEnabled="False" />
@@ -369,6 +530,42 @@
                             <Button x:Name="NormaliseAudioButton" Content="Normalise to −1 dBFS" Click="NormaliseAudio_Click" IsEnabled="False" />
                             <Button x:Name="ResetAudioGainButton" Content="Reset gain" Click="ResetAudioGain_Click" IsEnabled="False" />
                         </StackPanel>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="NON-DESTRUCTIVE EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <UserControl x:Name="AudioEffectsControls" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <ToggleButton x:Name="AudioEffectsEnabled" Content="Enable audio processing chain" Click="AudioEffectsChanged" />
+                                <TextBlock Text="Applied after tempo/pitch, before balance. Filters are off at 0 Hz; frequencies above 45% of the source rate are capped. EQ can add headroom demands; lower clip gain if clipping occurs." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <NumberBox x:Name="AudioHighPassBox" Header="High-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="20" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioLowPassBox" Header="Low-pass (Hz; 0 = off)" Minimum="0" Maximum="20000" Value="0" SmallChange="100" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioBassBox" Header="Bass shelf at 120 Hz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioMidBox" Header="Mid EQ at 1 kHz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioTrebleBox" Header="Treble shelf at 6 kHz (dB)" Minimum="-24" Maximum="24" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorThresholdBox" Header="Compressor threshold (dBFS)" Minimum="-60" Maximum="0" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorRatioBox" Header="Compressor ratio (1 = off)" Minimum="1" Maximum="20" Value="1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorAttackBox" Header="Attack (ms)" Minimum="0.1" Maximum="200" Value="10" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioCompressorReleaseBox" Header="Release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="10" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Linked peak compressor with no make-up gain or look-ahead. Bypass retains settings. Playback/seek resets processing history." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ToggleButton x:Name="AudioGateEnabled" Content="Noise gate" Click="AudioEffectsChanged" />
+                                <NumberBox x:Name="AudioGateThresholdBox" Header="Gate threshold (dBFS)" Minimum="-90" Maximum="0" Value="-40" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateAttackBox" Header="Gate attack (ms)" Minimum="0.1" Maximum="200" Value="5" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateHoldBox" Header="Gate hold (ms)" Minimum="0" Maximum="1000" Value="20" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioGateReleaseBox" Header="Gate release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Linked-channel gate after EQ, before compression. Closes 3 dB below threshold after hold, with smoothed attack/release. It attenuates quiet passages, not noise under speech." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ToggleButton x:Name="AudioLimiterEnabled" Content="Sample-peak limiter" Click="AudioEffectsChanged" />
+                                <NumberBox x:Name="AudioLimiterCeilingBox" Header="Limiter ceiling (dBFS)" Minimum="-24" Maximum="0" Value="-1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <NumberBox x:Name="AudioLimiterReleaseBox" Header="Limiter release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <TextBlock Text="Instant linked gain reduction at the end of this track's chain. No look-ahead or inter-sample/true-peak protection. Downmix, resampling and summed tracks can still exceed full scale." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
+                            </StackPanel>
+                        </UserControl>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="SOURCE FREQUENCY ANALYSIS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="AnalyseAudioSpectrumButton" Content="Analyse selected source range" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <canvas:CanvasControl x:Name="AudioSpectrumSurface" Height="150" Draw="AudioSpectrumSurface_Draw" AutomationProperties.Name="Source spectrum, logarithmic frequency from 20 Hz to Nyquist, minus 120 to zero dBFS" />
+                        <TextBlock Text="20 Hz to Nyquist (logarithmic) | 0 dBFS at top, -120 at bottom" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="AudioSpectrumText" Text="Analyse the start of the selected source range (up to 32768 samples)." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Snapshot of source audio before tempo, pitch, gain, fades and effects. Channel powers are averaged, so opposite-phase stereo does not cancel. Not a spectrogram or whole-clip average." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
@@ -391,19 +588,39 @@
                             <Button Click="SelectPen_Click" ToolTipService.ToolTip="Draw with the pen" AutomationProperties.Name="Pen">
                                 <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xEE56;" FontSize="14" /><TextBlock Text="Pen" /></StackPanel>
                             </Button>
-                            <Button Click="SelectEraser_Click" ToolTipService.ToolTip="Erase whole strokes" AutomationProperties.Name="Eraser">
+                            <Button Click="SelectEraser_Click" ToolTipService.ToolTip="Erase using the selected eraser mode" AutomationProperties.Name="Eraser">
                                 <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE75C;" FontSize="14" /><TextBlock Text="Eraser" /></StackPanel>
                             </Button>
                         </StackPanel>
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
+                        <TextBox x:Name="InkLayerNameBox" Header="Layer name" MaxLength="200" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="Rename" Tag="rename" Click="InkLayerAction_Click" />
+                            <Button Content="Duplicate" Tag="duplicate" Click="InkLayerAction_Click" />
+                            <Button Content="Remove" Tag="remove" Click="InkLayerAction_Click" />
+                        </StackPanel>
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
+                        <ToggleButton x:Name="InkLayerLockButton" Content="Lock drawing" Click="InkLayerLock_Click" />
+                        <TextBlock Text="Drawing lock protects layer strokes, opacity and order. Visibility, cel timing, keyframes, whole-cel operations and cel-global text are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Opacity" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkLayerOpacitySlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="InkLayerOpacity_Changed" LostFocus="InkLayerOpacity_LostFocus" />
                         </StackPanel>
                         <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="InkBrushPresetSelector" Header="Round brush preset" PlaceholderText="Apply a preset" HorizontalAlignment="Stretch" SelectionChanged="InkBrushPreset_SelectionChanged" />
+                        <TextBlock Text="Presets set width, opacity and stabilisation, retaining hue. All use the same pressure-sensitive round brush; the highlighter has translucent overlapping dabs, not a separate blend mode." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Drawing stabilisation" Style="{StaticResource LabelTextStyle}" />
+                        <Slider x:Name="InkStabilisationSlider" Minimum="0" Maximum="0.9" Value="0" StepFrequency="0.1" AutomationProperties.Name="Drawing stabilisation" />
+                        <TextBlock Text="Off at the left; stronger smoothing adds pen lag. The stroke ends at the released pointer." Style="{StaticResource HintTextStyle}" TextWrapping="Wrap" />
+                        <TextBlock Text="Eraser mode" Style="{StaticResource LabelTextStyle}" />
+                        <ComboBox x:Name="InkEraserModeSelector" SelectedIndex="0" SelectionChanged="InkEraserMode_SelectionChanged" AutomationProperties.Name="Eraser mode">
+                            <ComboBoxItem Content="Whole stroke" />
+                            <ComboBoxItem Content="Partial stroke" />
+                        </ComboBox>
+                        <TextBlock Text="Eraser radius (preview pixels)" Style="{StaticResource LabelTextStyle}" />
+                        <Slider x:Name="InkEraserRadiusSlider" Minimum="2" Maximum="60" Value="18" StepFrequency="1" AutomationProperties.Name="Eraser radius" />
                         <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                             <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                             <ComboBoxItem Content="White" Tag="FFFFFFFF" />
@@ -411,10 +628,30 @@
                             <ComboBoxItem Content="Pink" Tag="FFFF69B4" />
                             <ComboBoxItem Content="Lime" Tag="FF7CFC00" />
                         </ComboBox>
+                        <DropDownButton Content="Custom colour...">
+                            <DropDownButton.Flyout>
+                                <Flyout>
+                                    <ColorPicker x:Name="InkCustomColourPicker" Color="#FFFFA500" IsAlphaEnabled="True" IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True" ColorChanged="InkCustomColour_Changed" />
+                                </Flyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Pen size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
                         </StackPanel>
+                        <TextBlock Text="STROKE SELECTION" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="Lasso selects whole strokes on this cel and layer, not text. Offsets use canvas percentages; rotation uses preview aspect ratio. Brush widths stay unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Content="All" Tag="all" Click="InkSelectionAction_Click" />
+                            <Button Content="Copy" Tag="copy" Click="InkSelectionAction_Click" />
+                            <Button Content="Paste" Tag="paste" Click="InkSelectionAction_Click" />
+                            <Button Content="Delete" Tag="delete" Click="InkSelectionAction_Click" />
+                        </StackPanel>
+                        <NumberBox x:Name="InkSelectionXBox" Header="Horizontal offset (%)" Minimum="-100" Maximum="100" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkSelectionYBox" Header="Vertical offset (%)" Minimum="-100" Maximum="100" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkSelectionScaleBox" Header="Scale (%)" Minimum="1" Maximum="1000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkSelectionAngleBox" Header="Rotation (degrees)" Minimum="-360" Maximum="360" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Apply selection transform" Tag="transform" Click="InkSelectionAction_Click" />
                         <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
                         <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
@@ -521,7 +758,7 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="2" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
+        <Grid Grid.Row="3" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

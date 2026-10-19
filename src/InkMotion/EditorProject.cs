@@ -5,12 +5,14 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public int Version { get; set; } = 9;
+    public const int CurrentVersion = 14;
+    public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
     public List<TimelineTrackProject> VideoTracks { get; set; } = [];
+    public List<TimelineMarkerProject> Markers { get; set; } = [];
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
     public bool AudioMuted { get; set; }
@@ -27,6 +29,7 @@ public sealed class InkLayerProject
     public string Id { get; set; } = "ink-1";
     public string Name { get; set; } = "Ink 1";
     public bool IsVisible { get; set; } = true;
+    public bool IsLocked { get; set; }
     public double Opacity { get; set; } = 1;
 }
 
@@ -36,6 +39,9 @@ public sealed class AudioTrackProject
     public int StartFrame { get; set; } = 1;
     public double Volume { get; set; } = 1;
     public bool Muted { get; set; }
+    public bool Solo { get; set; }
+    public double Balance { get; set; }
+    public AudioEffectSettings Effects { get; set; } = new();
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     public double FadeInSeconds { get; set; }
@@ -108,7 +114,7 @@ public sealed record VideoExportProfile(ExportResolution Resolution, int Width, 
             throw new ArgumentOutOfRangeException(nameof(resolution));
         }
 
-        if (!ProjectFrameRates.Supported.Contains(frameRate))
+        if (!double.IsFinite(frameRate) || (frameRate != 12 && (frameRate < 24 || frameRate > 120)))
         {
             throw new ArgumentOutOfRangeException(nameof(frameRate));
         }
@@ -260,6 +266,26 @@ public static class EditorProjectSerialiser
         if (project.Version == 8)
         {
             MigrateVersionEight(project);
+        }
+        if (project.Version == 9)
+        {
+            project.Version = 10;
+        }
+        if (project.Version == 10)
+        {
+            project.Version = 11;
+        }
+        if (project.Version == 11)
+        {
+            project.Version = 12;
+        }
+        if (project.Version == 12)
+        {
+            project.Version = 13;
+        }
+        if (project.Version == 13)
+        {
+            project.Version = EditorProject.CurrentVersion;
         }
 
         EditorProjectValidation.Validate(project);
@@ -610,7 +636,7 @@ internal static class EditorProjectValidation
     public static void Validate(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        if (project.Version != 9)
+        if (project.Version != EditorProject.CurrentVersion)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
         }
@@ -619,6 +645,13 @@ internal static class EditorProjectValidation
         {
             throw new InvalidDataException("The project frame rate must be 12, 24, 30, or 60 fps.");
         }
+
+        if (project.Markers is null)
+        {
+            throw new InvalidDataException("Timeline markers must be a list.");
+        }
+
+        TimelineMarkers.Validate(project.Markers);
 
         if (!double.IsFinite(project.AudioVolume) || project.AudioVolume is < 0 or > 1)
         {
@@ -638,7 +671,7 @@ internal static class EditorProjectValidation
 
         if (project.AudioTracks.Any(track => !AudioClipEditing.HasValidClipSettings(track)))
         {
-            throw new InvalidDataException("Audio clips must have valid in and out points, fades, gain, tempo, and pitch.");
+            throw new InvalidDataException("Audio clips must have valid in/out points, fades, gain, tempo, pitch, balance and effect settings.");
         }
 
         if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))
