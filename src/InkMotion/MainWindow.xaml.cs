@@ -79,6 +79,7 @@ public sealed partial class MainWindow : Window
         UpdateExportProfileReadout();
         UpdateAudioExportOptions();
         InitialiseExportJobs();
+        InitialiseEditorLayout();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -373,6 +374,7 @@ public sealed partial class MainWindow : Window
             RefreshAudioTracks();
         }
         UpdateTitleBarPassthrough();
+        ApplyEditorLayout();
     }
 
     private bool IsOriginalPreview => OriginalPreviewToggle?.IsOn == true;
@@ -1020,6 +1022,7 @@ public sealed partial class MainWindow : Window
         {
             AudioTrackNamesPanel.Children.Add(CreateAudioTrackName("A1  Audio"));
             AudioTracksPanel.Children.Add(CreateAudioTrackLane("Add an audio clip with File > Add audio clip…"));
+            UpdateAudioLaneHeights();
             return;
         }
 
@@ -1029,6 +1032,7 @@ public sealed partial class MainWindow : Window
             AudioTrackNamesPanel.Children.Add(CreateAudioTrackName($"A{i + 1}  Audio"));
             AudioTracksPanel.Children.Add(CreateAudioTrackLane(track, i));
         }
+        UpdateAudioLaneHeights();
     }
 
     private Button CreateAudioTrackLane(AudioTrackRuntime track, int index)
@@ -1036,7 +1040,6 @@ public sealed partial class MainWindow : Window
         var waveform = new CanvasControl
         {
             ClearColor = Windows.UI.Color.FromArgb(0, 0, 0, 0),
-            Height = 36,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             Tag = track,
@@ -1065,6 +1068,7 @@ public sealed partial class MainWindow : Window
             Height = 42,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
             Padding = new Thickness(6, 2, 6, 2),
             Background = new SolidColorBrush(index == _selectedAudioTrackIndex
                 ? Microsoft.UI.Colors.DarkSlateBlue
@@ -2512,6 +2516,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        SaveEditorLayout();
         _exportJobsClosed = true;
         _exportJobsTimer?.Stop();
         _audioSpectrumCancellation?.Cancel();

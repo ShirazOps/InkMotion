@@ -49,6 +49,14 @@
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                     </MenuBarItem>
+                    <MenuBarItem Title="View">
+                        <ToggleMenuFlyoutItem x:Name="LayoutOptionsMenu" Text="Show options panel" IsChecked="True" Tag="options" Click="LayoutPanel_Click" />
+                        <ToggleMenuFlyoutItem x:Name="LayoutTimelineMenu" Text="Show multitrack / cel timeline" IsChecked="True" Tag="timeline" Click="LayoutPanel_Click" />
+                        <ToggleMenuFlyoutItem x:Name="LayoutPreviewMenu" Text="Show video / ink preview" IsChecked="True" Tag="preview" Click="LayoutPanel_Click" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Expand main editing view" Click="ExpandEditingView_Click" />
+                        <MenuFlyoutItem Text="Reset all workspace layouts to default" Click="ResetEditorLayout_Click" />
+                    </MenuBarItem>
                 </MenuBar>
             </StackPanel>
 
@@ -141,9 +149,6 @@
                     <Button Content="Copy cel" Click="CopyCel_Click" />
                     <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
-                    <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
-                    <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
-                    <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel, including keyframes. Tweening remains editable; timing, text and other layers are unchanged. This edits drawings, unlike preview-only canvas navigation; undo restores them." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
                         <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />
@@ -157,24 +162,26 @@
             </Grid>
         </ScrollViewer>
 
-        <Grid Grid.Row="2" Padding="8" RowSpacing="8" ColumnSpacing="8">
+        <Grid x:Name="EditorLayoutGrid" Grid.Row="2" Padding="8" SizeChanged="EditorLayout_SizeChanged">
             <Grid.RowDefinitions>
-                <RowDefinition Height="3*" MinHeight="276" />
-                <RowDefinition Height="2*" MinHeight="170" />
+                <RowDefinition x:Name="EditorPreviewRow" Height="3*" />
+                <RowDefinition x:Name="EditorDividerRow" Height="10" />
+                <RowDefinition x:Name="EditorTimelineRow" Height="2*" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="340" />
+                <ColumnDefinition x:Name="EditorDividerColumn" Width="10" />
+                <ColumnDefinition x:Name="EditorOptionsColumn" Width="340" />
             </Grid.ColumnDefinitions>
 
-            <Grid Grid.Row="0" Grid.Column="0" RowSpacing="8">
+            <Grid x:Name="EditorPreviewPanel" Grid.Row="0" Grid.Column="0" RowSpacing="8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="48" />
                 </Grid.RowDefinitions>
 
-                <Grid Style="{StaticResource PanelStyle}" Padding="12,6">
+                <Grid x:Name="EditorPreviewHeader" Style="{StaticResource PanelStyle}" Padding="12,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -247,7 +254,7 @@
 
             </Grid>
 
-            <Grid x:Name="VideoInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}">
+            <Grid x:Name="VideoInspectorPanel" Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelStyle}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
                         <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
@@ -423,7 +430,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="ExportInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
+            <Grid x:Name="ExportInspectorPanel" Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Export" Style="{StaticResource PanelTitleTextStyle}" />
@@ -511,7 +518,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="AudioInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
+            <Grid x:Name="AudioInspectorPanel" Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Audio Editor" Style="{StaticResource PanelTitleTextStyle}" />
@@ -652,7 +659,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="InkInspectorPanel" Grid.Row="0" Grid.Column="1" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
+            <Grid x:Name="InkInspectorPanel" Grid.Row="0" Grid.Column="2" Style="{StaticResource PanelStyle}" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Ink Editor" Style="{StaticResource PanelTitleTextStyle}" />
@@ -688,6 +695,9 @@
                             <Button Content="Remove" Tag="remove" Click="InkLayerAction_Click" />
                         </StackPanel>
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                        <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
+                        <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
+                        <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel. Tweening remains editable; text and other layers are unchanged. Undo restores the drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Merge layer down" Tag="merge" Click="InkLayerAction_Click" />
                         <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
@@ -790,7 +800,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="VideoTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12,8,12,8">
+            <Grid x:Name="VideoTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12,8,12,8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -824,18 +834,20 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="AudioTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12" Visibility="Collapsed">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel x:Name="AudioTrackNamesPanel" Spacing="4" />
-                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <StackPanel x:Name="AudioTracksPanel" Spacing="4" />
+            <Grid x:Name="AudioTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" Visibility="Collapsed" SizeChanged="AudioLayout_SizeChanged">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel x:Name="AudioTrackNamesPanel" Spacing="4" />
+                        <StackPanel x:Name="AudioTracksPanel" Grid.Column="1" Spacing="4" />
+                    </Grid>
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="InkTimelineWorkspace" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource PanelStyle}" Padding="12" RowSpacing="10" Visibility="Collapsed">
+            <Grid x:Name="InkTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" RowSpacing="10" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -857,6 +869,32 @@
                     <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="38" />
                 </ScrollViewer>
             </Grid>
+            <Thumb x:Name="EditorOptionsGrip" Grid.Column="1" IsTabStop="True" Tag="options"
+                   AutomationProperties.Name="Resize options panel" KeyDown="LayoutGrip_KeyDown"
+                   PointerPressed="LayoutGrip_PointerPressed"
+                   DragDelta="LayoutGrip_DragDelta" DragCompleted="LayoutGrip_DragCompleted"
+                   ToolTipService.ToolTip="Drag left/right to resize options. Arrow keys resize; Home restores the default width. View menu hides or restores panels.">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{StaticResource PanelBorderBrush}" CornerRadius="3" Margin="2,0">
+                            <TextBlock Text=":" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
+            <Thumb x:Name="EditorTimelineGrip" Grid.Row="1" Grid.ColumnSpan="3" IsTabStop="True" Tag="timeline"
+                   AutomationProperties.Name="Resize preview and timeline" KeyDown="LayoutGrip_KeyDown"
+                   PointerPressed="LayoutGrip_PointerPressed"
+                   DragDelta="LayoutGrip_DragDelta" DragCompleted="LayoutGrip_DragCompleted"
+                   ToolTipService.ToolTip="Drag up/down to resize preview and timeline. Arrow keys resize; Home restores the default split. View menu hides or restores panels.">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{StaticResource PanelBorderBrush}" CornerRadius="3" Margin="0,2">
+                            <TextBlock Text="=" Foreground="{StaticResource TextMutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
         </Grid>
 
         <Grid Grid.Row="3" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
