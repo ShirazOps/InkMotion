@@ -93,7 +93,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
    - Added: preview-only canvas zoom (25-400%), rotation (-180 to 180 degrees), pan and reset, transforming video/overlays/ink together inside a clipped viewport. Native inverse pointer coordinates retain drawing alignment; stored strokes, brush widths and export framing are unchanged. Ink view settings last for the session and are disabled in other workspaces.
    - Added: undoable all-cel merge down for adjacent visible/unlocked layers with equal opacity. Displayed held/generated drawings are materialised before merging to preserve animation and per-point styling; timing/keyframes/text and the lower layer identity are retained.
    - Next: canvas colour sampling; fill; finer partial-stroke and text selection; rulers; texture brushes.
-   - Then: frame ranges, copy/move/group/loop, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
+   - Added: inclusive keyframe-bounded cel cycle repetition, inserting 1-100 additional independent copies with drawing/text/exposure/tween retention and undo/redo/save-load. Maximum 10,000 added cels per operation; later ink cels shift, other media stays fixed. Linked loops and arbitrary open-tween range copying are not implied.
+   - Then: richer frame-range copy/move/group/linked-loop workflows, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
 
 Reference products define the intended workflows, not a licence to copy their UI assets or proprietary implementations: [DaVinci Resolve editing](https://www.blackmagicdesign.com/products/davinciresolve/edit), [Audacity](https://www.audacityteam.org/), [ocenaudio](https://www.ocenaudio.com/), and [FlipaClip](https://www.flipaclip.com/).
 

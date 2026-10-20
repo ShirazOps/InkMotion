@@ -5,6 +5,46 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private void RepeatInkCelRange_Click(object sender, RoutedEventArgs e)
+    {
+        if (!double.IsFinite(InkCycleFirstBox.Value) || !double.IsFinite(InkCycleLastBox.Value) ||
+            !double.IsFinite(InkCycleCopiesBox.Value) ||
+            InkCycleFirstBox.Value != Math.Truncate(InkCycleFirstBox.Value) ||
+            InkCycleLastBox.Value != Math.Truncate(InkCycleLastBox.Value) ||
+            InkCycleCopiesBox.Value != Math.Truncate(InkCycleCopiesBox.Value) ||
+            InkCycleFirstBox.Value < 1 || InkCycleLastBox.Value > _frames.Count ||
+            InkCycleCopiesBox.Value is < 1 or > 100)
+        {
+            StatusText.Text = "Use existing whole cel numbers and 1-100 additional copies.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        try
+        {
+            _selectedFrameIndex = InkEditing.RepeatCelRange(_frames, (int)InkCycleFirstBox.Value - 1,
+                (int)InkCycleLastBox.Value - 1, (int)InkCycleCopiesBox.Value);
+        }
+        catch (InvalidOperationException ex)
+        {
+            CommitEdit();
+            StatusText.Text = ex.Message;
+            return;
+        }
+
+        ClearInkSelection();
+        _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
+        MarkEditChanged();
+        CommitEdit();
+        RefreshTimeline();
+        RenderCurrentInk();
+        SeekToCurrentFrame();
+        UpdateFrameStatus();
+        StatusText.Text = "Cel cycle repeated as independent drawings, text and exposures. Other media is not moved; undo restores the cel timeline.";
+    }
+
     private void InkLayerAction_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string action } || action is not ("rename" or "duplicate" or "remove" or "merge"))

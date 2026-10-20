@@ -748,6 +748,12 @@
                         <TextBlock Text="CEL EXPOSURE" Style="{StaticResource SectionHeaderTextStyle}" />
                         <NumberBox x:Name="ExposureFramesBox" Minimum="1" Maximum="999" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExposureFrames_Changed" LostFocus="ExposureFrames_LostFocus" />
                         <TextBlock Text="Output frames to hold this cel." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="REPEAT CEL CYCLE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <NumberBox x:Name="InkCycleFirstBox" Header="First cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkCycleLastBox" Header="Last cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkCycleCopiesBox" Header="Additional copies" Minimum="1" Maximum="100" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Repeat cel range" Click="RepeatInkCelRange_Click" />
+                        <TextBlock Text="Insert independent copies immediately after this range, retaining all layers, text, exposure and tween settings. First and last cels must be keyframes to contain the cycle. Maximum 10,000 added cels per operation. Later cels shift; video, audio and markers stay in place. Drawing locks do not block whole-cel operations. Undo restores the previous timeline." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

@@ -2,6 +2,43 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static int RepeatCelRange(List<EditorFrame> frames, int first, int last, int additionalCopies)
+    {
+        if (first < 0 || last < first || last >= frames.Count ||
+            additionalCopies is < 1 or > 100)
+        {
+            throw new InvalidOperationException("Choose an existing inclusive cel range and 1-100 additional copies.");
+        }
+
+        if (!frames[first].IsKeyframe || !frames[last].IsKeyframe)
+        {
+            throw new InvalidOperationException("Set keyframes on the first and last cels of the cycle so its tween boundaries are self-contained.");
+        }
+
+        long added = (long)(last - first + 1) * additionalCopies;
+        long cycleExposure = frames.Skip(first).Take(last - first + 1).Sum(frame => (long)frame.ExposureFrames);
+        long totalExposure = frames.Sum(frame => (long)frame.ExposureFrames) + cycleExposure * additionalCopies;
+        if (added > 10000 || (long)frames.Count + added > int.MaxValue || totalExposure > int.MaxValue)
+        {
+            throw new InvalidOperationException("Repeat fewer cels: one operation can add at most 10,000 cels and must fit the timeline frame limit.");
+        }
+
+        List<EditorFrame> source = frames.GetRange(first, last - first + 1);
+        var copies = new List<EditorFrame>((int)added);
+        for (int copy = 0; copy < additionalCopies; copy++)
+        {
+            copies.AddRange(source.Select(Clone));
+        }
+
+        frames.InsertRange(last + 1, copies);
+        for (int index = 0; index < frames.Count; index++)
+        {
+            frames[index].Number = index + 1;
+        }
+
+        return last + 1;
+    }
+
     public static InkLayerProject MergeLayerDown(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
     {
         int index = layers.FindIndex(layer => layer.Id == id);
