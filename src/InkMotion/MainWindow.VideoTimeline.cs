@@ -1208,6 +1208,32 @@ public sealed partial class MainWindow
     private void RollVideoClip_Click(object sender, RoutedEventArgs e) =>
         ApplyNeighbourClipEdit(sender, roll: true);
 
+    private void RippleTrimVideoClip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => VideoEditTools.RippleTrimEnd(location.Track, location.Clip, frames, _frameRate),
+            $"Ripple end trimmed by {frames:+0;-0} project frame. Later clips on this video track shifted; gaps are preserved.",
+            "Ripple trim needs an unlocked video clip with sufficient source handles, at least one remaining frame and room for its fades. Later clips must stay within valid timeline positions.");
+    }
+
+    private void RippleTrimVideoStart_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => VideoEditTools.RippleTrimStart(location.Track, location.Clip, frames, _frameRate),
+            $"Ripple source start changed by {frames:+0;-0} project frame; clip placement is fixed and later clips on this video track shifted.",
+            "Ripple start needs an unlocked video clip with available source footage, at least one remaining frame and room for its fades. Later clips must stay within valid timeline positions.");
+    }
+
     private void SlideVideoClip_Click(object sender, RoutedEventArgs e) =>
         ApplyNeighbourClipEdit(sender, roll: false);
 

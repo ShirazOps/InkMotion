@@ -334,6 +334,8 @@
                             <Button x:Name="RelinkTimelineClipButton" Content="Relink source..." Click="RelinkTimelineClip_Click" />
                             <TextBlock x:Name="ClipSourceRangeText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <StackPanel x:Name="VideoSlipActions" Spacing="6">
+                              <Button Content="Join next video clip" Click="JoinVideoClip_Click"
+                                      ToolTipService.ToolTip="Join adjacent consecutive sections of the same source with matching properties and no fade at the cut" />
                               <StackPanel Orientation="Horizontal" Spacing="6">
                                 <Button Content="Slip source -1" Tag="-1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame earlier without moving the clip" />
                                 <Button Content="Slip source +1" Tag="1" Click="SlipVideoClip_Click" ToolTipService.ToolTip="Move the source range one project frame later without moving the clip" />
@@ -347,6 +349,19 @@
                                 <Button Content="Slide clip +1" Tag="1" Click="SlideVideoClip_Click" ToolTipService.ToolTip="Move this clip one project frame later, trimming its neighbours to preserve the sequence length" />
                               </StackPanel>
                               <TextBlock Text="Roll moves the cut to the next clip; slide trims both neighbours. Clips must touch on this video track, with unused source handles. Sequence length and fade values are preserved; operations that would consume a clip or invalidate fades are rejected." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Content="Ripple end -1" Tag="-1" Click="RippleTrimVideoClip_Click"
+                                        ToolTipService.ToolTip="Shorten this clip by one project frame and shift later clips on this track earlier" />
+                                <Button Content="Ripple end +1" Tag="1" Click="RippleTrimVideoClip_Click"
+                                        ToolTipService.ToolTip="Extend this clip by one project frame and shift later clips on this track later" />
+                              </StackPanel>
+                              <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button Content="Ripple start -1" Tag="-1" Click="RippleTrimVideoStart_Click"
+                                        ToolTipService.ToolTip="Include one earlier source frame at this clip's fixed start and shift later clips on this track later" />
+                                <Button Content="Ripple start +1" Tag="1" Click="RippleTrimVideoStart_Click"
+                                        ToolTipService.ToolTip="Remove one source frame from this clip's fixed start and shift later clips on this track earlier" />
+                              </StackPanel>
+                              <TextBlock Text="Ripple changes sequence length and shifts all later clips on this track, keeping gaps. Ripple start keeps this clip's timeline start fixed; +1 removes a source frame, -1 includes an earlier one. Other tracks, added audio, markers and ink are not linked or moved." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />

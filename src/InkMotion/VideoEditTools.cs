@@ -2,6 +2,44 @@ namespace InkMotion;
 
 public static class VideoEditTools
 {
+    public static bool RippleTrimEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate) =>
+        RippleTrim(track, clip, frames, frameRate, trimStart: false);
+
+    public static bool RippleTrimStart(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate) =>
+        RippleTrim(track, clip, frames, frameRate, trimStart: true);
+
+    private static bool RippleTrim(TimelineTrackProject track, TimelineClipProject clip, int frames,
+        double frameRate, bool trimStart)
+    {
+        if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out _) ||
+            VideoTimelineEditing.Validate([track], frameRate) is not null)
+        {
+            return false;
+        }
+
+        double start = clip.SourceInSeconds + (trimStart ? frames / frameRate : 0);
+        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + (trimStart ? 0 : frames / frameRate);
+        if (!CanUseRange(clip, start, end, frameRate))
+        {
+            return false;
+        }
+
+        TimelineClipProject[] following = track.Clips.Where(candidate => candidate.StartFrame > clip.StartFrame).ToArray();
+        long shift = trimStart ? -(long)frames : frames;
+        if (following.Any(candidate => candidate.StartFrame + shift is < 1 or > int.MaxValue))
+        {
+            return false;
+        }
+
+        clip.SourceInSeconds = Math.Max(0, start);
+        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, end);
+        foreach (TimelineClipProject candidate in following)
+        {
+            candidate.StartFrame = (int)(candidate.StartFrame + shift);
+        }
+        return true;
+    }
+
     public static bool RollEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate)
     {
         if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out TimelineClipProject? next) ||
