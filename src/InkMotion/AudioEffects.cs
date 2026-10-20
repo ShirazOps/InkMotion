@@ -23,6 +23,10 @@ public sealed record AudioEffectSettings
     public bool LimiterEnabled { get; init; }
     public double LimiterCeilingDecibels { get; init; } = -1;
     public double LimiterReleaseMilliseconds { get; init; } = 100;
+    public bool DelayEnabled { get; init; }
+    public double DelayMilliseconds { get; init; } = 250;
+    public double DelayFeedback { get; init; } = 0.3;
+    public double DelayWetGain { get; init; } = 0.25;
 
     public bool IsValid =>
         double.IsFinite(HighPassHz) && (HighPassHz == 0 || HighPassHz is >= 20 and <= 20000) &&
@@ -38,7 +42,10 @@ public sealed record AudioEffectSettings
         double.IsFinite(GateReleaseMilliseconds) && GateReleaseMilliseconds is >= 5 and <= 2000 &&
         double.IsFinite(GateHoldMilliseconds) && GateHoldMilliseconds is >= 0 and <= 1000 &&
         double.IsFinite(LimiterCeilingDecibels) && LimiterCeilingDecibels is >= -24 and <= 0 &&
-        double.IsFinite(LimiterReleaseMilliseconds) && LimiterReleaseMilliseconds is >= 5 and <= 2000;
+        double.IsFinite(LimiterReleaseMilliseconds) && LimiterReleaseMilliseconds is >= 5 and <= 2000 &&
+        double.IsFinite(DelayMilliseconds) && DelayMilliseconds is >= 1 and <= 2000 &&
+        double.IsFinite(DelayFeedback) && DelayFeedback is >= 0 and <= 0.95 &&
+        double.IsFinite(DelayWetGain) && DelayWetGain is >= 0 and <= 1;
 }
 
 public sealed class AudioEffectsSampleProvider : ISampleProvider
@@ -53,6 +60,8 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     private bool _gateOpen;
     private int _gateHoldFrames;
     private double _limiterGain = 1;
+    private float[] _delayBuffer = [];
+    private int _delayPosition;
 
     public AudioEffectsSampleProvider(ISampleProvider source, AudioEffectSettings settings)
     {
@@ -68,7 +77,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
         ArgumentNullException.ThrowIfNull(settings);
         if (!settings.IsValid)
         {
-            throw new ArgumentException("Invalid audio filter, EQ, compressor, gate or limiter settings.", nameof(settings));
+            throw new ArgumentException("Invalid audio filter, EQ, compressor, gate, delay or limiter settings.", nameof(settings));
         }
 
         lock (_sync)
@@ -112,6 +121,10 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
         _gateOpen = false;
         _gateHoldFrames = 0;
         _limiterGain = 1;
+        _delayPosition = 0;
+        _delayBuffer = _settings.Enabled && _settings.DelayEnabled
+            ? new float[checked(Math.Max(1, (int)Math.Round(_settings.DelayMilliseconds * 0.001 * WaveFormat.SampleRate)) * WaveFormat.Channels)]
+            : [];
         _filters = Enumerable.Range(0, WaveFormat.Channels).Select(_ => CreateFilters()).ToArray();
     }
 
@@ -216,16 +229,34 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
                 double coefficient = target > _gainReductionDecibels ? attack : release;
                 _gainReductionDecibels = coefficient * _gainReductionDecibels + (1 - coefficient) * target;
                 double gain = gateGain * AudioClipEditing.DecibelsToLinear(-_gainReductionDecibels);
+                peak = 0;
+                for (int channel = 0; channel < channels && frame + channel < read; channel++)
+                {
+                    int index = offset + frame + channel;
+                    double sample = buffer[index] * gain;
+                    if (_delayBuffer.Length > 0)
+                    {
+                        float delayed = _delayBuffer[_delayPosition];
+                        _delayBuffer[_delayPosition] = (float)(sample + delayed * _settings.DelayFeedback);
+                        sample += delayed * _settings.DelayWetGain;
+                        _delayPosition = (_delayPosition + 1) % _delayBuffer.Length;
+                    }
+
+                    buffer[index] = (float)sample;
+                    peak = Math.Max(peak, Math.Abs(buffer[index]));
+                }
+
+                double outputGain = 1;
                 if (_settings.LimiterEnabled)
                 {
-                    double limit = peak * gain > limiterCeiling ? limiterCeiling / (peak * gain) : 1;
+                    double limit = peak > limiterCeiling ? limiterCeiling / peak : 1;
                     _limiterGain = Math.Min(limit, limiterRelease * _limiterGain + (1 - limiterRelease));
-                    gain *= _limiterGain;
+                    outputGain = _limiterGain;
                 }
 
                 for (int channel = 0; channel < channels && frame + channel < read; channel++)
                 {
-                    buffer[offset + frame + channel] = (float)(buffer[offset + frame + channel] * gain);
+                    buffer[offset + frame + channel] = (float)(buffer[offset + frame + channel] * outputGain);
                 }
 
             }

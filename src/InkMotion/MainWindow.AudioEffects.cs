@@ -27,6 +27,10 @@ public sealed partial class MainWindow
         AudioLimiterEnabled.IsChecked = settings.LimiterEnabled;
         AudioLimiterCeilingBox.Value = settings.LimiterCeilingDecibels;
         AudioLimiterReleaseBox.Value = settings.LimiterReleaseMilliseconds;
+        AudioDelayEnabled.IsChecked = settings.DelayEnabled;
+        AudioDelayTimeBox.Value = settings.DelayMilliseconds;
+        AudioDelayFeedbackBox.Value = settings.DelayFeedback;
+        AudioDelayWetBox.Value = settings.DelayWetGain;
     }
 
     private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();
@@ -60,10 +64,14 @@ public sealed partial class MainWindow
             LimiterEnabled = AudioLimiterEnabled.IsChecked == true,
             LimiterCeilingDecibels = AudioLimiterCeilingBox.Value,
             LimiterReleaseMilliseconds = AudioLimiterReleaseBox.Value,
+            DelayEnabled = AudioDelayEnabled.IsChecked == true,
+            DelayMilliseconds = AudioDelayTimeBox.Value,
+            DelayFeedback = AudioDelayFeedbackBox.Value,
+            DelayWetGain = AudioDelayWetBox.Value,
         };
         if (!settings.IsValid)
         {
-            StatusText.Text = "Use valid effect values: filters are off at 0 Hz or 20-20000 Hz, with high-pass below low-pass.";
+            StatusText.Text = "Use valid effect values: filters are off at 0 Hz or 20-20000 Hz, high-pass below low-pass; delay 1-2000 ms, feedback 0-0.95, wet gain 0-1.";
             UpdateSelectedAudioTrack();
             return;
         }
