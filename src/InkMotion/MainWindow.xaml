@@ -340,6 +340,8 @@
                         </Grid>
                         <StackPanel x:Name="ClipPropertiesPanel" Spacing="10">
                             <Button x:Name="RelinkTimelineClipButton" Content="Relink source..." Click="RelinkTimelineClip_Click" />
+                            <Button x:Name="RelinkMatchingSourcesButton" Content="Relink all matching sources..." Tag="batch" Click="RelinkTimelineClip_Click"
+                                    ToolTipService.ToolTip="Replace all uses of this source on video or image tracks of the same kind. Any locked matching track or insufficient source length rejects the entire operation. Undo restores all source links." />
                             <TextBlock x:Name="ClipSourceRangeText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <StackPanel x:Name="VideoSlipActions" Spacing="6">
                               <Button Content="Join next video clip" Click="JoinVideoClip_Click"

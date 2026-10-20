@@ -1258,6 +1258,7 @@ public sealed partial class MainWindow
 
     private async void RelinkTimelineClip_Click(object sender, RoutedEventArgs e)
     {
+        bool batch = sender is Button { Tag: "batch" };
         PausePlayback();
         FinishActiveEdit();
         if (!TryGetEditableClip(out TimelineClipLocation selected) || selected.Track.Kind == TimelineTrackKind.Text)
@@ -1281,7 +1282,21 @@ public sealed partial class MainWindow
         }
 
         BeginEdit();
-        bool relinked = VideoEditTools.Relink(selected.Track, selected.Clip, file.Path, duration);
+        int count;
+        try
+        {
+            count = batch
+                ? VideoEditTools.RelinkMatchingSources(_videoTracks, selected.Track, selected.Clip, file.Path, duration)
+                : VideoEditTools.Relink(selected.Track, selected.Clip, file.Path, duration) ? 1 : 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            CommitEdit();
+            StatusText.Text = $"Could not relink sources: {ex.Message}";
+            return;
+        }
+
+        bool relinked = count > 0;
         if (relinked)
         {
             RegisterTimelineSource(file);
@@ -1292,7 +1307,7 @@ public sealed partial class MainWindow
         RefreshVideoTimeline();
         SeekToCurrentFrame();
         StatusText.Text = relinked
-            ? "Source relinked; timeline placement, source range and clip properties are preserved."
+            ? $"{count} source clip(s) relinked; timeline placement, source ranges and clip properties are preserved."
             : "The replacement source is unavailable or shorter than the clip's source range.";
     }
 
@@ -1359,6 +1374,7 @@ public sealed partial class MainWindow
         bool isTitle = kind == TimelineTrackKind.Text;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
+        RelinkMatchingSourcesButton.Visibility = RelinkTimelineClipButton.Visibility;
         ClipSourceRangeText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipSourceRangeText.Text = isVideo
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"

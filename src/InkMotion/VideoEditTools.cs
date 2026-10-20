@@ -2,6 +2,46 @@ namespace InkMotion;
 
 public static class VideoEditTools
 {
+    public static int RelinkMatchingSources(IReadOnlyList<TimelineTrackProject> tracks,
+        TimelineTrackProject selectedTrack, TimelineClipProject selectedClip, string path, double sourceDuration)
+    {
+        if (!tracks.Contains(selectedTrack) || !selectedTrack.Clips.Contains(selectedClip) ||
+            selectedTrack.Kind == TimelineTrackKind.Text || string.IsNullOrWhiteSpace(selectedClip.SourcePath) ||
+            string.IsNullOrWhiteSpace(path))
+        {
+            throw new InvalidOperationException("Select an existing video or image clip to relink its matching sources.");
+        }
+
+        string source = Path.GetFullPath(selectedClip.SourcePath);
+        string replacement = Path.GetFullPath(path);
+        var updates = new List<(TimelineClipProject Original, TimelineClipProject Replacement)>();
+        foreach (TimelineTrackProject track in tracks.Where(track => track.Kind == selectedTrack.Kind))
+        {
+            foreach (TimelineClipProject clip in track.Clips.Where(clip =>
+                !string.IsNullOrWhiteSpace(clip.SourcePath) &&
+                string.Equals(Path.GetFullPath(clip.SourcePath), source, StringComparison.OrdinalIgnoreCase)))
+            {
+                TimelineClipProject copy = VideoTimelineEditing.Clone(clip);
+                var validationTrack = new TimelineTrackProject { Kind = track.Kind, IsLocked = track.IsLocked, Clips = [copy] };
+                if (!Relink(validationTrack, copy, replacement, sourceDuration))
+                {
+                    throw new InvalidOperationException("No clips were relinked. Unlock every matching track and choose a replacement long enough for every source range.");
+                }
+
+                updates.Add((clip, copy));
+            }
+        }
+
+        foreach (var update in updates)
+        {
+            update.Original.SourcePath = update.Replacement.SourcePath;
+            update.Original.SourceDurationSeconds = update.Replacement.SourceDurationSeconds;
+            update.Original.SourceOutSeconds = update.Replacement.SourceOutSeconds;
+        }
+
+        return updates.Count;
+    }
+
     public static bool RippleTrimEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate) =>
         RippleTrim(track, clip, frames, frameRate, trimStart: false);
 
