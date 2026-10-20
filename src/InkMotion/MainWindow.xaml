@@ -344,6 +344,10 @@
                                     ToolTipService.ToolTip="Replace all uses of this source on video or image tracks of the same kind. Any locked matching track or insufficient source length rejects the entire operation. Undo restores all source links." />
                             <TextBlock x:Name="ClipSourceRangeText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <StackPanel x:Name="VideoSlipActions" Spacing="6">
+                              <NumberBox x:Name="VideoSourceInBox" Header="Source in (seconds)" Minimum="0" SmallChange="0.1" SpinButtonPlacementMode="Compact" />
+                              <NumberBox x:Name="VideoSourceOutBox" Header="Source out (seconds)" Minimum="0" SmallChange="0.1" SpinButtonPlacementMode="Compact" />
+                              <Button Content="Apply source range" Click="ApplyVideoSourceRange_Click" />
+                              <TextBlock Text="Applies both source endpoints together at the current timeline start. Duration may change, but neighbouring clips are not moved. Source handles, one-frame minimum duration, fades and overlaps are checked before applying. Undo restores the previous range." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                               <Button Content="Join next video clip" Click="JoinVideoClip_Click"
                                       ToolTipService.ToolTip="Join adjacent consecutive sections of the same source with matching properties and no fade at the cut" />
                               <StackPanel Orientation="Horizontal" Spacing="6">

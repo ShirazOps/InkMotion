@@ -2,6 +2,24 @@ namespace InkMotion;
 
 public static class VideoEditTools
 {
+    public static bool SetSourceRange(TimelineTrackProject track, TimelineClipProject clip,
+        double sourceIn, double sourceOut, double frameRate)
+    {
+        if (track.IsLocked || track.Kind != TimelineTrackKind.Video || !track.Clips.Contains(clip) ||
+            !double.IsFinite(frameRate) || frameRate <= 0 ||
+            !CanUseRange(clip, sourceIn, sourceOut, frameRate) ||
+            !VideoTimelineEditing.IsRangeFree(track, VideoTimelineEditing.GetStartSeconds(clip, frameRate),
+                sourceOut - sourceIn, frameRate, clip) ||
+            (clip.SourceInSeconds == sourceIn && (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) == sourceOut))
+        {
+            return false;
+        }
+
+        clip.SourceInSeconds = Math.Max(0, sourceIn);
+        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, sourceOut);
+        return true;
+    }
+
     public static int RelinkMatchingSources(IReadOnlyList<TimelineTrackProject> tracks,
         TimelineTrackProject selectedTrack, TimelineClipProject selectedClip, string path, double sourceDuration)
     {

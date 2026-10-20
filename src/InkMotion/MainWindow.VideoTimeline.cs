@@ -1177,6 +1177,16 @@ public sealed partial class MainWindow
         SeekToCurrentFrame();
     }
 
+    private void ApplyVideoSourceRange_Click(object sender, RoutedEventArgs e)
+    {
+        double sourceIn = VideoSourceInBox.Value;
+        double sourceOut = VideoSourceOutBox.Value;
+        ApplyClipAction(
+            location => VideoEditTools.SetSourceRange(location.Track, location.Clip, sourceIn, sourceOut, _frameRate),
+            "Source range updated at the existing timeline start. Other clips, tracks, audio and ink are unchanged.",
+            "Source range unchanged. Use available source handles, at least one project frame, enough duration for fades and no overlap with neighbouring clips.");
+    }
+
     private void TrimClipStart_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoTimelineEditing.TryTrimStart(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
         "Trimmed the clip start to the playhead.",
@@ -1373,6 +1383,8 @@ public sealed partial class MainWindow
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoSourceInBox.Value = clip.SourceInSeconds;
+        VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
         RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
         RelinkMatchingSourcesButton.Visibility = RelinkTimelineClipButton.Visibility;
         ClipSourceRangeText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
