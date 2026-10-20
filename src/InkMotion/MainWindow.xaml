@@ -740,8 +740,14 @@
                             <Button Content="Remove last text" Click="RemoveInkText_Click" />
                         </StackPanel>
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
-                        <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show the adjacent animation cels as translucent guides." Click="OnionSkin_Click" />
-                        <Slider x:Name="OnionSkinOpacitySlider" Minimum="0.05" Maximum="0.6" Value="0.25" StepFrequency="0.05" ValueChanged="OnionSkinOpacity_Changed" />
+                        <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
+                        <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />
+                        <NumberBox x:Name="OnionNextCountBox" Header="Next onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />
+                        <Slider x:Name="OnionSkinOpacitySlider" Header="Nearest guide opacity" Minimum="0.05" Maximum="0.6" Value="0.25" StepFrequency="0.05" ValueChanged="OnionSkinOpacity_Changed" />
+                        <Slider x:Name="OnionFalloffSlider" Header="Opacity multiplier per farther cel" Minimum="0.1" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="OnionSkinOpacity_Changed" />
+                        <ToggleButton x:Name="OnionOriginalColoursToggle" Content="Retain original guide colours" Click="OnionSkin_Click" />
+                        <ToggleButton x:Name="OnionTextToggle" Content="Include text in onion guides" IsChecked="True" Click="OnionSkin_Click" />
+                        <TextBlock Text="Counts are cels, not exposure/output frames. Farther guides draw first and fade by the multiplier. Previous ink is cyan and next ink pink unless original colours are retained; text retains its own colour. Session preferences only: guides are hidden during playback and never exported or saved as drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Tween curve" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="InkInterpolationSelector" SelectedIndex="0" SelectionChanged="InkInterpolation_SelectionChanged">
                             <ComboBoxItem Content="Linear" Tag="Linear" />

@@ -1851,16 +1851,17 @@ public sealed partial class MainWindow : Window
         if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)
         {
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
-            if (_selectedFrameIndex > 0)
+            foreach (InkOnionGuide guide in InkOnionSkin.Plan(_frames.Count, _selectedFrameIndex,
+                _onionPreviousCount, _onionNextCount, opacity, OnionFalloffSlider?.Value ?? 1))
             {
-                DrawVisibleLayers(_selectedFrameIndex - 1, 0xFF00BFFF, opacity);
-                DrawVisibleText(_selectedFrameIndex - 1, opacity);
-            }
+                uint? colour = OnionOriginalColoursToggle?.IsChecked == true
+                    ? null : guide.IsPrevious ? 0xFF00BFFFu : 0xFFFF69B4u;
+                DrawVisibleLayers(guide.FrameIndex, colour, guide.Opacity);
+                if (OnionTextToggle?.IsChecked != false)
+                {
+                    DrawVisibleText(guide.FrameIndex, guide.Opacity);
+                }
 
-            if (_selectedFrameIndex + 1 < _frames.Count)
-            {
-                DrawVisibleLayers(_selectedFrameIndex + 1, 0xFFFF69B4, opacity);
-                DrawVisibleText(_selectedFrameIndex + 1, opacity);
             }
         }
 

@@ -96,7 +96,8 @@ The expanded design uses one shell: four page buttons in the first row; relevant
    - Added: session-only 2-64 division grid and independent highlighted centre guides, behind ink while paused in modified Ink preview. Guides follow view transforms with zoom-compensated line width and are absent from exported/saved drawings. These are alignment aids, not pixel rulers or stroke snapping.
    - Next: canvas colour sampling; fill; finer partial-stroke and text selection; calibrated rulers; texture brushes.
    - Added: inclusive keyframe-bounded cel cycle repetition, inserting 1-100 additional independent copies with drawing/text/exposure/tween retention and undo/redo/save-load. Maximum 10,000 added cels per operation; later ink cels shift, other media stays fixed. Linked loops and arbitrary open-tween range copying are not implied.
-   - Then: richer frame-range copy/move/group/linked-loop workflows, richer onion-skin controls and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
+   - Added: separate 0-8 previous/next onion cel counts, nearest opacity and exponential falloff, original/directional ink colour choice and optional text guides. Far-to-near ordering, timeline-edge bounds and session-only preview semantics; no exported guides.
+   - Then: richer frame-range copy/move/group/linked-loop workflows and imported reference media. Draw over video non-destructively and verify those strokes and text render into exported video, not just the preview.
 
 Reference products define the intended workflows, not a licence to copy their UI assets or proprietary implementations: [DaVinci Resolve editing](https://www.blackmagicdesign.com/products/davinciresolve/edit), [Audacity](https://www.audacityteam.org/), [ocenaudio](https://www.ocenaudio.com/), and [FlipaClip](https://www.flipaclip.com/).
 
