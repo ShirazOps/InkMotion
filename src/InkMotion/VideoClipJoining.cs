@@ -1,0 +1,68 @@
+namespace InkMotion;
+
+public static class VideoClipJoining
+{
+    public static TimelineClipProject Join(TimelineTrackProject track, TimelineClipProject left,
+        TimelineClipProject right, double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        if (!double.IsFinite(frameRate) || frameRate <= 0 ||
+            track.Kind != TimelineTrackKind.Video || track.IsLocked ||
+            ReferenceEquals(left, right) || !track.Clips.Contains(left) || !track.Clips.Contains(right))
+        {
+            throw new InvalidOperationException("Select two different video clips on the same unlocked video track.");
+        }
+
+        if (VideoTimelineEditing.Validate([track], frameRate) is string error)
+        {
+            throw new InvalidOperationException($"Cannot join an invalid video track: {error}");
+        }
+
+        TimelineClipProject[] ordered = track.Clips.OrderBy(clip => clip.StartFrame).ToArray();
+        int index = Array.IndexOf(ordered, left);
+        if (index + 1 >= ordered.Length || !ReferenceEquals(ordered[index + 1], right))
+        {
+            throw new InvalidOperationException("Join requires the immediately following clip on this track.");
+        }
+
+        if (!string.Equals(Path.GetFullPath(left.SourcePath!), Path.GetFullPath(right.SourcePath!),
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Only consecutive portions of the same video source can be joined without rendering.");
+        }
+
+        double leftEnd = left.SourceOutSeconds ?? left.SourceDurationSeconds;
+        double rightEnd = right.SourceOutSeconds ?? right.SourceDurationSeconds;
+        double leftDuration = VideoTimelineEditing.GetDurationSeconds(left, track.Kind);
+        double rightDuration = VideoTimelineEditing.GetDurationSeconds(right, track.Kind);
+        if (left.SourceDurationSeconds <= 0 || right.SourceDurationSeconds <= 0 ||
+            left.SourceDurationSeconds != right.SourceDurationSeconds ||
+            Math.Abs(leftEnd - right.SourceInSeconds) > 1e-7 ||
+            Math.Abs(VideoTimelineEditing.GetEndSeconds(left, track.Kind, frameRate) -
+                VideoTimelineEditing.GetStartSeconds(right, frameRate)) > 1e-7)
+        {
+            throw new InvalidOperationException("Clips must have matching probed source lengths and touch in timeline and source order, with no gap, overlap or repeated section.");
+        }
+
+        if (left.FadeOutSeconds != 0 || right.FadeInSeconds != 0 ||
+            left.FadeInSeconds > leftDuration || right.FadeOutSeconds > rightDuration)
+        {
+            throw new InvalidOperationException("Remove fades at the join boundary and keep outer fades within their original clips before joining.");
+        }
+
+        if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
+            left.X != right.X || left.Y != right.Y || left.Scale != right.Scale ||
+            left.Text != right.Text || left.FontFamily != right.FontFamily ||
+            left.FontSize != right.FontSize || left.Colour != right.Colour)
+        {
+            throw new InvalidOperationException("Match the clip opacity, volume, transform, text and styling before joining; no clip properties will be discarded.");
+        }
+
+        TimelineClipProject joined = VideoTimelineEditing.Clone(left);
+        joined.SourceOutSeconds = rightEnd;
+        joined.FadeOutSeconds = right.FadeOutSeconds;
+        return joined;
+    }
+}

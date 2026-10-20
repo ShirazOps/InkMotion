@@ -78,6 +78,7 @@ public sealed partial class MainWindow : Window
         UpdateFrameStatus();
         UpdateExportProfileReadout();
         UpdateAudioExportOptions();
+        InitialiseExportJobs();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -358,6 +359,7 @@ public sealed partial class MainWindow : Window
         AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
         UpdatePreviewMode();
+        UpdateInkCanvasView();
         WorkspaceStatusText.Text = workspace switch
         {
             "Audio" => "Audio Editor",
@@ -615,6 +617,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateSelectedAudioTrack()
     {
+        UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         UpdateAudioRangeSelection();
@@ -1849,16 +1852,17 @@ public sealed partial class MainWindow : Window
         if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)
         {
             double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
-            if (_selectedFrameIndex > 0)
+            foreach (InkOnionGuide guide in InkOnionSkin.Plan(_frames.Count, _selectedFrameIndex,
+                _onionPreviousCount, _onionNextCount, opacity, OnionFalloffSlider?.Value ?? 1))
             {
-                DrawVisibleLayers(_selectedFrameIndex - 1, 0xFF00BFFF, opacity);
-                DrawVisibleText(_selectedFrameIndex - 1, opacity);
-            }
+                uint? colour = OnionOriginalColoursToggle?.IsChecked == true
+                    ? null : guide.IsPrevious ? 0xFF00BFFFu : 0xFFFF69B4u;
+                DrawVisibleLayers(guide.FrameIndex, colour, guide.Opacity);
+                if (OnionTextToggle?.IsChecked != false)
+                {
+                    DrawVisibleText(guide.FrameIndex, guide.Opacity);
+                }
 
-            if (_selectedFrameIndex + 1 < _frames.Count)
-            {
-                DrawVisibleLayers(_selectedFrameIndex + 1, 0xFFFF69B4, opacity);
-                DrawVisibleText(_selectedFrameIndex + 1, opacity);
             }
         }
 
@@ -1895,6 +1899,7 @@ public sealed partial class MainWindow : Window
     {
         float width = (float)sender.ActualWidth;
         float height = (float)sender.ActualHeight;
+        DrawInkGuides(args.DrawingSession, width, height);
         foreach (RenderedStroke renderedStroke in _renderedStrokes)
         {
             List<InkPoint> stroke = renderedStroke.Points;
@@ -2507,6 +2512,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _exportJobsClosed = true;
+        _exportJobsTimer?.Stop();
         _audioSpectrumCancellation?.Cancel();
         _audioSpectrumCancellation = null;
         _playbackTimer.Stop();

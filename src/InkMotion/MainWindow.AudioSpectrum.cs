@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace InkMotion;
 
@@ -14,8 +15,9 @@ public sealed partial class MainWindow
         _audioSpectrumCancellation?.Cancel();
         _audioSpectrumCancellation = null;
         _audioSpectrum = null;
-        AudioSpectrumText.Text = "Analyse the start of the selected source range (up to 32768 samples).";
+        AudioSpectrumText.Text = "Take a short source snapshot or average every sample in the selected source range.";
         AnalyseAudioSpectrumButton.IsEnabled = _audioRangeTrack is not null;
+        AverageAudioSpectrumButton.IsEnabled = _audioRangeTrack is not null;
         AudioSpectrumSurface.Invalidate();
     }
 
@@ -47,16 +49,20 @@ public sealed partial class MainWindow
         }
 
         string path = parts.Range.AudioPath!;
+        bool average = sender is Button { Tag: "average" };
         double sourceStart = parts.Range.SourceInSeconds;
         double duration = AudioClipEditing.GetClipEnd(sourceStart, parts.Range.SourceOutSeconds, track.SourceDurationSeconds) - sourceStart;
         using var cancellation = new CancellationTokenSource();
         _audioSpectrumCancellation = cancellation;
         AnalyseAudioSpectrumButton.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0 });
         AnalyseAudioSpectrumButton.IsEnabled = false;
+        AverageAudioSpectrumButton.IsEnabled = false;
         AudioSpectrumText.Text = "Analysing source audio...";
         try
         {
-            AudioSpectrumResult result = await Task.Run(() => AudioSpectrum.Read(path, sourceStart, duration, cancellation.Token));
+            AudioSpectrumResult result = await Task.Run(() => average
+                ? AudioSpectrum.ReadAverage(path, sourceStart, duration, cancellation.Token)
+                : AudioSpectrum.Read(path, sourceStart, duration, cancellation.Token));
             if (cancellation.IsCancellationRequested)
             {
                 return;
@@ -66,15 +72,17 @@ public sealed partial class MainWindow
             string peak = result.Peak > 0 ? (20 * Math.Log10(result.Peak)).ToString("0.0") : "-inf";
             string rms = result.Rms > 0 ? (20 * Math.Log10(result.Rms)).ToString("0.0") : "-inf";
             string frequency = result.Peak > 1e-12 ? $"{result.DominantFrequencyHz:N1} Hz" : "silence";
-            AudioSpectrumText.Text = $"{Path.GetFileName(path)} at {sourceStart:0.000} s | {result.Frames} samples at {result.SampleRate:N0} Hz\n" +
-                $"Peak {peak} / RMS {rms} dBFS | strongest non-DC bin: {frequency}\nBin spacing {result.BinWidthHz:0.00} Hz; Hann window.";
+            AudioSpectrumText.Text = $"{Path.GetFileName(path)} at {sourceStart:0.000} s | {result.AnalysedFrames:N0} sample frames at {result.SampleRate:N0} Hz\n" +
+                $"Peak {peak} / RMS {rms} dBFS | strongest non-DC bin: {frequency}\n" +
+                $"Bin spacing {result.BinWidthHz:0.00} Hz; {result.Windows:N0} Hann window(s)" +
+                (average ? "; frame-weighted power average, final partial window zero-padded." : "; source snapshot.");
             AudioSpectrumSurface.Invalidate();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             // Changing the selection discards the previous analysis.
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException)
         {
             if (!cancellation.IsCancellationRequested)
             {
@@ -88,6 +96,7 @@ public sealed partial class MainWindow
             {
                 _audioSpectrumCancellation = null;
                 AnalyseAudioSpectrumButton.IsEnabled = true;
+                AverageAudioSpectrumButton.IsEnabled = true;
             }
         }
     }

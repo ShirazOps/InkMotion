@@ -1177,6 +1177,16 @@ public sealed partial class MainWindow
         SeekToCurrentFrame();
     }
 
+    private void ApplyVideoSourceRange_Click(object sender, RoutedEventArgs e)
+    {
+        double sourceIn = VideoSourceInBox.Value;
+        double sourceOut = VideoSourceOutBox.Value;
+        ApplyClipAction(
+            location => VideoEditTools.SetSourceRange(location.Track, location.Clip, sourceIn, sourceOut, _frameRate),
+            "Source range updated at the existing timeline start. Other clips, tracks, audio and ink are unchanged.",
+            "Source range unchanged. Use available source handles, at least one project frame, enough duration for fades and no overlap with neighbouring clips.");
+    }
+
     private void TrimClipStart_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoTimelineEditing.TryTrimStart(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
         "Trimmed the clip start to the playhead.",
@@ -1205,8 +1215,60 @@ public sealed partial class MainWindow
             "Select an unlocked video clip with unused source footage in that direction.");
     }
 
+    private void RollVideoClip_Click(object sender, RoutedEventArgs e) =>
+        ApplyNeighbourClipEdit(sender, roll: true);
+
+    private void RippleTrimVideoClip_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => VideoEditTools.RippleTrimEnd(location.Track, location.Clip, frames, _frameRate),
+            $"Ripple end trimmed by {frames:+0;-0} project frame. Later clips on this video track shifted; gaps are preserved.",
+            "Ripple trim needs an unlocked video clip with sufficient source handles, at least one remaining frame and room for its fades. Later clips must stay within valid timeline positions.");
+    }
+
+    private void RippleTrimVideoStart_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => VideoEditTools.RippleTrimStart(location.Track, location.Clip, frames, _frameRate),
+            $"Ripple source start changed by {frames:+0;-0} project frame; clip placement is fixed and later clips on this video track shifted.",
+            "Ripple start needs an unlocked video clip with available source footage, at least one remaining frame and room for its fades. Later clips must stay within valid timeline positions.");
+    }
+
+    private void SlideVideoClip_Click(object sender, RoutedEventArgs e) =>
+        ApplyNeighbourClipEdit(sender, roll: false);
+
+    private void ApplyNeighbourClipEdit(object sender, bool roll)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => roll
+                ? VideoEditTools.RollEnd(location.Track, location.Clip, frames, _frameRate)
+                : VideoEditTools.Slide(location.Track, location.Clip, frames, _frameRate),
+            roll
+                ? $"Rolled the end cut by {frames:+0;-0} project frame. Combined duration is unchanged."
+                : $"Slid the clip by {frames:+0;-0} project frame. Its source range and the sequence length are unchanged.",
+            roll
+                ? "Roll needs a directly adjacent video clip on the same unlocked track, unused source handles and at least one frame per clip. Reduce fades if they no longer fit."
+                : "Slide needs directly adjacent video clips on both sides, unused neighbouring source handles and at least one frame per neighbour. Reduce fades if they no longer fit.");
+    }
+
     private async void RelinkTimelineClip_Click(object sender, RoutedEventArgs e)
     {
+        bool batch = sender is Button { Tag: "batch" };
         PausePlayback();
         FinishActiveEdit();
         if (!TryGetEditableClip(out TimelineClipLocation selected) || selected.Track.Kind == TimelineTrackKind.Text)
@@ -1230,7 +1292,21 @@ public sealed partial class MainWindow
         }
 
         BeginEdit();
-        bool relinked = VideoEditTools.Relink(selected.Track, selected.Clip, file.Path, duration);
+        int count;
+        try
+        {
+            count = batch
+                ? VideoEditTools.RelinkMatchingSources(_videoTracks, selected.Track, selected.Clip, file.Path, duration)
+                : VideoEditTools.Relink(selected.Track, selected.Clip, file.Path, duration) ? 1 : 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            CommitEdit();
+            StatusText.Text = $"Could not relink sources: {ex.Message}";
+            return;
+        }
+
+        bool relinked = count > 0;
         if (relinked)
         {
             RegisterTimelineSource(file);
@@ -1241,7 +1317,7 @@ public sealed partial class MainWindow
         RefreshVideoTimeline();
         SeekToCurrentFrame();
         StatusText.Text = relinked
-            ? "Source relinked; timeline placement, source range and clip properties are preserved."
+            ? $"{count} source clip(s) relinked; timeline placement, source ranges and clip properties are preserved."
             : "The replacement source is unavailable or shorter than the clip's source range.";
     }
 
@@ -1249,6 +1325,11 @@ public sealed partial class MainWindow
         location => VideoTimelineEditing.TryMove(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
         "Moved the clip to the playhead.",
         "The clip would overlap another clip at the playhead.");
+
+    private void CloseGapBeforeClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
+        location => VideoEditTools.CloseGapBefore(location.Track, location.Clip, _frameRate),
+        "Closed the whole-frame gap before this clip, shifting it and later clips on this track. Source ranges, later gaps and other tracks are unchanged.",
+        "No whole-frame gap can be closed. Use an unlocked valid track with known clip durations; fractional-frame gaps may remain.");
 
     private void DeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoTimelineEditing.Delete(location.Track, location.Clip),
@@ -1307,7 +1388,10 @@ public sealed partial class MainWindow
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoSourceInBox.Value = clip.SourceInSeconds;
+        VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
         RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
+        RelinkMatchingSourcesButton.Visibility = RelinkTimelineClipButton.Visibility;
         ClipSourceRangeText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipSourceRangeText.Text = isVideo
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"

@@ -34,6 +34,31 @@ public sealed record AudioClipGainSettings(
 
 public static class AudioClipEditing
 {
+    public static bool SetSourceSampleRange(AudioTrackProject track, long firstSampleFrame, long endSampleFrame,
+        long sourceSampleFrames, int sampleRate)
+    {
+        if (!HasValidClipSettings(track) || sampleRate <= 0 || sourceSampleFrames <= 0 ||
+            sourceSampleFrames > 9007199254740991L ||
+            firstSampleFrame < 0 || endSampleFrame <= firstSampleFrame || endSampleFrame > sourceSampleFrames)
+        {
+            return false;
+        }
+
+        double sourceIn = (double)firstSampleFrame / sampleRate;
+        double sourceOut = (double)endSampleFrame / sampleRate;
+        double timelineDuration = (double)(endSampleFrame - firstSampleFrame) / sampleRate / GetTempoRatio(track);
+        if (sourceOut <= sourceIn || timelineDuration < track.FadeInSeconds + track.FadeOutSeconds ||
+            (track.SourceInSeconds == sourceIn &&
+                (track.SourceOutSeconds ?? (double)sourceSampleFrames / sampleRate) == sourceOut))
+        {
+            return false;
+        }
+
+        track.SourceInSeconds = sourceIn;
+        track.SourceOutSeconds = sourceOut;
+        return true;
+    }
+
     public const double MinimumGainDecibels = -60;
     public const double MaximumGainDecibels = 24;
     public const double MaximumFadeSeconds = 600;

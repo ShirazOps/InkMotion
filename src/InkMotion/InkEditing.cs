@@ -2,6 +2,136 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static bool FlipLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id, bool horizontal)
+    {
+        InkLayerProject? layer = layers.FirstOrDefault(candidate => candidate.Id == id);
+        if (layer is null || layer.IsLocked)
+        {
+            throw new InvalidOperationException("Select an existing unlocked ink layer to flip.");
+        }
+
+        var drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
+        bool changed = false;
+        foreach (InkPoint point in drawings.SelectMany(drawing => drawing).SelectMany(stroke => stroke))
+        {
+            double position = horizontal ? point.X : point.Y;
+            if (!double.IsFinite(position) || position is < 0 or > 1)
+            {
+                throw new InvalidOperationException("Layer coordinates must be finite and inside the canvas before flipping.");
+            }
+
+            changed |= position != 0.5;
+            if (horizontal)
+            {
+                point.X = 1 - position;
+            }
+            else
+            {
+                point.Y = 1 - position;
+            }
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < frames.Count; index++)
+        {
+            if (id == ExportPlanning.BaseInkLayerId)
+            {
+                frames[index].Strokes = drawings[index];
+            }
+            else if (frames[index].LayerStrokes.ContainsKey(id))
+            {
+                frames[index].LayerStrokes[id] = drawings[index];
+            }
+        }
+
+        return true;
+    }
+
+    public static int RepeatCelRange(List<EditorFrame> frames, int first, int last, int additionalCopies)
+    {
+        if (first < 0 || last < first || last >= frames.Count ||
+            additionalCopies is < 1 or > 100)
+        {
+            throw new InvalidOperationException("Choose an existing inclusive cel range and 1-100 additional copies.");
+        }
+
+        if (!frames[first].IsKeyframe || !frames[last].IsKeyframe)
+        {
+            throw new InvalidOperationException("Set keyframes on the first and last cels of the cycle so its tween boundaries are self-contained.");
+        }
+
+        long added = (long)(last - first + 1) * additionalCopies;
+        long cycleExposure = frames.Skip(first).Take(last - first + 1).Sum(frame => (long)frame.ExposureFrames);
+        long totalExposure = frames.Sum(frame => (long)frame.ExposureFrames) + cycleExposure * additionalCopies;
+        if (added > 10000 || (long)frames.Count + added > int.MaxValue || totalExposure > int.MaxValue)
+        {
+            throw new InvalidOperationException("Repeat fewer cels: one operation can add at most 10,000 cels and must fit the timeline frame limit.");
+        }
+
+        List<EditorFrame> source = frames.GetRange(first, last - first + 1);
+        var copies = new List<EditorFrame>((int)added);
+        for (int copy = 0; copy < additionalCopies; copy++)
+        {
+            copies.AddRange(source.Select(Clone));
+        }
+
+        frames.InsertRange(last + 1, copies);
+        for (int index = 0; index < frames.Count; index++)
+        {
+            frames[index].Number = index + 1;
+        }
+
+        return last + 1;
+    }
+
+    public static InkLayerProject MergeLayerDown(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
+    {
+        int index = layers.FindIndex(layer => layer.Id == id);
+        if (index <= 0 || id == ExportPlanning.BaseInkLayerId)
+        {
+            throw new InvalidOperationException("Select a non-base ink layer with a layer beneath it.");
+        }
+
+        InkLayerProject source = layers[index];
+        InkLayerProject target = layers[index - 1];
+        if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
+            !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity)
+        {
+            throw new InvalidOperationException("Unlock and show both adjacent layers, and give them matching opacity before merging.");
+        }
+
+        var drawings = new List<List<List<InkPoint>>>(frames.Count);
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            var combined = InkAnimation.GetDisplayedStrokes(frames, frame,
+                cel => ExportPlanning.GetLayerStrokes(cel, target.Id)).ToList();
+            combined.AddRange(InkAnimation.GetDisplayedStrokes(frames, frame,
+                cel => ExportPlanning.GetLayerStrokes(cel, source.Id)));
+            drawings.Add(CloneStrokes(combined));
+        }
+
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            if (target.Id == ExportPlanning.BaseInkLayerId)
+            {
+                frames[frame].Strokes = drawings[frame];
+            }
+            else
+            {
+                frames[frame].LayerStrokes[target.Id] = drawings[frame];
+            }
+
+            frames[frame].LayerStrokes.Remove(source.Id);
+        }
+
+        layers.RemoveAt(index);
+        return target;
+    }
+
     public static InkLayerProject DuplicateLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
     {
         int index = layers.FindIndex(layer => layer.Id == id);

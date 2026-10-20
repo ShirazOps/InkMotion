@@ -1,0 +1,188 @@
+using System.Text.Json;
+using NAudio.Wave;
+using Xunit;
+
+namespace InkMotion.Tests;
+
+public sealed class VideoClipJoiningTests
+{
+    [Fact]
+    public void JoinedVideoAudio_MatchesSplitMixAtNativeSampleRateIncludingOuterFades()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-video-join-{Guid.NewGuid():N}.wav");
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(48000, 16, 1)))
+            {
+                for (int sample = 0; sample < 48000; sample++)
+                {
+                    writer.WriteSample((float)(0.2 * Math.Sin(sample * Math.PI * 2 * 440 / 48000)));
+                }
+            }
+            var left = new TimelineClipProject
+            {
+                SourcePath = path, SourceInSeconds = 0.125, SourceOutSeconds = 0.875,
+                SourceDurationSeconds = 1, Volume = 0.5, FadeInSeconds = 0.1, FadeOutSeconds = 0.1,
+            };
+            var track = new TimelineTrackProject { Clips = [left] };
+            TimelineClipProject right = Assert.IsType<TimelineClipProject>(VideoTimelineEditing.Split(track, left, 10, 24));
+            var project = new EditorProject { VideoTracks = [track] };
+            float[] before = ReadMix(project);
+            TimelineClipProject joined = VideoClipJoining.Join(track, left, right, 24);
+            track.Clips = [joined];
+            float[] after = ReadMix(project);
+            Assert.Equal(before.Length, after.Length);
+            Assert.InRange(after.Max(Math.Abs), 0.05f, 0.15f);
+            for (int sample = 0; sample < before.Length; sample++)
+            {
+                Assert.InRange(Math.Abs(before[sample] - after[sample]), 0, 0.00001f);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static float[] ReadMix(EditorProject project)
+    {
+        using var mixer = new ExportAudioMixer(project, 48000);
+        Assert.Equal(0.75, mixer.DurationSeconds, 8);
+        Assert.Empty(mixer.Warnings);
+        float[] samples = new float[36000 * mixer.Channels];
+        int offset = 0;
+        while (offset < samples.Length)
+        {
+            int count = Math.Min(512 * mixer.Channels, samples.Length - offset);
+            int read = mixer.Read(samples, offset, count);
+            Assert.True(read > 0);
+            offset += read;
+        }
+        return samples;
+    }
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(30)]
+    [InlineData(60)]
+    public void Join_ReversesSplitAndPreservesEveryFrameSourceOpacityAndAudioGain(int rate)
+    {
+        var original = new TimelineClipProject
+        {
+            SourcePath = @"C:\Media\source.mp4", StartFrame = rate + 1,
+            SourceDurationSeconds = 10, SourceInSeconds = 2, SourceOutSeconds = 6,
+            Opacity = 0.6, Volume = 0.4, FadeInSeconds = 0.5, FadeOutSeconds = 0.75,
+        };
+        var track = new TimelineTrackProject { Clips = [original] };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, original, 3 * rate + 1, rate));
+        string before = JsonSerializer.Serialize(track);
+        TimelineClipProject joined = VideoClipJoining.Join(track, original, right, rate);
+        Assert.Equal(before, JsonSerializer.Serialize(track));
+        Assert.NotSame(original, joined);
+        Assert.Equal(original.Id, joined.Id);
+        Assert.Equal(rate + 1, joined.StartFrame);
+        Assert.Equal(2, joined.SourceInSeconds);
+        Assert.Equal(6, joined.SourceOutSeconds);
+        Assert.Equal(0.5, joined.FadeInSeconds);
+        Assert.Equal(0.75, joined.FadeOutSeconds);
+        for (int sample = rate * 2; sample < rate * 10; sample++)
+        {
+            double seconds = sample / (rate * 2d);
+            TimelineClipProject clip = seconds < 3 ? original : right;
+            Assert.Equal(VideoTimelineEditing.GetSourceSeconds(clip, seconds, rate),
+                VideoTimelineEditing.GetSourceSeconds(joined, seconds, rate), 10);
+            Assert.Equal(VideoTimelineEditing.GetOpacity(clip, track.Kind, seconds, rate),
+                VideoTimelineEditing.GetOpacity(joined, track.Kind, seconds, rate), 10);
+            double elapsed = seconds - VideoTimelineEditing.GetStartSeconds(clip, rate);
+            Assert.Equal(ExportPlanning.GetVideoClipAudioGain(clip, elapsed),
+                ExportPlanning.GetVideoClipAudioGain(joined, seconds - 1), 10);
+        }
+        track.Clips = [joined];
+        var project = new EditorProject { FrameRate = rate, VideoTracks = [track] };
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        TimelineClipProject saved = Assert.Single(reopened.VideoTracks[0].Clips);
+        Assert.Equal(JsonSerializer.Serialize(joined), JsonSerializer.Serialize(saved));
+    }
+
+    [Theory]
+    [InlineData("gap")]
+    [InlineData("overlap")]
+    [InlineData("source-gap")]
+    [InlineData("repeated-source")]
+    [InlineData("different-source")]
+    [InlineData("different-duration")]
+    [InlineData("unprobed")]
+    [InlineData("boundary-fade-out")]
+    [InlineData("boundary-fade-in")]
+    [InlineData("long-outer-in")]
+    [InlineData("long-outer-out")]
+    [InlineData("volume")]
+    [InlineData("opacity")]
+    [InlineData("transform")]
+    [InlineData("style")]
+    [InlineData("locked")]
+    [InlineData("image")]
+    [InlineData("rate")]
+    [InlineData("same-clip")]
+    [InlineData("wrong-order")]
+    [InlineData("absent")]
+    public void Join_RejectsUnsafeCasesWithoutMutation(string reason)
+    {
+        TimelineTrackProject track = Track();
+        TimelineClipProject left = track.Clips[0];
+        TimelineClipProject right = track.Clips[1];
+        double rate = 24;
+        switch (reason)
+        {
+            case "gap": right.StartFrame++; break;
+            case "overlap": right.StartFrame--; break;
+            case "source-gap": right.SourceInSeconds += 0.25; break;
+            case "repeated-source": right.SourceInSeconds = 1; break;
+            case "different-source": right.SourcePath = @"C:\Media\other.mp4"; break;
+            case "different-duration": right.SourceDurationSeconds = 12; break;
+            case "unprobed": left.SourceDurationSeconds = 0; break;
+            case "boundary-fade-out": left.FadeOutSeconds = 0.1; break;
+            case "boundary-fade-in": right.FadeInSeconds = 0.1; break;
+            case "long-outer-in": left.FadeInSeconds = 2.1; break;
+            case "long-outer-out": right.FadeOutSeconds = 2.1; break;
+            case "volume": right.Volume = 0.5; break;
+            case "opacity": right.Opacity = 0.5; break;
+            case "transform": right.X = 0.6; break;
+            case "style": right.Colour = 0xFF123456; break;
+            case "locked": track.IsLocked = true; break;
+            case "image": track.Kind = TimelineTrackKind.Image; break;
+            case "rate": rate = double.NaN; break;
+            case "same-clip": right = left; break;
+            case "wrong-order": (left, right) = (right, left); break;
+            case "absent": right = VideoTimelineEditing.Clone(right); break;
+        }
+        string before = JsonSerializer.Serialize(track);
+        Assert.Throws<InvalidOperationException>(() => VideoClipJoining.Join(track, left, right, rate));
+        Assert.Equal(before, JsonSerializer.Serialize(track));
+    }
+
+    [Fact]
+    public void Join_UsesTimelineOrderCanonicalPathsAndImplicitSourceOut()
+    {
+        TimelineTrackProject track = Track();
+        TimelineClipProject left = track.Clips[0];
+        TimelineClipProject right = track.Clips[1];
+        right.SourcePath = @"c:\media\folder\..\SOURCE.mp4";
+        right.SourceOutSeconds = null;
+        track.Clips.Reverse();
+        TimelineClipProject joined = VideoClipJoining.Join(track, left, right, 24);
+        Assert.Equal(10, joined.SourceOutSeconds);
+        Assert.Equal(1, joined.StartFrame);
+        Assert.Equal(10, joined.SourceDurationSeconds);
+    }
+
+    private static TimelineTrackProject Track() => new()
+    {
+        Clips =
+        [
+            new() { SourcePath = @"C:\Media\source.mp4", SourceInSeconds = 1, SourceOutSeconds = 3, SourceDurationSeconds = 10 },
+            new() { SourcePath = @"C:\Media\source.mp4", StartFrame = 49, SourceInSeconds = 3, SourceOutSeconds = 5, SourceDurationSeconds = 10 },
+        ],
+    };
+}
