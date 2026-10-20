@@ -52,6 +52,7 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 The expanded design uses one shell: four page buttons in the first row; relevant actions in the second row; a shared video/audio viewer on the left with Original/Modified comparison; page-specific tools and options on the right; and the corresponding timeline below. Deliver real processing and project persistence with each tool, not placeholder controls.
 
 1. **Shared layout and preview comparison**
+   - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes fill available height and names share scrolling. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
    - Implemented: page-specific action row and the shared viewer in Audio Editor as well as Video Editor, Ink Editor and Export.
    - Implemented: Modified shows image/title/ink overlays across pages. Only Ink Editor accepts drawing input and shows onion-skin guides.
    - Implemented: Original compares the active visible video at the same source-mapped timeline position, bypassing opacity, clip volume/mute, overlays and added audio. A mode change pauses playback and does not change project data or export settings. Where there is no active video source, show an explicit empty state.
