@@ -614,6 +614,8 @@
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="SOURCE FREQUENCY ANALYSIS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Button x:Name="AnalyseAudioSpectrumButton" Content="Analyse selected source range" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <Button x:Name="AverageAudioSpectrumButton" Content="Average whole selected source range" Tag="average" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <TextBlock Text="Whole-range analysis streams all source samples using non-overlapping Hann windows and averages channel/window power, not dB values. Peak and RMS cover the entire range. This is pre-effects source analysis, not a spectrogram or loudness meter. Changing the range or selected clip cancels analysis." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <canvas:CanvasControl x:Name="AudioSpectrumSurface" Height="150" Draw="AudioSpectrumSurface_Draw" AutomationProperties.Name="Source spectrum, logarithmic frequency from 20 Hz to Nyquist, minus 120 to zero dBFS" />
                         <TextBlock Text="20 Hz to Nyquist (logarithmic) | 0 dBFS at top, -120 at bottom" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock x:Name="AudioSpectrumText" Text="Analyse the start of the selected source range (up to 32768 samples)." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
