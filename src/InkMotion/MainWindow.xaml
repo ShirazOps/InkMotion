@@ -141,8 +141,6 @@
                     <Button Content="Copy cel" Click="CopyCel_Click" />
                     <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
-                    <Button Content="Merge layer down" Tag="merge" Click="InkLayerAction_Click" />
-                    <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
                         <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />
@@ -657,6 +655,10 @@
                                    Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="InkCanvasView_Changed" />
                         <Button Content="Reset canvas view" Click="ResetInkCanvasView_Click" />
                         <TextBlock Text="Zoom, pan and rotation move the video and ink together for drawing. They do not change saved coordinates, brush widths or export framing. Other workspaces use the normal view; Ink Editor retains these session settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ToggleButton x:Name="InkGridToggle" Content="Canvas grid" Click="InkGuides_Click" />
+                        <NumberBox x:Name="InkGridDivisionsBox" Header="Grid divisions per axis" Minimum="2" Maximum="64" Value="8" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="InkGridDivisions_Changed" />
+                        <ToggleButton x:Name="InkCentreGuidesToggle" Content="Centre alignment guides" Click="InkGuides_Click" />
+                        <TextBlock Text="Session-only guides follow canvas zoom, pan and rotation. They appear behind ink while paused in Ink Editor only, never in saved drawings or exports. The grid divides each canvas axis equally; it does not snap or constrain strokes." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
                         <TextBox x:Name="InkLayerNameBox" Header="Layer name" MaxLength="200" />
@@ -666,6 +668,8 @@
                             <Button Content="Remove" Tag="remove" Click="InkLayerAction_Click" />
                         </StackPanel>
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                        <Button Content="Merge layer down" Tag="merge" Click="InkLayerAction_Click" />
+                        <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
                         <ToggleButton x:Name="InkLayerLockButton" Content="Lock drawing" Click="InkLayerLock_Click" />
                         <TextBlock Text="Drawing lock protects layer strokes, opacity and order. Visibility, cel timing, keyframes, whole-cel operations and cel-global text are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

@@ -1897,6 +1897,7 @@ public sealed partial class MainWindow : Window
     {
         float width = (float)sender.ActualWidth;
         float height = (float)sender.ActualHeight;
+        DrawInkGuides(args.DrawingSession, width, height);
         foreach (RenderedStroke renderedStroke in _renderedStrokes)
         {
             List<InkPoint> stroke = renderedStroke.Points;
