@@ -31,6 +31,11 @@ public sealed partial class MainWindow
         AudioDelayTimeBox.Value = settings.DelayMilliseconds;
         AudioDelayFeedbackBox.Value = settings.DelayFeedback;
         AudioDelayWetBox.Value = settings.DelayWetGain;
+        AudioReverbEnabled.IsChecked = settings.ReverbEnabled;
+        AudioReverbRoomBox.Value = settings.ReverbRoomScale;
+        AudioReverbDecayBox.Value = settings.ReverbDecaySeconds;
+        AudioReverbDampingBox.Value = settings.ReverbDamping;
+        AudioReverbWetBox.Value = settings.ReverbWetGain;
     }
 
     private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();
@@ -68,10 +73,15 @@ public sealed partial class MainWindow
             DelayMilliseconds = AudioDelayTimeBox.Value,
             DelayFeedback = AudioDelayFeedbackBox.Value,
             DelayWetGain = AudioDelayWetBox.Value,
+            ReverbEnabled = AudioReverbEnabled.IsChecked == true,
+            ReverbRoomScale = AudioReverbRoomBox.Value,
+            ReverbDecaySeconds = AudioReverbDecayBox.Value,
+            ReverbDamping = AudioReverbDampingBox.Value,
+            ReverbWetGain = AudioReverbWetBox.Value,
         };
         if (!settings.IsValid)
         {
-            StatusText.Text = "Use valid effect values: filters are off at 0 Hz or 20-20000 Hz, high-pass below low-pass; delay 1-2000 ms, feedback 0-0.95, wet gain 0-1.";
+            StatusText.Text = "Use valid effect values: filters off at 0 Hz or 20-20000 Hz, high-pass below low-pass; reverb scale 0.5-2, decay 0.1-10 s, damping 0-0.95; delay 1-2000 ms, feedback 0-0.95; wet gains 0-1.";
             UpdateSelectedAudioTrack();
             return;
         }

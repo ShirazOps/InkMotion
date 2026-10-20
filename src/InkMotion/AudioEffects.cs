@@ -27,6 +27,11 @@ public sealed record AudioEffectSettings
     public double DelayMilliseconds { get; init; } = 250;
     public double DelayFeedback { get; init; } = 0.3;
     public double DelayWetGain { get; init; } = 0.25;
+    public bool ReverbEnabled { get; init; }
+    public double ReverbRoomScale { get; init; } = 1;
+    public double ReverbDecaySeconds { get; init; } = 1.5;
+    public double ReverbDamping { get; init; } = 0.3;
+    public double ReverbWetGain { get; init; } = 0.25;
 
     public bool IsValid =>
         double.IsFinite(HighPassHz) && (HighPassHz == 0 || HighPassHz is >= 20 and <= 20000) &&
@@ -45,7 +50,11 @@ public sealed record AudioEffectSettings
         double.IsFinite(LimiterReleaseMilliseconds) && LimiterReleaseMilliseconds is >= 5 and <= 2000 &&
         double.IsFinite(DelayMilliseconds) && DelayMilliseconds is >= 1 and <= 2000 &&
         double.IsFinite(DelayFeedback) && DelayFeedback is >= 0 and <= 0.95 &&
-        double.IsFinite(DelayWetGain) && DelayWetGain is >= 0 and <= 1;
+        double.IsFinite(DelayWetGain) && DelayWetGain is >= 0 and <= 1 &&
+        double.IsFinite(ReverbRoomScale) && ReverbRoomScale is >= 0.5 and <= 2 &&
+        double.IsFinite(ReverbDecaySeconds) && ReverbDecaySeconds is >= 0.1 and <= 10 &&
+        double.IsFinite(ReverbDamping) && ReverbDamping is >= 0 and <= 0.95 &&
+        double.IsFinite(ReverbWetGain) && ReverbWetGain is >= 0 and <= 1;
 }
 
 public sealed class AudioEffectsSampleProvider : ISampleProvider
@@ -62,6 +71,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     private double _limiterGain = 1;
     private float[] _delayBuffer = [];
     private int _delayPosition;
+    private AudioReverb[] _reverb = [];
 
     public AudioEffectsSampleProvider(ISampleProvider source, AudioEffectSettings settings)
     {
@@ -77,7 +87,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
         ArgumentNullException.ThrowIfNull(settings);
         if (!settings.IsValid)
         {
-            throw new ArgumentException("Invalid audio filter, EQ, compressor, gate, delay or limiter settings.", nameof(settings));
+            throw new ArgumentException("Invalid audio filter, EQ, compressor, gate, reverb, delay or limiter settings.", nameof(settings));
         }
 
         lock (_sync)
@@ -124,6 +134,9 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
         _delayPosition = 0;
         _delayBuffer = _settings.Enabled && _settings.DelayEnabled
             ? new float[checked(Math.Max(1, (int)Math.Round(_settings.DelayMilliseconds * 0.001 * WaveFormat.SampleRate)) * WaveFormat.Channels)]
+            : [];
+        _reverb = _settings.Enabled && _settings.ReverbEnabled
+            ? Enumerable.Range(0, WaveFormat.Channels).Select(_ => new AudioReverb(WaveFormat.SampleRate, _settings)).ToArray()
             : [];
         _filters = Enumerable.Range(0, WaveFormat.Channels).Select(_ => CreateFilters()).ToArray();
     }
@@ -234,6 +247,11 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
                 {
                     int index = offset + frame + channel;
                     double sample = buffer[index] * gain;
+                    if (_reverb.Length > 0)
+                    {
+                        sample += _reverb[channel].Process(sample) * _settings.ReverbWetGain;
+                    }
+
                     if (_delayBuffer.Length > 0)
                     {
                         float delayed = _delayBuffer[_delayPosition];
