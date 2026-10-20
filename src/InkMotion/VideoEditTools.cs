@@ -2,6 +2,34 @@ namespace InkMotion;
 
 public static class VideoEditTools
 {
+    public static bool CloseGapBefore(TimelineTrackProject track, TimelineClipProject clip, double frameRate)
+    {
+        if (track.IsLocked || !track.Clips.Contains(clip) || !double.IsFinite(frameRate) || frameRate <= 0 ||
+            VideoTimelineEditing.Validate([track], frameRate) is not null ||
+            track.Clips.Any(candidate => VideoTimelineEditing.GetDurationSeconds(candidate, track.Kind) <= 0))
+        {
+            return false;
+        }
+
+        TimelineClipProject? previous = track.Clips.Where(candidate => candidate.StartFrame < clip.StartFrame)
+            .MaxBy(candidate => candidate.StartFrame);
+        double destination = previous is null ? 1 :
+            Math.Ceiling(previous.StartFrame - 1d +
+                VideoTimelineEditing.GetDurationSeconds(previous, track.Kind) * frameRate - 1e-8) + 1;
+        if (!double.IsFinite(destination) || destination < 1 || destination >= clip.StartFrame)
+        {
+            return false;
+        }
+
+        int shift = clip.StartFrame - (int)destination;
+        foreach (TimelineClipProject following in track.Clips.Where(candidate => candidate.StartFrame >= clip.StartFrame).ToArray())
+        {
+            following.StartFrame -= shift;
+        }
+
+        return true;
+    }
+
     public static bool SetSourceRange(TimelineTrackProject track, TimelineClipProject clip,
         double sourceIn, double sourceOut, double frameRate)
     {

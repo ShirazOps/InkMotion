@@ -617,6 +617,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateSelectedAudioTrack()
     {
+        UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         UpdateAudioRangeSelection();

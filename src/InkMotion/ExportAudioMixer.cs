@@ -103,7 +103,7 @@ public sealed class ExportAudioMixer : IDisposable
         }
 
         _readers.Add(reader);
-        double sourceDuration = reader.TotalTime.TotalSeconds;
+        double sourceDuration = AudioSourcePosition.DurationSeconds(reader);
         double timelineDuration = AudioClipEditing.GetTimelineDuration(track, sourceDuration);
         if (!double.IsFinite(timelineDuration) || timelineDuration <= 0)
         {
@@ -121,7 +121,7 @@ public sealed class ExportAudioMixer : IDisposable
             reader,
             sourceDuration,
             AudioClipEditing.CreateGainSettings(track),
-            seconds => reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, sourceDuration)));
+            seconds => AudioSourcePosition.Seek(reader, seconds));
         var stretch = new TimeStretchSampleProvider(clip, clip.Seek);
         stretch.SetParameters(AudioClipEditing.GetTempoRatio(track), track.PitchSemitones);
         stretch.Seek(track.SourceInSeconds);

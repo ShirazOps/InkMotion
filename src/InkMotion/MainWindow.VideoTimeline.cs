@@ -1326,6 +1326,11 @@ public sealed partial class MainWindow
         "Moved the clip to the playhead.",
         "The clip would overlap another clip at the playhead.");
 
+    private void CloseGapBeforeClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
+        location => VideoEditTools.CloseGapBefore(location.Track, location.Clip, _frameRate),
+        "Closed the whole-frame gap before this clip, shifting it and later clips on this track. Source ranges, later gaps and other tracks are unchanged.",
+        "No whole-frame gap can be closed. Use an unlocked valid track with known clip durations; fractional-frame gaps may remain.");
+
     private void DeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoTimelineEditing.Delete(location.Track, location.Clip),
         "Clip deleted.",

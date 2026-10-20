@@ -110,13 +110,13 @@ public sealed class AudioClipPlayer : IDisposable
         _gainSettings = AudioClipEditing.CreateGainSettings(project);
         try
         {
-            DurationSeconds = _reader.TotalTime.TotalSeconds;
+            DurationSeconds = AudioSourcePosition.DurationSeconds(_reader);
             ChannelCount = _reader.WaveFormat.Channels;
             _clip = new AudioClipSampleProvider(
                 _reader,
                 DurationSeconds,
                 _gainSettings,
-                seconds => _reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(seconds, DurationSeconds)));
+                seconds => AudioSourcePosition.Seek(_reader, seconds));
             _stretch = new TimeStretchSampleProvider(_clip, _clip.Seek);
             _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
             _effects = new AudioEffectsSampleProvider(_stretch, project.Effects);
@@ -136,6 +136,10 @@ public sealed class AudioClipPlayer : IDisposable
     public double DurationSeconds { get; }
 
     public int ChannelCount { get; }
+
+    public int SourceSampleRate => _reader.WaveFormat.SampleRate;
+
+    public long SourceSampleFrames => _reader.Length / _reader.WaveFormat.BlockAlign;
 
     public bool IsPlaying => !_disposed && _output.PlaybackState == PlaybackState.Playing;
 

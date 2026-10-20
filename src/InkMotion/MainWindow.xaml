@@ -141,10 +141,8 @@
                     <Button Content="Copy cel" Click="CopyCel_Click" />
                     <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
-                        <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
-                    </StackPanel>
+                    <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
+                    <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
                     <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel, including keyframes. Tweening remains editable; timing, text and other layers are unchanged. This edits drawings, unlike preview-only canvas navigation; undo restores them." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
@@ -342,6 +340,8 @@
                             <Button Grid.Row="2" Grid.Column="1" Content="Ripple delete" HorizontalAlignment="Stretch" Click="RippleDeleteClip_Click" ToolTipService.ToolTip="Delete the clip and close the gap" />
                         </Grid>
                         <StackPanel x:Name="ClipPropertiesPanel" Spacing="10">
+                            <Button Content="Close gap before clip" Click="CloseGapBeforeClip_Click"
+                                    ToolTipService.ToolTip="Shift this clip and all later clips on this track towards the preceding clip, or frame 1. Removes whole-frame space only; other tracks, audio, markers and ink are not moved." />
                             <Button x:Name="RelinkTimelineClipButton" Content="Relink source..." Click="RelinkTimelineClip_Click" />
                             <Button x:Name="RelinkMatchingSourcesButton" Content="Relink all matching sources..." Tag="batch" Click="RelinkTimelineClip_Click"
                                     ToolTipService.ToolTip="Replace all uses of this source on video or image tracks of the same kind. Any locked matching track or insufficient source length rejects the entire operation. Undo restores all source links." />
@@ -544,6 +544,15 @@
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
+                        <UserControl x:Name="AudioSourceRangeActions" IsEnabled="False">
+                          <StackPanel Spacing="8">
+                            <NumberBox x:Name="AudioSourceFirstSampleBox" Header="Source start sample frame (zero-based)" Minimum="0" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                            <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                            <Button Content="Apply source sample range" Click="ApplyAudioSourceSamples_Click" />
+                            <TextBlock x:Name="AudioSourceSamplesText" Text="Load an audio clip to set sample-based source endpoints." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="Edits both source endpoints together, independently of the project video frame rate. Keeps the timeline start, tempo/pitch and other settings; duration can change. Existing fades must fit. Saved source endpoints use seconds; the boxes show the nearest source sample boundaries. This is clip trimming, not a sample editor or waveform drag selection." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                          </StackPanel>
+                        </UserControl>
                         <UserControl x:Name="AudioRangeActions" IsEnabled="False">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Timeline frame range (end excluded)" Style="{StaticResource LabelTextStyle}" />
