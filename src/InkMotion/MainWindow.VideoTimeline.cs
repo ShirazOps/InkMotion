@@ -1205,6 +1205,31 @@ public sealed partial class MainWindow
             "Select an unlocked video clip with unused source footage in that direction.");
     }
 
+    private void RollVideoClip_Click(object sender, RoutedEventArgs e) =>
+        ApplyNeighbourClipEdit(sender, roll: true);
+
+    private void SlideVideoClip_Click(object sender, RoutedEventArgs e) =>
+        ApplyNeighbourClipEdit(sender, roll: false);
+
+    private void ApplyNeighbourClipEdit(object sender, bool roll)
+    {
+        if (sender is not Button { Tag: string direction } || !int.TryParse(direction, out int frames))
+        {
+            return;
+        }
+
+        ApplyClipAction(
+            location => roll
+                ? VideoEditTools.RollEnd(location.Track, location.Clip, frames, _frameRate)
+                : VideoEditTools.Slide(location.Track, location.Clip, frames, _frameRate),
+            roll
+                ? $"Rolled the end cut by {frames:+0;-0} project frame. Combined duration is unchanged."
+                : $"Slid the clip by {frames:+0;-0} project frame. Its source range and the sequence length are unchanged.",
+            roll
+                ? "Roll needs a directly adjacent video clip on the same unlocked track, unused source handles and at least one frame per clip. Reduce fades if they no longer fit."
+                : "Slide needs directly adjacent video clips on both sides, unused neighbouring source handles and at least one frame per neighbour. Reduce fades if they no longer fit.");
+    }
+
     private async void RelinkTimelineClip_Click(object sender, RoutedEventArgs e)
     {
         PausePlayback();

@@ -2,6 +2,90 @@ namespace InkMotion;
 
 public static class VideoEditTools
 {
+    public static bool RollEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate)
+    {
+        if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out TimelineClipProject? next) ||
+            next is null || !AreAdjacent(clip, next, frameRate))
+        {
+            return false;
+        }
+
+        double delta = frames / frameRate;
+        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + delta;
+        double nextIn = next.SourceInSeconds + delta;
+        long nextStart = (long)next.StartFrame + frames;
+        if (nextStart < 1 || nextStart > int.MaxValue ||
+            !CanUseRange(clip, clip.SourceInSeconds, end, frameRate) ||
+            !CanUseRange(next, nextIn, next.SourceOutSeconds ?? next.SourceDurationSeconds, frameRate))
+        {
+            return false;
+        }
+
+        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, end);
+        next.SourceInSeconds = Math.Max(0, nextIn);
+        next.StartFrame = (int)nextStart;
+        return true;
+    }
+
+    public static bool Slide(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate)
+    {
+        if (!TryGetNeighbours(track, clip, frames, frameRate, out TimelineClipProject? previous, out TimelineClipProject? next) ||
+            previous is null || next is null || !AreAdjacent(previous, clip, frameRate) ||
+            !AreAdjacent(clip, next, frameRate) ||
+            !CanUseRange(clip, clip.SourceInSeconds, clip.SourceOutSeconds ?? clip.SourceDurationSeconds, frameRate))
+        {
+            return false;
+        }
+
+        double delta = frames / frameRate;
+        double previousEnd = (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) + delta;
+        double nextIn = next.SourceInSeconds + delta;
+        long start = (long)clip.StartFrame + frames;
+        long nextStart = (long)next.StartFrame + frames;
+        if (start < 1 || start > int.MaxValue || nextStart < 1 || nextStart > int.MaxValue ||
+            !CanUseRange(previous, previous.SourceInSeconds, previousEnd, frameRate) ||
+            !CanUseRange(next, nextIn, next.SourceOutSeconds ?? next.SourceDurationSeconds, frameRate))
+        {
+            return false;
+        }
+
+        previous.SourceOutSeconds = Math.Min(previous.SourceDurationSeconds, previousEnd);
+        clip.StartFrame = (int)start;
+        next.SourceInSeconds = Math.Max(0, nextIn);
+        next.StartFrame = (int)nextStart;
+        return true;
+    }
+
+    private static bool TryGetNeighbours(TimelineTrackProject track, TimelineClipProject clip, int frames,
+        double frameRate, out TimelineClipProject? previous, out TimelineClipProject? next)
+    {
+        previous = null;
+        next = null;
+        if (track.IsLocked || track.Kind != TimelineTrackKind.Video || frames == 0 ||
+            !double.IsFinite(frameRate) || frameRate <= 0 || !track.Clips.Contains(clip))
+        {
+            return false;
+        }
+
+        TimelineClipProject[] ordered = track.Clips.OrderBy(candidate => candidate.StartFrame).ToArray();
+        int index = Array.IndexOf(ordered, clip);
+        previous = index > 0 ? ordered[index - 1] : null;
+        next = index + 1 < ordered.Length ? ordered[index + 1] : null;
+        return true;
+    }
+
+    private static bool AreAdjacent(TimelineClipProject left, TimelineClipProject right, double frameRate) =>
+        Math.Abs(VideoTimelineEditing.GetEndSeconds(left, TimelineTrackKind.Video, frameRate) -
+            VideoTimelineEditing.GetStartSeconds(right, frameRate)) < 1e-6;
+
+    private static bool CanUseRange(TimelineClipProject clip, double start, double end, double frameRate)
+    {
+        double duration = end - start;
+        return double.IsFinite(start) && double.IsFinite(end) && double.IsFinite(clip.SourceDurationSeconds) &&
+            start >= -1e-8 && end <= clip.SourceDurationSeconds + 1e-8 && duration >= 1 / frameRate - 1e-8 &&
+            duration >= clip.FadeInSeconds + clip.FadeOutSeconds - 1e-8;
+    }
+
     public static bool Relink(TimelineTrackProject track, TimelineClipProject clip, string path, double sourceDuration)
     {
         if (track.IsLocked || !track.Clips.Contains(clip) || track.Kind == TimelineTrackKind.Text ||
