@@ -47,7 +47,7 @@ public sealed partial class MainWindow
 
     private void InkLayerAction_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string action } || action is not ("rename" or "duplicate" or "remove" or "merge"))
+        if (sender is not Button { Tag: string action } || action is not ("rename" or "duplicate" or "remove" or "merge" or "flip-horizontal" or "flip-vertical"))
         {
             return;
         }
@@ -72,6 +72,15 @@ public sealed partial class MainWindow
         {
             switch (action)
             {
+                case "flip-horizontal":
+                case "flip-vertical":
+                    if (!InkEditing.FlipLayer(_inkLayers, _frames, _activeInkLayerId, action == "flip-horizontal"))
+                    {
+                        CommitEdit();
+                        StatusText.Text = "Layer drawings are unchanged by this flip.";
+                        return;
+                    }
+                    break;
                 case "merge":
                     _activeInkLayerId = InkEditing.MergeLayerDown(_inkLayers, _frames, _activeInkLayerId).Id;
                     break;
@@ -103,6 +112,8 @@ public sealed partial class MainWindow
         UpdateFrameStatus();
         StatusText.Text = action switch
         {
+            "flip-horizontal" => "Layer flipped left/right about the canvas centre across all cels. Tweening remains editable; text and other layers are unchanged.",
+            "flip-vertical" => "Layer flipped top/bottom about the canvas centre across all cels. Tweening remains editable; text and other layers are unchanged.",
             "merge" => "Layer merged down across all cels. Generated drawings are now explicit strokes; undo restores both layers. Text is unchanged.",
             "duplicate" => "Layer drawings duplicated across all cels. The independent copy is unlocked; cel-global text is unchanged.",
             "remove" => "Layer and its drawings removed across all cels. Undo restores them; text is unchanged.",

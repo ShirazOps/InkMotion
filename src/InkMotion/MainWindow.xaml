@@ -141,6 +141,11 @@
                     <Button Content="Copy cel" Click="CopyCel_Click" />
                     <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
+                        <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
+                    </StackPanel>
+                    <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel, including keyframes. Tweening remains editable; timing, text and other layers are unchanged. This edits drawings, unlike preview-only canvas navigation; undo restores them." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
                         <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />

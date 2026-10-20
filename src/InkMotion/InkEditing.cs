@@ -2,6 +2,55 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static bool FlipLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id, bool horizontal)
+    {
+        InkLayerProject? layer = layers.FirstOrDefault(candidate => candidate.Id == id);
+        if (layer is null || layer.IsLocked)
+        {
+            throw new InvalidOperationException("Select an existing unlocked ink layer to flip.");
+        }
+
+        var drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
+        bool changed = false;
+        foreach (InkPoint point in drawings.SelectMany(drawing => drawing).SelectMany(stroke => stroke))
+        {
+            double position = horizontal ? point.X : point.Y;
+            if (!double.IsFinite(position) || position is < 0 or > 1)
+            {
+                throw new InvalidOperationException("Layer coordinates must be finite and inside the canvas before flipping.");
+            }
+
+            changed |= position != 0.5;
+            if (horizontal)
+            {
+                point.X = 1 - position;
+            }
+            else
+            {
+                point.Y = 1 - position;
+            }
+        }
+
+        if (!changed)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < frames.Count; index++)
+        {
+            if (id == ExportPlanning.BaseInkLayerId)
+            {
+                frames[index].Strokes = drawings[index];
+            }
+            else if (frames[index].LayerStrokes.ContainsKey(id))
+            {
+                frames[index].LayerStrokes[id] = drawings[index];
+            }
+        }
+
+        return true;
+    }
+
     public static int RepeatCelRange(List<EditorFrame> frames, int first, int last, int additionalCopies)
     {
         if (first < 0 || last < first || last >= frames.Count ||
