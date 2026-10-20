@@ -103,7 +103,9 @@ public sealed class ExportJobsTests : IDisposable
     public void WorkerFailure_IsRetainedAndNotRerunOnDiscovery()
     {
         ExportJobStatus job = CreateAudioJob(new());
-        Assert.Equal(1, ExportJobWorker.Run(_store, job.Id));
+        int exitCode = ExportJobWorker.Run(_store, job.Id);
+        string diagnostic = Path.Combine(_store.JobDirectory(job.Id), "worker-error.txt");
+        Assert.True(exitCode == 1, File.Exists(diagnostic) ? File.ReadAllText(diagnostic) : $"Worker exit code: {exitCode}");
         ExportJobStatus status = Assert.Single(_store.Scan().Jobs);
         Assert.Equal(ExportJobPhase.Failed, status.Phase);
         Assert.Contains("Nothing to export", status.Message);
@@ -135,6 +137,11 @@ public sealed class ExportJobsTests : IDisposable
     [Fact]
     public async Task VideoExport_SurvivesTerminatedLaunchingProcessAndProducesPlayableFile()
     {
+        if (!VideoExportTests.HasH264Encoder)
+        {
+            return;
+        }
+
         ExportJobStatus job = CreateVideoJob();
         ProcessStartInfo workerInfo = _store.CreateWorkerStartInfo(WorkerExecutable, job.Id);
         // A disposable parent models the editor's lifetime, using the same independent Process.Start semantics.
@@ -177,6 +184,11 @@ public sealed class ExportJobsTests : IDisposable
     [Fact]
     public async Task DuplicateWorkerCannotClaimJobAndCrossProcessCancellationRemovesPartialOutput()
     {
+        if (!VideoExportTests.HasH264Encoder)
+        {
+            return;
+        }
+
         ExportJobStatus job = CreateVideoJob();
         using Process worker = Process.Start(_store.CreateWorkerStartInfo(WorkerExecutable, job.Id))!;
         try
@@ -201,6 +213,11 @@ public sealed class ExportJobsTests : IDisposable
     [Fact]
     public async Task KilledWorkerIsReportedAsInterruptedWithoutDeletingUnknownOutput()
     {
+        if (!VideoExportTests.HasH264Encoder)
+        {
+            return;
+        }
+
         ExportJobStatus job = CreateVideoJob();
         using Process worker = Process.Start(_store.CreateWorkerStartInfo(WorkerExecutable, job.Id))!;
         try
@@ -363,7 +380,9 @@ public sealed class ExportJobsTests : IDisposable
         var clock = Stopwatch.StartNew();
         while (clock.Elapsed < TimeSpan.FromSeconds(90))
         {
-            ExportJobStatus status = _store.ReadStatus(id);
+            ExportJobScan scan = _store.Scan();
+            Assert.Empty(scan.Errors);
+            ExportJobStatus status = scan.Jobs.Single(job => job.Id == id);
             if (!status.IsActive)
             {
                 // Terminal state is durable before the worker releases its lease and exits.

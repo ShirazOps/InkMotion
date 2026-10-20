@@ -9,7 +9,7 @@ public sealed class VideoExportTests
 
     // Windows Server images (such as CI runners) ship mfh264enc.dll but can reject the H.264 media types,
     // so the encode tests run only where the software encoder actually starts.
-    private static bool HasH264Encoder => H264EncoderProbe.Value;
+    internal static bool HasH264Encoder => H264EncoderProbe.Value;
 
     [Fact]
     public void EmbeddedAudio_ValidatesBeforeCreatingAnOutputFile()

@@ -263,10 +263,13 @@ public sealed class ExportJobStore
                         status = ReadStatus(id);
                         if (status.IsActive)
                         {
+                            string diagnostic = Path.Combine(directory, "worker-error.txt");
+                            string? detail = File.Exists(diagnostic) ? File.ReadLines(diagnostic).FirstOrDefault() : null;
                             status = status with
                             {
                                 Phase = ExportJobPhase.Interrupted,
-                                Message = "The export worker stopped unexpectedly. Output may be incomplete; export again to retry.",
+                                Message = "The export worker stopped unexpectedly. Output may be incomplete; export again to retry." +
+                                    (detail is null ? "" : Environment.NewLine + detail),
                                 UpdatedUtc = DateTimeOffset.UtcNow,
                             };
                             WriteStatus(status);
@@ -290,8 +293,27 @@ public sealed class ExportJobStore
 
     private static T ReadJson<T>(string path)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using FileStream stream = RetryFileAccess(() => new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete));
         return JsonSerializer.Deserialize<T>(stream, JsonOptions) ?? throw new InvalidDataException("Empty export job record.");
+    }
+
+    private static T RetryFileAccess<T>(Func<T> operation)
+    {
+        var clock = Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                return operation();
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) &&
+                (ex.HResult & 0xffff) is 5 or 32 or 33 && clock.Elapsed < TimeSpan.FromSeconds(2))
+            {
+                // Antivirus/indexing handles can briefly prevent replacement even with our own readers serialised.
+                Thread.Sleep(20);
+            }
+        }
     }
 
     private static void WriteJson<T>(string path, T value)
@@ -305,18 +327,15 @@ public sealed class ExportJobStore
                 stream.Flush(true);
             }
 
-            if (File.Exists(path))
+            RetryFileAccess(() =>
             {
-                File.Replace(temporary, path, null);
-            }
-            else
-            {
-                File.Move(temporary, path);
-            }
+                File.Move(temporary, path, true);
+                return true;
+            });
         }
         finally
         {
-            File.Delete(temporary);
+            RetryFileAccess(() => { File.Delete(temporary); return true; });
         }
     }
 }

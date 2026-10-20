@@ -124,6 +124,14 @@ public static class ExportJobWorker
         {
             // If the job store itself is unavailable, retain a diagnostic without displaying a worker window.
             Trace.TraceError($"Export job {id}: {ex}");
+            try
+            {
+                File.WriteAllText(Path.Combine(store.JobDirectory(id), "worker-error.txt"), ex.ToString());
+            }
+            catch (Exception diagnosticError) when (diagnosticError is IOException or UnauthorizedAccessException)
+            {
+                Trace.TraceError($"Could not save export diagnostic: {diagnosticError}");
+            }
             return 2;
         }
     }
