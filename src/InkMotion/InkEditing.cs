@@ -2,6 +2,50 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static InkLayerProject MergeLayerDown(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
+    {
+        int index = layers.FindIndex(layer => layer.Id == id);
+        if (index <= 0 || id == ExportPlanning.BaseInkLayerId)
+        {
+            throw new InvalidOperationException("Select a non-base ink layer with a layer beneath it.");
+        }
+
+        InkLayerProject source = layers[index];
+        InkLayerProject target = layers[index - 1];
+        if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
+            !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity)
+        {
+            throw new InvalidOperationException("Unlock and show both adjacent layers, and give them matching opacity before merging.");
+        }
+
+        var drawings = new List<List<List<InkPoint>>>(frames.Count);
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            var combined = InkAnimation.GetDisplayedStrokes(frames, frame,
+                cel => ExportPlanning.GetLayerStrokes(cel, target.Id)).ToList();
+            combined.AddRange(InkAnimation.GetDisplayedStrokes(frames, frame,
+                cel => ExportPlanning.GetLayerStrokes(cel, source.Id)));
+            drawings.Add(CloneStrokes(combined));
+        }
+
+        for (int frame = 0; frame < frames.Count; frame++)
+        {
+            if (target.Id == ExportPlanning.BaseInkLayerId)
+            {
+                frames[frame].Strokes = drawings[frame];
+            }
+            else
+            {
+                frames[frame].LayerStrokes[target.Id] = drawings[frame];
+            }
+
+            frames[frame].LayerStrokes.Remove(source.Id);
+        }
+
+        layers.RemoveAt(index);
+        return target;
+    }
+
     public static InkLayerProject DuplicateLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id)
     {
         int index = layers.FindIndex(layer => layer.Id == id);

@@ -141,6 +141,8 @@
                     <Button Content="Copy cel" Click="CopyCel_Click" />
                     <Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" />
                     <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                    <Button Content="Merge layer down" Tag="merge" Click="InkLayerAction_Click" />
+                    <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" />
                         <Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" />

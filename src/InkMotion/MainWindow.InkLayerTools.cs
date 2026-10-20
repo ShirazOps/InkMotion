@@ -7,7 +7,7 @@ public sealed partial class MainWindow
 {
     private void InkLayerAction_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string action } || action is not ("rename" or "duplicate" or "remove"))
+        if (sender is not Button { Tag: string action } || action is not ("rename" or "duplicate" or "remove" or "merge"))
         {
             return;
         }
@@ -32,6 +32,9 @@ public sealed partial class MainWindow
         {
             switch (action)
             {
+                case "merge":
+                    _activeInkLayerId = InkEditing.MergeLayerDown(_inkLayers, _frames, _activeInkLayerId).Id;
+                    break;
                 case "duplicate":
                     _activeInkLayerId = InkEditing.DuplicateLayer(_inkLayers, _frames, _activeInkLayerId).Id;
                     break;
@@ -60,6 +63,7 @@ public sealed partial class MainWindow
         UpdateFrameStatus();
         StatusText.Text = action switch
         {
+            "merge" => "Layer merged down across all cels. Generated drawings are now explicit strokes; undo restores both layers. Text is unchanged.",
             "duplicate" => "Layer drawings duplicated across all cels. The independent copy is unlocked; cel-global text is unchanged.",
             "remove" => "Layer and its drawings removed across all cels. Undo restores them; text is unchanged.",
             _ => "Ink layer renamed.",
