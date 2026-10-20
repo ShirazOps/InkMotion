@@ -78,6 +78,7 @@ public sealed partial class MainWindow : Window
         UpdateFrameStatus();
         UpdateExportProfileReadout();
         UpdateAudioExportOptions();
+        InitialiseExportJobs();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -2507,6 +2508,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _exportJobsClosed = true;
+        _exportJobsTimer?.Stop();
         _audioSpectrumCancellation?.Cancel();
         _audioSpectrumCancellation = null;
         _playbackTimer.Stop();

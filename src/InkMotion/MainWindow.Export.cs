@@ -8,12 +8,13 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
-    private CancellationTokenSource? _exportCancellation;
+    private bool _submittingExport;
+    private bool _hasActiveExports;
     private bool _checkingAudioEncoders;
 
     private async void CheckAudioEncoders_Click(object sender, RoutedEventArgs e)
     {
-        if (_checkingAudioEncoders || _exportCancellation is not null)
+        if (_checkingAudioEncoders || _submittingExport || _hasActiveExports)
         {
             return;
         }
@@ -38,7 +39,7 @@ public sealed partial class MainWindow
         finally
         {
             _checkingAudioEncoders = false;
-            CheckAudioEncodersButton.IsEnabled = _exportCancellation is null;
+            CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports;
         }
     }
 
@@ -64,7 +65,7 @@ public sealed partial class MainWindow
 
     private async void ExportAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (_exportCancellation is not null)
+        if (_submittingExport || _hasActiveExports)
         {
             return;
         }
@@ -96,37 +97,7 @@ public sealed partial class MainWindow
         }
 
         EditorProject snapshot = CreateProjectSnapshot();
-        using var cancellation = new CancellationTokenSource();
-        _exportCancellation = cancellation;
-        SetExportRunning(true);
-        ExportStatusText.Text = "Rendering audio mix…";
-        var progress = new Progress<double>(fraction =>
-        {
-            ExportProgressBar.IsIndeterminate = false;
-            ExportProgressBar.Value = fraction;
-            ExportStatusText.Text = $"Rendering audio mix · {fraction:P0}";
-        });
-        try
-        {
-            AudioExportResult result = await Task.Run(() => AudioExporter.Export(snapshot, settings, file.Path, progress, cancellation.Token));
-            ExportStatusText.Text = $"Exported {Path.GetFileName(file.Path)} · {result.SampleRate:N0} Hz · {result.Channels} channels" +
-                (result.Warnings.Count == 0 ? "" : Environment.NewLine + string.Join(Environment.NewLine, result.Warnings));
-            StatusText.Text = "Audio mix exported.";
-        }
-        catch (OperationCanceledException)
-        {
-            ExportStatusText.Text = "Audio export cancelled; the partial file was removed.";
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException)
-        {
-            ExportStatusText.Text = $"Audio export failed: {ex.Message}";
-            StatusText.Text = "Audio export failed.";
-        }
-        finally
-        {
-            _exportCancellation = null;
-            SetExportRunning(false);
-        }
+        await SubmitExportJobAsync(snapshot, file.Path, settings, null);
     }
 
     private void ExportSettings_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e) =>
@@ -143,7 +114,7 @@ public sealed partial class MainWindow
 
     private async void ExportVideo_Click(object sender, RoutedEventArgs e)
     {
-        if (_exportCancellation is not null ||
+        if (_submittingExport || _hasActiveExports ||
             ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
             !Enum.TryParse(resolutionName, out ExportResolution resolution))
         {
@@ -181,61 +152,34 @@ public sealed partial class MainWindow
             return;
         }
 
-        var request = new VideoExportRequest(
-            CreateProjectSnapshot(),
+        var settings = new ExportVideoSettings(
             VideoExportProfile.Create(resolution, frameRate),
             GetSelectedExportCodec(),
-            file.Path,
             InkSurface.ActualHeight,
             ExportHardwareToggle.IsOn,
             ExportQualitySlider.Value / 100,
             int.Parse(audioRate),
             int.Parse(audioBitRate));
-        using var cancellation = new CancellationTokenSource();
-        _exportCancellation = cancellation;
-        SetExportRunning(true);
-        var progress = new Progress<VideoExportProgress>(update =>
-        {
-            ExportProgressBar.IsIndeterminate = update.FrameCount == 0;
-            ExportProgressBar.Value = update.Fraction;
-            ExportStatusText.Text = update.FrameCount == 0
-                ? $"{update.Stage}…"
-                : $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0} ({update.Fraction:P0})";
-        });
-
-        try
-        {
-            VideoExportResult result = await Task.Run(
-                () => VideoExporter.Export(request, progress, cancellation.Token),
-                cancellation.Token);
-            string encoder = result.UsedHardwareEncoder ? "GPU encoder" : "software encoder";
-            string summary = $"Exported {Path.GetFileName(result.OutputPath)} · {result.DurationSeconds:0.0} s · {encoder}";
-            ExportStatusText.Text = result.Warnings.Count == 0
-                ? summary
-                : $"{summary}{Environment.NewLine}{string.Join(Environment.NewLine, result.Warnings)}";
-            StatusText.Text = summary;
-        }
-        catch (OperationCanceledException)
-        {
-            ExportStatusText.Text = "Export cancelled; the partial file was removed.";
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or AudioEncoderUnavailableException or System.Runtime.InteropServices.COMException)
-        {
-            ExportStatusText.Text = $"Export failed: {ex.Message}";
-            StatusText.Text = "Export failed";
-        }
-        finally
-        {
-            _exportCancellation = null;
-            SetExportRunning(false);
-        }
+        await SubmitExportJobAsync(CreateProjectSnapshot(), file.Path, null, settings);
     }
 
     private void CancelExport_Click(object sender, RoutedEventArgs e)
     {
-        _exportCancellation?.Cancel();
-        CancelExportButton.IsEnabled = false;
-        ExportStatusText.Text = "Cancelling…";
+        if (ExportJobsSelector.SelectedItem is not ExportJobStatus { IsActive: true } job)
+        {
+            return;
+        }
+
+        try
+        {
+            _exportJobStore.Cancel(job.Id);
+            CancelExportButton.IsEnabled = false;
+            ExportStatusText.Text = "Cancellation requested. The worker will stop and remove its partial output.";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            ExportStatusText.Text = $"Could not request cancellation: {ex.Message}";
+        }
     }
 
     private void SetExportRunning(bool running)

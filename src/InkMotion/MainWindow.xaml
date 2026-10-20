@@ -426,6 +426,13 @@
                         </Grid>
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
+                        <TextBlock Text="EXPORT JOBS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="ExportJobsSelector" Header="Saved jobs on this PC" DisplayMemberPath="DisplayText"
+                                  HorizontalAlignment="Stretch" SelectionChanged="ExportJob_SelectionChanged" />
+                        <TextBlock x:Name="ExportJobsSummaryText" Text="Scanning export jobs..." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button x:Name="RetryExportJobButton" Content="Retry saved job" IsEnabled="False" Click="RetryExportJob_Click"
+                                ToolTipService.ToolTip="Restart a failed, cancelled or interrupted export from its saved snapshot, replacing the same output file" />
+                        <TextBlock Text="Exports run in separate processes and continue when the editor closes or crashes. Reopening InkMotion reconnects to active jobs. Keep source files available. A worker crash or Windows restart interrupts a job; it is not automatically resumed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="Export a separate audio mix below for other formats and rates. WAV preserves the project channel layout; MP3 and AAC use mono/stereo." Style="{StaticResource HintTextStyle}" />
