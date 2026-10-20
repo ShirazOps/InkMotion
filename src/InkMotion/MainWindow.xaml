@@ -182,7 +182,12 @@
                                   ToolTipService.ToolTip="Compare the active video source at the timeline position, without clip volume, mute, opacity, overlays or added audio. Switching pauses playback. This does not change the export." />
                 </Grid>
 
-                <Grid x:Name="PreviewStage" Grid.Row="1" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}">
+                <Grid x:Name="PreviewViewport" Grid.Row="1" SizeChanged="PreviewViewport_SizeChanged"
+                      Background="{StaticResource StageBrush}">
+                <Grid x:Name="PreviewStage" Style="{StaticResource PanelStyle}" Background="{StaticResource StageBrush}" RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <CompositeTransform x:Name="PreviewCanvasTransform" />
+                    </Grid.RenderTransform>
                     <Grid Margin="12">
                         <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
                         <canvas:CanvasControl
@@ -205,6 +210,7 @@
                             <TextBlock x:Name="EmptyPreviewHeading" Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
                             <TextBlock x:Name="EmptyPreviewHint" Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
                         </StackPanel>
+                    </Grid>
                     </Grid>
                 </Grid>
 
@@ -625,6 +631,17 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE75C;" FontSize="14" /><TextBlock Text="Eraser" /></StackPanel>
                             </Button>
                         </StackPanel>
+                        <TextBlock Text="CANVAS VIEW" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Slider x:Name="InkCanvasZoomSlider" Header="Zoom (%)" Minimum="25" Maximum="400" Value="100"
+                                StepFrequency="5" ValueChanged="InkCanvasZoom_Changed" AutomationProperties.Name="Canvas zoom percentage" />
+                        <NumberBox x:Name="InkCanvasRotationBox" Header="Canvas rotation (degrees)" Minimum="-180" Maximum="180"
+                                   Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="InkCanvasView_Changed" />
+                        <NumberBox x:Name="InkCanvasPanXBox" Header="Horizontal pan (% of viewer width)" Minimum="-200" Maximum="200"
+                                   Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="InkCanvasView_Changed" />
+                        <NumberBox x:Name="InkCanvasPanYBox" Header="Vertical pan (% of viewer height)" Minimum="-200" Maximum="200"
+                                   Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="InkCanvasView_Changed" />
+                        <Button Content="Reset canvas view" Click="ResetInkCanvasView_Click" />
+                        <TextBlock Text="Zoom, pan and rotation move the video and ink together for drawing. They do not change saved coordinates, brush widths or export framing. Other workspaces use the normal view; Ink Editor retains these session settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
                         <TextBox x:Name="InkLayerNameBox" Header="Layer name" MaxLength="200" />

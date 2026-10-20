@@ -359,6 +359,7 @@ public sealed partial class MainWindow : Window
         AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
         UpdatePreviewMode();
+        UpdateInkCanvasView();
         WorkspaceStatusText.Text = workspace switch
         {
             "Audio" => "Audio Editor",
