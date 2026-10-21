@@ -550,6 +550,13 @@
                         <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Reset clip indicator" Click="ResetAudioClipIndicator_Click" />
                         <TextBlock Text="Meters show this track's stereo monitor after effects/balance, not the summed master mix. Full scale or higher latches CLIP." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="MASTER MIX ANALYSIS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="AnalyseAudioMasterButton" Content="Analyse complete export mix" Click="AnalyseAudioMaster_Click" />
+                        <Button x:Name="CancelAudioMasterButton" Content="Cancel / clear master analysis" Click="CancelAudioMaster_Click" IsEnabled="False" />
+                        <ProgressBar x:Name="AudioMasterScanProgress" Minimum="0" Maximum="100" Visibility="Collapsed" AutomationProperties.Name="Master mix analysis progress" />
+                        <ProgressBar x:Name="AudioMasterPeakProgress" Minimum="0" Maximum="100" AutomationProperties.Name="Master mix snapshot sample peak level" />
+                        <TextBlock x:Name="AudioMasterText" Text="Analyse the complete export mix to measure summed sample peaks and RMS." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Snapshot analysis, not a live playback meter. Measures the actual summed export samples at 48 kHz in the project channel layout, including video-source audio. Original/Modified affects only playback. Levels are before final encoding/downmix; not true peak or LUFS. Results and CLIP are held until cleared, re-analysed or the project is edited. Keep source files unchanged while analysing." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />

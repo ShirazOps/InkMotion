@@ -15,8 +15,10 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly List<string> _warnings = [];
     private readonly MixingSampleProvider _mixer;
     private readonly double _frameRate;
+    private readonly bool _reportVideoReadFailures;
 
-    public ExportAudioMixer(EditorProject project, int sampleRate = ExportPlanning.AudioSampleRate)
+    public ExportAudioMixer(EditorProject project, int sampleRate = ExportPlanning.AudioSampleRate,
+        bool reportVideoReadFailures = false)
     {
         ArgumentNullException.ThrowIfNull(project);
         if (!AudioExportSettings.SampleRates.Contains(sampleRate))
@@ -26,6 +28,7 @@ public sealed class ExportAudioMixer : IDisposable
 
         SampleRate = sampleRate;
         _frameRate = project.FrameRate;
+        _reportVideoReadFailures = reportVideoReadFailures;
         Layout = project.AudioMixLayout;
         Channels = AudioChannelLayouts.Get(Layout).ChannelCount;
         _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, Channels))
@@ -151,6 +154,10 @@ public sealed class ExportAudioMixer : IDisposable
         catch (Exception ex) when (IsReadFailure(ex))
         {
             // Video files without a sound track are common; they simply contribute no audio.
+            if (_reportVideoReadFailures)
+            {
+                _warnings.Add($"Skipped video audio {Path.GetFileName(clip.SourcePath)} (no decodable audio track): {ex.Message}");
+            }
             return;
         }
 
