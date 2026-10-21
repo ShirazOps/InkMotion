@@ -48,6 +48,8 @@ public sealed class AudioClipJoiningTests
     [InlineData("tags")]
     [InlineData("effects")]
     [InlineData("solo")]
+    [InlineData("spatial-enabled")]
+    [InlineData("spatial-position")]
     public void Join_RejectsIncompatibleClipsWithoutChangingEitherInput(string change)
     {
         var (left, right) = Split();
@@ -62,6 +64,11 @@ public sealed class AudioClipJoiningTests
             case "tags": right.Title = "Different"; break;
             case "effects": right.Effects = new(); break;
             case "solo": right.Solo = true; break;
+            case "spatial-enabled": right.SpatialPanEnabled = true; break;
+            case "spatial-position":
+                left.SpatialPanEnabled = right.SpatialPanEnabled = true;
+                right.SpatialPanAzimuthDegrees = 45;
+                break;
         }
 
         double? beforeLeftEnd = left.SourceOutSeconds;

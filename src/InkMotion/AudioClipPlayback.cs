@@ -121,7 +121,8 @@ public sealed class AudioClipPlayer : IDisposable
             _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
             _effects = new AudioEffectsSampleProvider(_stretch, project.Effects);
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
-            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
+            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout,
+                project.Balance, project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
             _meter = new AudioMeterSampleProvider(_monitorMix);
             _output = new WaveOutEvent { DesiredLatency = OutputLatencyMilliseconds, NumberOfBuffers = 2 };
             _output.Init(_meter);
@@ -152,10 +153,13 @@ public sealed class AudioClipPlayer : IDisposable
     /// Builds the monitoring matrix: the source is mapped into the project mix layout and then folded down
     /// to the stereo output device, so surround mixes can be auditioned on headphones or stereo speakers.
     /// </summary>
-    public static float[,] CreateMonitorMatrix(int sourceChannelCount, AudioChannelLayout mixLayout, double balance = 0) =>
+    public static float[,] CreateMonitorMatrix(
+        int sourceChannelCount, AudioChannelLayout mixLayout, double balance = 0,
+        bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0) =>
         AudioChannelLayouts.Multiply(
             AudioChannelLayouts.CreateMixMatrix(mixLayout, AudioChannelLayout.Stereo),
-            AudioMixControls.CreateMatrix(sourceChannelCount, mixLayout, balance));
+            AudioMixControls.CreateMatrix(sourceChannelCount, mixLayout, balance,
+                spatialPanEnabled, spatialPanAzimuthDegrees));
 
     public void Update(AudioTrackProject project, AudioChannelLayout mixLayout)
     {
@@ -164,7 +168,8 @@ public sealed class AudioClipPlayer : IDisposable
         _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
         _effects.Update(project.Effects);
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
-        _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance));
+        _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
+            project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
     }
 
     public void SetSoloSuppressed(bool suppressed)

@@ -21,6 +21,8 @@ public sealed partial class MainWindow
         }
     }
 
+    private void AudioWaveformSelectionMode_Toggled(object sender, RoutedEventArgs e) => InvalidateAudioWaveforms();
+
     private void AudioWaveform_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not CanvasControl { Tag: AudioTrackRuntime track } canvas ||
@@ -84,15 +86,29 @@ public sealed partial class MainWindow
     {
         try
         {
+            if (AudioWaveformSampleSelectionToggle.IsOn && track.Player is AudioClipPlayer player)
+            {
+                (long startSample, long endSample) = AudioRangeEditing.GetWaveformSourceSampleRange(
+                    track.Project, _audioRangeDragStartX, x, _audioRangeCanvas!.ActualWidth,
+                    player.SourceSampleFrames, player.SourceSampleRate);
+                AudioSourceFirstSampleBox.Value = startSample;
+                AudioSourceEndSampleBox.Value = endSample;
+                InvalidateAudioWaveforms();
+                return;
+            }
+
             (int start, int end) = AudioRangeEditing.GetWaveformDragRange(
                 track.Project, _audioRangeDragStartX, x, _audioRangeCanvas!.ActualWidth,
                 _frameRate, track.SourceDurationSeconds);
             AudioRangeStartBox.Value = start;
             AudioRangeEndBox.Value = end;
+            InvalidateAudioWaveforms();
         }
         catch (ArgumentOutOfRangeException)
         {
-            StatusText.Text = "This audio clip cannot be selected as a timeline-frame range.";
+            StatusText.Text = AudioWaveformSampleSelectionToggle.IsOn
+                ? "This audio clip cannot be selected by source sample."
+                : "This audio clip cannot be selected as a timeline-frame range.";
         }
     }
 

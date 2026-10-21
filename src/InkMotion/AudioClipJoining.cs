@@ -37,6 +37,8 @@ public static class AudioClipJoining
 
         if (left.Volume != right.Volume || left.GainDecibels != right.GainDecibels ||
             left.Muted != right.Muted || left.Solo != right.Solo || left.Balance != right.Balance ||
+            left.SpatialPanEnabled != right.SpatialPanEnabled ||
+            (left.SpatialPanEnabled && left.SpatialPanAzimuthDegrees != right.SpatialPanAzimuthDegrees) ||
             left.TempoPercent != right.TempoPercent || left.PitchSemitones != right.PitchSemitones ||
             left.Effects != right.Effects)
         {

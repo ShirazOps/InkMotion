@@ -622,11 +622,16 @@ public sealed partial class MainWindow : Window
         UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        bool hasMonoClip = hasClip && _audioTracks[_selectedAudioTrackIndex].Player is AudioClipPlayer { ChannelCount: 1 };
         UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
         AudioSoloButton.IsEnabled = hasClip;
-        AudioBalanceBox.IsEnabled = hasClip && _audioMixLayout != AudioChannelLayout.Mono;
+        AudioBalanceBox.IsEnabled = hasClip && _audioMixLayout != AudioChannelLayout.Mono &&
+            !(hasMonoClip && _audioTracks[_selectedAudioTrackIndex].Project.SpatialPanEnabled);
+        AudioSpatialPanToggle.IsEnabled = hasMonoClip && _audioMixLayout != AudioChannelLayout.Mono;
+        AudioSpatialPanAzimuthBox.IsEnabled = AudioSpatialPanToggle.IsEnabled &&
+            hasSelection && _audioTracks[_selectedAudioTrackIndex].Project.SpatialPanEnabled;
         MoveAudioClipButton.IsEnabled = hasClip;
         TrimAudioStartButton.IsEnabled = hasClip;
         TrimAudioEndButton.IsEnabled = hasClip;
@@ -654,6 +659,8 @@ public sealed partial class MainWindow : Window
             AudioMuteButton.IsChecked = false;
             AudioSoloButton.IsChecked = false;
             AudioBalanceBox.Value = 0;
+            AudioSpatialPanToggle.IsOn = false;
+            AudioSpatialPanAzimuthBox.Value = 0;
             AudioTitleBox.Text = string.Empty;
             AudioArtistBox.Text = string.Empty;
             AudioAlbumBox.Text = string.Empty;
@@ -675,6 +682,8 @@ public sealed partial class MainWindow : Window
         AudioMuteButton.IsChecked = track.Project.Muted;
         AudioSoloButton.IsChecked = track.Project.Solo;
         AudioBalanceBox.Value = track.Project.Balance * 100;
+        AudioSpatialPanToggle.IsOn = track.Project.SpatialPanEnabled;
+        AudioSpatialPanAzimuthBox.Value = track.Project.SpatialPanAzimuthDegrees;
         AudioFadeInBox.Value = track.Project.FadeInSeconds;
         AudioFadeOutBox.Value = track.Project.FadeOutSeconds;
         AudioTempoBox.Value = track.Project.TempoPercent;
@@ -1165,12 +1174,34 @@ public sealed partial class MainWindow : Window
             args.DrawingSession.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
         }
 
-        if (ReferenceEquals(track, _audioRangeTrack) &&
-            double.IsFinite(AudioRangeStartBox.Value) && double.IsFinite(AudioRangeEndBox.Value))
+        if (ReferenceEquals(track, _audioRangeTrack))
         {
-            double frameLength = clipDuration * _frameRate;
-            float x0 = (float)Math.Clamp((AudioRangeStartBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
-            float x1 = (float)Math.Clamp((AudioRangeEndBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
+            double selectionStart;
+            double selectionEnd;
+            if (AudioWaveformSampleSelectionToggle.IsOn && track.Player is AudioClipPlayer player &&
+                double.IsFinite(AudioSourceFirstSampleBox.Value) && double.IsFinite(AudioSourceEndSampleBox.Value))
+            {
+                double visibleStart = Math.Round(track.Project.SourceInSeconds * player.SourceSampleRate);
+                double visibleEnd = track.Project.SourceOutSeconds is double sourceOut
+                    ? Math.Round(sourceOut * player.SourceSampleRate)
+                    : player.SourceSampleFrames;
+                double visibleLength = visibleEnd - visibleStart;
+                selectionStart = visibleLength > 0
+                    ? (AudioSourceFirstSampleBox.Value - visibleStart) / visibleLength
+                    : 0;
+                selectionEnd = visibleLength > 0
+                    ? (AudioSourceEndSampleBox.Value - visibleStart) / visibleLength
+                    : 0;
+            }
+            else
+            {
+                double frameLength = clipDuration * _frameRate;
+                selectionStart = (AudioRangeStartBox.Value - track.Project.StartFrame) / frameLength;
+                selectionEnd = (AudioRangeEndBox.Value - track.Project.StartFrame) / frameLength;
+            }
+
+            float x0 = (float)Math.Clamp(selectionStart, 0, 1) * width;
+            float x1 = (float)Math.Clamp(selectionEnd, 0, 1) * width;
             if (x1 > x0)
             {
                 args.DrawingSession.FillRectangle(x0, 0, x1 - x0, (float)sender.ActualHeight, ToColour(0x4064C8FF));
