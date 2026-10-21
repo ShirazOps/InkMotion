@@ -623,6 +623,8 @@ public sealed partial class MainWindow : Window
         UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        RelinkMatchingAudioSourcesButton.IsEnabled = hasSelection &&
+            !string.IsNullOrWhiteSpace(_audioTracks[_selectedAudioTrackIndex].Project.AudioPath);
         bool hasMonoClip = hasClip && _audioTracks[_selectedAudioTrackIndex].Player is AudioClipPlayer { ChannelCount: 1 };
         UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
@@ -1316,7 +1318,7 @@ public sealed partial class MainWindow : Window
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
         return _audioTracks.Any(track => track.LoadError is not null)
-            ? "One or more audio sources are missing or unavailable. Use Add audio to relink."
+            ? "One or more audio sources are missing or unavailable. Select a track and use Relink all matching audio sources."
             : null;
     }
 

@@ -560,6 +560,9 @@
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="RelinkMatchingAudioSourcesButton" Content="Relink all matching audio sources..." Click="RelinkMatchingAudioSources_Click" IsEnabled="False" />
+                        <CheckBox x:Name="AudioRelinkUseReplacementEnd" Content="Use replacement end for unresolved clips" />
+                        <TextBlock Text="Relinks all audio tracks using the selected source, including missing files. Keeps placement, processing and tags. Validates every source range before changing links; undo restores all links. Known source ends are retained. Missing sources without a saved end are rejected unless the option above is enabled; that option can change their duration to the replacement end. Spatial panning requires a mono replacement." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
                         <UserControl x:Name="AudioSourceRangeActions" IsEnabled="False">
                           <StackPanel Spacing="8">
