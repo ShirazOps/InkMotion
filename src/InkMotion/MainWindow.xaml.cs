@@ -1045,6 +1045,10 @@ public sealed partial class MainWindow : Window
             Tag = track,
         };
         waveform.Draw += AudioWaveform_Draw;
+        waveform.PointerPressed += AudioWaveform_PointerPressed;
+        waveform.PointerMoved += AudioWaveform_PointerMoved;
+        waveform.PointerReleased += AudioWaveform_PointerReleased;
+        waveform.PointerCaptureLost += AudioWaveform_PointerCaptureLost;
 
         var content = new Grid();
         content.Children.Add(waveform);
