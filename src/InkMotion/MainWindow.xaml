@@ -677,6 +677,12 @@
                         <TextBlock Text="20 Hz to Nyquist (logarithmic) | 0 dBFS at top, -120 at bottom" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock x:Name="AudioSpectrumText" Text="Analyse the start of the selected source range (up to 32768 samples)." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Snapshot of source audio before tempo, pitch, gain, fades and effects. Channel powers are averaged, so opposite-phase stereo does not cancel. Not a spectrogram or whole-clip average." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button x:Name="AnalyseAudioSpectrogramButton" Content="Spectrogram of selected source range" Tag="spectrogram" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <Button Content="Cancel / clear source analysis" Click="ClearAudioAnalysis_Click" />
+                        <canvas:CanvasControl x:Name="AudioSpectrogramSurface" Height="220" Draw="AudioSpectrogramSurface_Draw" AutomationProperties.Name="Source spectrogram, time left to right, logarithmic frequency 20 Hz at bottom to Nyquist at top" />
+                        <TextBlock Text="Time: left to right | Frequency: 20 Hz bottom to Nyquist top (logarithmic) | Colour: black -120, cyan -60, white 0 dBFS" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="AudioSpectrogramText" Text="Analyse the selected source range to show frequency content over time." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Pre-effects source analysis, not the master mix. Streams every selected sample with non-overlapping Hann FFT windows up to 1024 frames. Up to 256 time columns average consecutive window powers, weighted by sample count; short final windows are normalised and zero-padded. Channel powers are averaged without phase cancellation. Long ranges lose time detail; log display cannot improve FFT frequency resolution. Changing selection cancels analysis." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />

@@ -155,7 +155,7 @@ public static class AudioSpectrum
         return AnalyseWindow(samples[..(size * channels)], channels, sampleRate, size, cancellationToken);
     }
 
-    private static AudioSpectrumResult AnalyseWindow(ReadOnlySpan<float> samples, int channels, int sampleRate,
+    internal static AudioSpectrumResult AnalyseWindow(ReadOnlySpan<float> samples, int channels, int sampleRate,
         int size, CancellationToken cancellationToken)
     {
         int available = samples.Length / channels;
