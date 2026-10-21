@@ -163,6 +163,60 @@ public static class AudioChannelLayouts
     public static float[,] CreateMixMatrix(AudioChannelLayout source, AudioChannelLayout target) =>
         CreateMixMatrix(Get(source).Speakers, Get(target).Speakers);
 
+    /// <summary>Creates an equal-power mono panner across the horizontal speakers, leaving height and LFE channels silent.</summary>
+    public static float[,] CreateSpatialPanMatrix(AudioChannelLayout target, double azimuthDegrees)
+    {
+        if (!double.IsFinite(azimuthDegrees) || azimuthDegrees is < -180 or > 180)
+        {
+            throw new ArgumentOutOfRangeException(nameof(azimuthDegrees));
+        }
+
+        IReadOnlyList<AudioSpeaker> speakers = Get(target).Speakers;
+        var positions = speakers
+            .Select((speaker, index) => (Speaker: speaker, Index: index))
+            .Where(position => position.Speaker != AudioSpeaker.LowFrequency &&
+                SpeakerPositions[position.Speaker].Elevation == 0)
+            .Select(position => (position.Index, Angle: NormalizeAzimuth(SpeakerPositions[position.Speaker].Azimuth)))
+            .OrderBy(position => position.Angle)
+            .ToArray();
+        var matrix = new float[speakers.Count, 1];
+        if (positions.Length == 0)
+        {
+            return matrix;
+        }
+
+        double angle = NormalizeAzimuth(azimuthDegrees);
+        int next = Array.FindIndex(positions, position => position.Angle >= angle - 1e-10);
+        if (next < 0)
+        {
+            next = 0;
+        }
+
+        if (Math.Abs(positions[next].Angle - angle) <= 1e-10)
+        {
+            matrix[positions[next].Index, 0] = 1;
+            return matrix;
+        }
+
+        int previous = (next - 1 + positions.Length) % positions.Length;
+        double previousAngle = positions[previous].Angle;
+        double nextAngle = positions[next].Angle;
+        if (previous > next)
+        {
+            nextAngle += 360;
+        }
+
+        if (angle < previousAngle)
+        {
+            angle += 360;
+        }
+
+        double proportion = Math.Clamp((angle - previousAngle) / (nextAngle - previousAngle), 0, 1);
+        matrix[positions[previous].Index, 0] = (float)Math.Cos(proportion * Math.PI / 2);
+        matrix[positions[next].Index, 0] = (float)Math.Sin(proportion * Math.PI / 2);
+        return matrix;
+    }
+
     public static float[,] CreateMixMatrix(IReadOnlyList<AudioSpeaker> source, IReadOnlyList<AudioSpeaker> target)
     {
         var matrix = new float[target.Count, source.Count];
@@ -288,6 +342,12 @@ public static class AudioChannelLayouts
     {
         double difference = Math.Abs(first - second) % 360;
         return difference > 180 ? 360 - difference : difference;
+    }
+
+    private static double NormalizeAzimuth(double angle)
+    {
+        double normalised = angle % 360;
+        return normalised < 0 ? normalised + 360 : normalised;
     }
 
     private static int IndexOf(IReadOnlyList<AudioSpeaker> speakers, AudioSpeaker speaker)

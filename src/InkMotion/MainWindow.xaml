@@ -543,6 +543,9 @@
                         </StackPanel>
                         <NumberBox x:Name="AudioBalanceBox" Header="Balance (-100 left, +100 right)" Minimum="-100" Maximum="100" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioBalance_ValueChanged" IsEnabled="False" />
                         <TextBlock Text="Balance attenuates left/right speakers; centre/LFE stay unchanged. Solo isolates marked audio tracks and bypasses video-source sound. Mute takes priority over solo." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ToggleSwitch x:Name="AudioSpatialPanToggle" Header="Spatial azimuth pan (mono sources)" OnContent="Enabled" OffContent="Disabled" Toggled="AudioSpatialPan_Toggled" IsEnabled="False" />
+                        <NumberBox x:Name="AudioSpatialPanAzimuthBox" Header="Azimuth (-180° to +180°)" Minimum="-180" Maximum="180" Value="0" SmallChange="15" SpinButtonPlacementMode="Compact" ValueChanged="AudioSpatialPanAzimuth_ValueChanged" IsEnabled="False" />
+                        <TextBlock Text="Positions a mono clip around the horizontal speaker layout with equal-power panning. Stereo balance is bypassed while spatial pan is enabled; height and LFE channels are not pan targets. Preview folds to stereo, while export uses the selected mix layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
                         <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Reset clip indicator" Click="ResetAudioClipIndicator_Click" />

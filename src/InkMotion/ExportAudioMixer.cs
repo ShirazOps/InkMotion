@@ -6,7 +6,7 @@ namespace InkMotion;
 
 /// <summary>
 /// Offline mix of every audible source in a project, rendered at the requested rate in the project's channel layout.
-/// Audio tracks keep their trim, gain, fades, tempo, pitch and speaker balance. Solo isolates marked audio
+/// Audio tracks keep their trim, gain, fades, tempo, pitch, speaker balance and mono spatial pan. Solo isolates marked audio
 /// tracks; otherwise video clips contribute their sound with clip volume and fades applied.
 /// </summary>
 public sealed class ExportAudioMixer : IDisposable
@@ -126,7 +126,8 @@ public sealed class ExportAudioMixer : IDisposable
         stretch.SetParameters(AudioClipEditing.GetTempoRatio(track), track.PitchSemitones);
         stretch.Seek(track.SourceInSeconds);
         var effects = new AudioEffectsSampleProvider(stretch, track.Effects);
-        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration, track.Balance);
+        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration,
+            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip)
@@ -161,11 +162,13 @@ public sealed class ExportAudioMixer : IDisposable
         AddSource(envelope, VideoTimelineEditing.GetStartSeconds(clip, _frameRate), duration);
     }
 
-    private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds, double balance = 0)
+    private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,
+        double balance = 0, bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0)
     {
         ISampleProvider mixed = new ChannelMixingSampleProvider(
             source,
-            AudioMixControls.CreateMatrix(source.WaveFormat.Channels, Layout, balance));
+            AudioMixControls.CreateMatrix(source.WaveFormat.Channels, Layout, balance,
+                spatialPanEnabled, spatialPanAzimuthDegrees));
         if (mixed.WaveFormat.SampleRate != SampleRate)
         {
             mixed = new WdlResamplingSampleProvider(mixed, SampleRate);

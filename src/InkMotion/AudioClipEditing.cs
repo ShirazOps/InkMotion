@@ -71,6 +71,7 @@ public static class AudioClipEditing
     public static bool HasValidClipSettings(AudioTrackProject track) =>
         track.Effects is { IsValid: true } &&
         double.IsFinite(track.Balance) && track.Balance is >= -1 and <= 1 &&
+        double.IsFinite(track.SpatialPanAzimuthDegrees) && track.SpatialPanAzimuthDegrees is >= -180 and <= 180 &&
         double.IsFinite(track.SourceInSeconds) &&
         track.SourceInSeconds >= 0 &&
         (track.SourceOutSeconds is null ||
@@ -217,6 +218,8 @@ public static class AudioClipEditing
         Muted = track.Muted,
         Solo = track.Solo,
         Balance = track.Balance,
+        SpatialPanEnabled = track.SpatialPanEnabled,
+        SpatialPanAzimuthDegrees = track.SpatialPanAzimuthDegrees,
         Effects = track.Effects with { },
         SourceInSeconds = track.SourceInSeconds,
         SourceOutSeconds = track.SourceOutSeconds,

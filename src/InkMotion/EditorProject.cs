@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 16;
+    public const int CurrentVersion = 17;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -41,6 +41,8 @@ public sealed class AudioTrackProject
     public bool Muted { get; set; }
     public bool Solo { get; set; }
     public double Balance { get; set; }
+    public bool SpatialPanEnabled { get; set; }
+    public double SpatialPanAzimuthDegrees { get; set; }
     public AudioEffectSettings Effects { get; set; } = new();
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
@@ -292,6 +294,10 @@ public static class EditorProjectSerialiser
             project.Version = 15;
         }
         if (project.Version == 15)
+        {
+            project.Version = 16;
+        }
+        if (project.Version == 16)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -679,7 +685,13 @@ internal static class EditorProjectValidation
 
         if (project.AudioTracks.Any(track => !AudioClipEditing.HasValidClipSettings(track)))
         {
-            throw new InvalidDataException("Audio clips must have valid in/out points, fades, gain, tempo, pitch, balance and effect settings.");
+            throw new InvalidDataException("Audio clips must have valid in/out points, fades, gain, tempo, pitch, balance, spatial pan and effect settings.");
+        }
+
+        if (project.AudioTracks.Any(track => track.SpatialPanEnabled &&
+            (!double.IsFinite(track.SpatialPanAzimuthDegrees) || track.SpatialPanAzimuthDegrees is < -180 or > 180)))
+        {
+            throw new InvalidDataException("Spatial pan azimuth must be between -180 and 180 degrees.");
         }
 
         if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))

@@ -2,11 +2,22 @@ namespace InkMotion;
 
 public static class AudioMixControls
 {
-    public static float[,] CreateMatrix(int sourceChannels, AudioChannelLayout layout, double balance)
+    public static float[,] CreateMatrix(
+        int sourceChannels, AudioChannelLayout layout, double balance, bool spatialPanEnabled = false, double spatialPanDegrees = 0)
     {
         if (!double.IsFinite(balance) || balance < -1 || balance > 1)
         {
             throw new ArgumentOutOfRangeException(nameof(balance));
+        }
+
+        if (spatialPanEnabled)
+        {
+            if (sourceChannels != 1)
+            {
+                throw new ArgumentException("Spatial azimuth panning is supported for mono sources only.", nameof(sourceChannels));
+            }
+
+            return AudioChannelLayouts.CreateSpatialPanMatrix(layout, spatialPanDegrees);
         }
 
         float[,] matrix = AudioChannelLayouts.CreateMixMatrix(sourceChannels, layout);

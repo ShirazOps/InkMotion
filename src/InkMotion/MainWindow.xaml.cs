@@ -622,11 +622,16 @@ public sealed partial class MainWindow : Window
         UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        bool hasMonoClip = hasClip && _audioTracks[_selectedAudioTrackIndex].Player is AudioClipPlayer { ChannelCount: 1 };
         UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
         AudioMuteButton.IsEnabled = hasSelection;
         AudioSoloButton.IsEnabled = hasClip;
-        AudioBalanceBox.IsEnabled = hasClip && _audioMixLayout != AudioChannelLayout.Mono;
+        AudioBalanceBox.IsEnabled = hasClip && _audioMixLayout != AudioChannelLayout.Mono &&
+            !(hasMonoClip && _audioTracks[_selectedAudioTrackIndex].Project.SpatialPanEnabled);
+        AudioSpatialPanToggle.IsEnabled = hasMonoClip && _audioMixLayout != AudioChannelLayout.Mono;
+        AudioSpatialPanAzimuthBox.IsEnabled = AudioSpatialPanToggle.IsEnabled &&
+            hasSelection && _audioTracks[_selectedAudioTrackIndex].Project.SpatialPanEnabled;
         MoveAudioClipButton.IsEnabled = hasClip;
         TrimAudioStartButton.IsEnabled = hasClip;
         TrimAudioEndButton.IsEnabled = hasClip;
@@ -654,6 +659,8 @@ public sealed partial class MainWindow : Window
             AudioMuteButton.IsChecked = false;
             AudioSoloButton.IsChecked = false;
             AudioBalanceBox.Value = 0;
+            AudioSpatialPanToggle.IsOn = false;
+            AudioSpatialPanAzimuthBox.Value = 0;
             AudioTitleBox.Text = string.Empty;
             AudioArtistBox.Text = string.Empty;
             AudioAlbumBox.Text = string.Empty;
@@ -675,6 +682,8 @@ public sealed partial class MainWindow : Window
         AudioMuteButton.IsChecked = track.Project.Muted;
         AudioSoloButton.IsChecked = track.Project.Solo;
         AudioBalanceBox.Value = track.Project.Balance * 100;
+        AudioSpatialPanToggle.IsOn = track.Project.SpatialPanEnabled;
+        AudioSpatialPanAzimuthBox.Value = track.Project.SpatialPanAzimuthDegrees;
         AudioFadeInBox.Value = track.Project.FadeInSeconds;
         AudioFadeOutBox.Value = track.Project.FadeOutSeconds;
         AudioTempoBox.Value = track.Project.TempoPercent;
