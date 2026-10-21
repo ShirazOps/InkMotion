@@ -424,7 +424,8 @@ public sealed partial class MainWindow
             return;
         }
 
-        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, clip.Scale, clip.X, clip.Y, opacity);
+        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, clip.Scale, clip.X, clip.Y, opacity,
+            clip.RotationDegrees);
     }
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
@@ -1402,6 +1403,7 @@ public sealed partial class MainWindow
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)ClipFontSizeBox.Parent).Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipScaleSlider.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
+        ClipRotationBox.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
         ClipXSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         ClipYSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
 
@@ -1423,6 +1425,7 @@ public sealed partial class MainWindow
                 uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint argb) &&
                 argb == clip.Colour);
         ClipScaleSlider.Value = clip.Scale;
+        ClipRotationBox.Value = clip.RotationDegrees;
         ClipXSlider.Value = clip.X;
         ClipYSlider.Value = clip.Y;
         _isRestoringProject = wasRestoring;
@@ -1492,6 +1495,27 @@ public sealed partial class MainWindow
     {
         FinishActiveEdit();
         UpdateVideoInspector();
+    }
+
+    private void ClipRotation_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject)
+        {
+            return;
+        }
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < -180 or > 180)
+        {
+            StatusText.Text = "Image rotation must be a finite angle from -180 to 180 degrees.";
+            UpdateVideoInspector();
+            return;
+        }
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Image } selected ||
+            selected.Clip.RotationDegrees == args.NewValue || !TryBeginClipPropertyEdit(out var location))
+        {
+            return;
+        }
+        location.Clip.RotationDegrees = args.NewValue;
+        ApplyClipPreview();
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)

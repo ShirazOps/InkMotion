@@ -50,12 +50,23 @@ public static class TimelineCompositor
         double scale,
         double x,
         double y,
-        float opacity)
+        float opacity,
+        double rotationDegrees = 0)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
         {
-            session.DrawImage(bitmap, destination, sourceRect, opacity);
+            Matrix3x2 previous = session.Transform;
+            try
+            {
+                session.Transform = Matrix3x2.CreateRotation((float)(rotationDegrees * Math.PI / 180),
+                    new Vector2((float)(x * width), (float)(y * height))) * previous;
+                session.DrawImage(bitmap, destination, sourceRect, opacity);
+            }
+            finally
+            {
+                session.Transform = previous;
+            }
         }
     }
 

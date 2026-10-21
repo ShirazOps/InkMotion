@@ -36,6 +36,7 @@ public sealed class TimelineClipProject
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
+    public double RotationDegrees { get; set; }
     public string Text { get; set; } = string.Empty;
     public string FontFamily { get; set; } = "Segoe UI";
     /// <summary>Font size in pixels relative to a 1080-pixel-high frame.</summary>
@@ -564,6 +565,7 @@ public static class VideoTimelineEditing
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
+        RotationDegrees = clip.RotationDegrees,
         Text = clip.Text,
         FontFamily = clip.FontFamily,
         FontSize = clip.FontSize,
@@ -622,7 +624,10 @@ public static class VideoTimelineEditing
             IsFiniteNonNegative(clip.FadeInSeconds) &&
             IsFiniteNonNegative(clip.FadeOutSeconds) &&
             IsUnit(clip.X) &&
-            IsUnit(clip.Y);
+            IsUnit(clip.Y) &&
+            double.IsFinite(clip.RotationDegrees) &&
+            clip.RotationDegrees is >= -180 and <= 180 &&
+            (kind == TimelineTrackKind.Image || clip.RotationDegrees == 0);
         if (!common)
         {
             return false;

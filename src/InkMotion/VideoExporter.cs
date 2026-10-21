@@ -319,7 +319,8 @@ public static class VideoExporter
                             DrawVideo(session, layer.Clip, seconds, width, height, opacity);
                             break;
                         case TimelineTrackKind.Image when GetImage(layer.Clip.SourcePath) is CanvasBitmap image:
-                            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height, layer.Clip.Scale, layer.Clip.X, layer.Clip.Y, opacity);
+                            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height, layer.Clip.Scale, layer.Clip.X, layer.Clip.Y, opacity,
+                                layer.Clip.RotationDegrees);
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
