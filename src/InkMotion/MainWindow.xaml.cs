@@ -436,6 +436,7 @@ public sealed partial class MainWindow : Window
 
     private void LoadAudio(AudioTrackRuntime track, StorageFile file)
     {
+        ClearAudioMasterAnalysis();
         PausePlayback();
         track.Project.AudioPath = file.Path;
         track.Project.StartFrame = _playheadFramePosition + 1;
@@ -2197,6 +2198,7 @@ public sealed partial class MainWindow : Window
 
     private void RestoreProjectState(EditorProject project)
     {
+        ClearAudioMasterAnalysis();
         PausePlayback();
         _isRestoringProject = true;
         _frames.Clear();
@@ -2278,6 +2280,7 @@ public sealed partial class MainWindow : Window
 
     private void MarkEditChanged()
     {
+        ClearAudioMasterAnalysis();
         _pendingEditChanged = true;
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
@@ -2315,6 +2318,7 @@ public sealed partial class MainWindow : Window
 
     private void ClearHistory()
     {
+        ClearAudioMasterAnalysis();
         _undoHistory.Clear();
         _redoHistory.Clear();
         _pendingEdit = null;
@@ -2530,6 +2534,7 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Volume = e.NewValue;
+        ClearAudioMasterAnalysis();
         track.Player?.Update(track.Project, _audioMixLayout);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
@@ -2545,12 +2550,15 @@ public sealed partial class MainWindow : Window
 
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Muted = AudioMuteButton.IsChecked == true;
+        ClearAudioMasterAnalysis();
         track.Player?.Update(track.Project, _audioMixLayout);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _audioMasterClosed = true;
+        ClearAudioMasterAnalysis();
         SaveEditorLayout();
         _exportJobsClosed = true;
         _exportJobsTimer?.Stop();
