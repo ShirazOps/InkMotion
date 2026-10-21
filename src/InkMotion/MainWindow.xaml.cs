@@ -1899,6 +1899,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
+        RefreshInkTextSelection();
         _renderedStrokes.Clear();
         _renderedText.Clear();
         if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)

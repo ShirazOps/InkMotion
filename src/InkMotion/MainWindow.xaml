@@ -798,6 +798,7 @@
                         <NumberBox x:Name="InkSelectionAngleBox" Header="Rotation (degrees)" Minimum="-360" Maximum="360" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" />
                         <Button Content="Apply selection transform" Tag="transform" Click="InkSelectionAction_Click" />
                         <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="InkTextOverlaySelector" Header="Existing text on this cel" HorizontalAlignment="Stretch" SelectionChanged="InkTextOverlay_SelectionChanged" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
                         <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="InkTextFontSelector" SelectedIndex="0">
@@ -815,6 +816,22 @@
                             <Button Content="Add text to cel" Click="AddInkText_Click" />
                             <Button Content="Remove last text" Click="RemoveInkText_Click" />
                         </StackPanel>
+                        <UserControl x:Name="InkSelectedTextProperties" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <NumberBox x:Name="InkTextXBox" Header="Selected text X (%)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                                <NumberBox x:Name="InkTextYBox" Header="Selected text Y (%)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                                <Button Content="Selected text colour">
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <ColorPicker x:Name="InkSelectedTextColour" IsAlphaEnabled="True" IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True" />
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </UserControl>
+                        <Button x:Name="ApplySelectedInkTextButton" Content="Apply to selected text" Click="SelectedInkTextAction_Click" IsEnabled="False" />
+                        <Button x:Name="RemoveSelectedInkTextButton" Content="Remove selected text" Tag="remove" Click="SelectedInkTextAction_Click" IsEnabled="False" />
+                        <TextBlock Text="Select an existing overlay to load its text, font, size, position and colour. Apply is explicit and undoable; switching cels or overlays discards unapplied edits. Add text still creates a centred overlay using the brush colour. Text is cel-wide, not owned by drawing layers; drawing locks do not prevent text edits. Selection here is by overlay, not by characters or canvas hit-testing." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
                         <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />
