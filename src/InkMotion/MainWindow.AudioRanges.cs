@@ -1,18 +1,112 @@
+using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 
 namespace InkMotion;
 
 public sealed partial class MainWindow
 {
     private AudioTrackRuntime? _audioRangeTrack;
+    private CanvasControl? _audioRangeCanvas;
+    private uint? _audioRangePointerId;
+    private double _audioRangeDragStartX;
 
     private void AudioRange_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (!_isInitialising)
         {
             ClearAudioSpectrum();
+            InvalidateAudioWaveforms();
+        }
+    }
+
+    private void AudioWaveform_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not CanvasControl { Tag: AudioTrackRuntime track } canvas ||
+            !e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed ||
+            canvas.ActualWidth <= 0)
+        {
+            return;
+        }
+
+        int index = _audioTracks.IndexOf(track);
+        if (index >= 0 && index != _selectedAudioTrackIndex)
+        {
+            _selectedAudioTrackIndex = index;
+            UpdateSelectedAudioTrack();
+        }
+
+        _audioRangeCanvas = canvas;
+        _audioRangePointerId = e.Pointer.PointerId;
+        _audioRangeDragStartX = e.GetCurrentPoint(canvas).Position.X;
+        canvas.CapturePointer(e.Pointer);
+        UpdateAudioWaveformDragSelection(track, _audioRangeDragStartX);
+        e.Handled = true;
+    }
+
+    private void AudioWaveform_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
+            _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
+        {
+            UpdateAudioWaveformDragSelection(track, e.GetCurrentPoint(canvas).Position.X);
+            e.Handled = true;
+        }
+    }
+
+    private void AudioWaveform_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
+            _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
+        {
+            UpdateAudioWaveformDragSelection(track, e.GetCurrentPoint(canvas).Position.X);
+            _audioRangePointerId = null;
+            _audioRangeCanvas = null;
+            canvas.ReleasePointerCapture(e.Pointer);
             RefreshAudioTracks();
+            e.Handled = true;
+        }
+    }
+
+    private void AudioWaveform_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is CanvasControl canvas &&
+            _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
+        {
+            _audioRangePointerId = null;
+            _audioRangeCanvas = null;
+            RefreshAudioTracks();
+        }
+    }
+
+    private void UpdateAudioWaveformDragSelection(AudioTrackRuntime track, double x)
+    {
+        try
+        {
+            (int start, int end) = AudioRangeEditing.GetWaveformDragRange(
+                track.Project, _audioRangeDragStartX, x, _audioRangeCanvas!.ActualWidth,
+                _frameRate, track.SourceDurationSeconds);
+            AudioRangeStartBox.Value = start;
+            AudioRangeEndBox.Value = end;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            StatusText.Text = "This audio clip cannot be selected as a timeline-frame range.";
+        }
+    }
+
+    private void InvalidateAudioWaveforms()
+    {
+        foreach (Button button in AudioTracksPanel.Children.OfType<Button>())
+        {
+            if (button.Content is Grid grid)
+            {
+                foreach (CanvasControl waveform in grid.Children.OfType<CanvasControl>())
+                {
+                    waveform.Invalidate();
+                }
+            }
         }
     }
 

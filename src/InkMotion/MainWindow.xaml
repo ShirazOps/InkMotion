@@ -557,12 +557,13 @@
                             <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
                             <Button Content="Apply source sample range" Click="ApplyAudioSourceSamples_Click" />
                             <TextBlock x:Name="AudioSourceSamplesText" Text="Load an audio clip to set sample-based source endpoints." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                            <TextBlock Text="Edits both source endpoints together, independently of the project video frame rate. Keeps the timeline start, tempo/pitch and other settings; duration can change. Existing fades must fit. Saved source endpoints use seconds; the boxes show the nearest source sample boundaries. This is clip trimming, not a sample editor or waveform drag selection." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="Edits both source endpoints together, independently of the project video frame rate. Keeps the timeline start, tempo/pitch and other settings; duration can change. Existing fades must fit. Saved source endpoints use seconds; the boxes show the nearest source sample boundaries. Waveform range selection is timeline-frame based; it does not move these source sample endpoints." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                           </StackPanel>
                         </UserControl>
                         <UserControl x:Name="AudioRangeActions" IsEnabled="False">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Timeline frame range (end excluded)" Style="{StaticResource LabelTextStyle}" />
+                                <TextBlock Text="Drag across a waveform to set this range. Selection snaps to project timeline frames; the end boundary is excluded." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="AudioRangeStartBox" Header="Range start" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
                                 <NumberBox x:Name="AudioRangeEndBox" Header="Range end" Minimum="1" Maximum="2147483647" Value="2" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioRange_ValueChanged" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">

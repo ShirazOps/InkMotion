@@ -4,6 +4,39 @@ public sealed record AudioRangeParts(AudioTrackProject? Before, AudioTrackProjec
 
 public static class AudioRangeEditing
 {
+    public static (int StartFrame, int EndFrame) GetWaveformDragRange(
+        AudioTrackProject track, double startX, double endX, double width, double frameRate, double sourceDuration)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        double duration = AudioClipEditing.GetTimelineDuration(track, sourceDuration);
+        if (!double.IsFinite(startX) || !double.IsFinite(endX) || !double.IsFinite(width) || width <= 0 ||
+            !double.IsFinite(frameRate) || frameRate <= 0 || !double.IsFinite(duration) || duration <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Waveform selection coordinates and clip timing must be finite and positive.");
+        }
+
+        double clipEnd = track.StartFrame + duration * frameRate;
+        if (!double.IsFinite(clipEnd) || clipEnd > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(track), "The audio clip extends beyond the supported timeline frame range.");
+        }
+
+        int maximumEndFrame = (int)Math.Ceiling(clipEnd - 1e-8);
+        if (maximumEndFrame <= track.StartFrame)
+        {
+            throw new ArgumentOutOfRangeException(nameof(track), "The audio clip is shorter than one selectable timeline frame.");
+        }
+
+        double left = Math.Clamp(Math.Min(startX, endX) / width, 0, 1);
+        double right = Math.Clamp(Math.Max(startX, endX) / width, 0, 1);
+        double frameLength = duration * frameRate;
+        int rangeStart = track.StartFrame + (int)Math.Floor(left * frameLength + 1e-8);
+        int rangeEnd = track.StartFrame + (int)Math.Ceiling(right * frameLength - 1e-8);
+        rangeStart = Math.Clamp(rangeStart, track.StartFrame, maximumEndFrame - 1);
+        rangeEnd = Math.Clamp(rangeEnd, rangeStart + 1, maximumEndFrame);
+        return (rangeStart, rangeEnd);
+    }
+
     public static AudioRangeParts Partition(
         AudioTrackProject source, int startFrame, int endFrame, double frameRate, double sourceDuration)
     {

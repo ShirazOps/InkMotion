@@ -5,6 +5,48 @@ namespace InkMotion.Tests;
 
 public sealed class AudioRangeEditingTests
 {
+    [Theory]
+    [InlineData(20, 60, 100, 24, 28, 39)]
+    [InlineData(60, 20, 100, 24, 28, 39)]
+    [InlineData(-10, 0, 100, 24, 24, 25)]
+    [InlineData(100, 110, 100, 24, 47, 48)]
+    public void WaveformDragRange_MapsAndClampsToExcludedTimelineFrames(
+        double startX, double endX, double width, double frameRate, int expectedStart, int expectedEnd)
+    {
+        var track = new AudioTrackProject { StartFrame = 24, SourceOutSeconds = 1 };
+        (int start, int end) = AudioRangeEditing.GetWaveformDragRange(track, startX, endX, width, frameRate, 1);
+        Assert.Equal(expectedStart, start);
+        Assert.Equal(expectedEnd, end);
+    }
+
+    [Fact]
+    public void WaveformDragRange_UsesTempoAdjustedClipDuration()
+    {
+        var track = new AudioTrackProject { StartFrame = 10, SourceOutSeconds = 2, TempoPercent = 200 };
+        (int start, int end) = AudioRangeEditing.GetWaveformDragRange(track, 50, 100, 100, 24, 2);
+        Assert.Equal((22, 34), (start, end));
+    }
+
+    [Fact]
+    public void WaveformDragRange_StillSelectsTheFinalPartialTimelineFrame()
+    {
+        var track = new AudioTrackProject { StartFrame = 1, SourceOutSeconds = 0.01 };
+        (int start, int end) = AudioRangeEditing.GetWaveformDragRange(track, 0, 100, 100, 24, 1);
+        Assert.Equal((1, 2), (start, end));
+    }
+
+    [Fact]
+    public void WaveformDragRange_RejectsInvalidGeometryAndTiming()
+    {
+        var track = new AudioTrackProject { SourceOutSeconds = 1 };
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AudioRangeEditing.GetWaveformDragRange(track, 0, 1, 0, 24, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AudioRangeEditing.GetWaveformDragRange(track, double.NaN, 1, 100, 24, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AudioRangeEditing.GetWaveformDragRange(track, 0, 1, 100, 0, 1));
+    }
+
     [Fact]
     public void Partition_UsesTempoAndPreservesOuterFadesAndTags()
     {
