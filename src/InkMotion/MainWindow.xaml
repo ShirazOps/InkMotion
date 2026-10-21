@@ -423,6 +423,7 @@
                                 </ComboBox>
                             </Grid>
                             <Slider x:Name="ClipScaleSlider" Header="Scale" Minimum="0.05" Maximum="4" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <NumberBox x:Name="ClipRotationBox" Header="Image rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipYSlider" Header="Vertical position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                         </StackPanel>

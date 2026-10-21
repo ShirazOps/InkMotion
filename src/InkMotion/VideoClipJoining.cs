@@ -53,7 +53,7 @@ public static class VideoClipJoining
         }
 
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
-            left.X != right.X || left.Y != right.Y || left.Scale != right.Scale ||
+            left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {
