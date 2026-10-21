@@ -6,6 +6,7 @@ public sealed partial class MainWindow
 {
     private void UpdateAudioSourceRangeInspector()
     {
+        ClearSampleWaveform();
         bool available = TryGetSelectedAudioClip(out AudioTrackRuntime? track) && track.Player is not null;
         AudioSourceRangeActions.IsEnabled = available;
         if (!available || track?.Player is not AudioClipPlayer player)

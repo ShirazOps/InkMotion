@@ -563,11 +563,31 @@
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
                         <UserControl x:Name="AudioSourceRangeActions" IsEnabled="False">
                           <StackPanel Spacing="8">
-                            <NumberBox x:Name="AudioSourceFirstSampleBox" Header="Source start sample frame (zero-based)" Minimum="0" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
-                            <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                            <NumberBox x:Name="AudioSourceFirstSampleBox" Header="Source start sample frame (zero-based)" Minimum="0" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioSourceSampleSelection_ValueChanged" />
+                            <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioSourceSampleSelection_ValueChanged" />
                             <Button Content="Apply source sample range" Click="ApplyAudioSourceSamples_Click" />
                             <TextBlock x:Name="AudioSourceSamplesText" Text="Load an audio clip to set sample-based source endpoints." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <TextBlock Text="Edits both source endpoints together, independently of the project video frame rate. Keeps the timeline start, tempo/pitch and other settings; duration can change. Existing fades must fit. Saved source endpoints use seconds; the boxes show source sample boundaries. Switch waveform drag to Source samples to set these fields, then apply to trim the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="SOURCE SAMPLE ZOOM" Style="{StaticResource SectionHeaderTextStyle}" />
+                            <Button x:Name="ShowAudioSamplesButton" Content="Show samples at source start field" Click="AudioSampleWindow_Click" />
+                            <UserControl x:Name="AudioSampleWaveformNavigation" IsEnabled="False">
+                              <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Zoom in" Tag="in" Click="AudioSampleWindow_Click" />
+                                    <Button Content="Zoom out" Tag="out" Click="AudioSampleWindow_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Previous window" Tag="previous" Click="AudioSampleWindow_Click" />
+                                    <Button Content="Next window" Tag="next" Click="AudioSampleWindow_Click" />
+                                </StackPanel>
+                              </StackPanel>
+                            </UserControl>
+                            <TextBlock x:Name="AudioSampleWaveformText" Text="Show a source window, then zoom to individual samples or step through the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <canvas:CanvasControl x:Name="AudioSampleWaveformSurface" Height="100" Draw="AudioSampleWaveform_Draw"
+                                PointerPressed="AudioSampleWaveform_PointerPressed" PointerMoved="AudioSampleWaveform_PointerMoved"
+                                PointerReleased="AudioSampleWaveform_PointerReleased" PointerCaptureLost="AudioSampleWaveform_PointerCaptureLost"
+                                AutomationProperties.Name="Per-channel source sample waveform; drag to set source trim fields" />
+                            <TextBlock Text="Session-only source view before tempo, gain, fades and effects; not a timeline zoom. Shows up to 32768 sample frames, separately per channel. Zoom to see individual sample dots; wider windows show min/max envelopes. Vertical scale is fixed at -1 to +1; over-range samples are visually clipped. Drag selects whole source sample frames with the end excluded; no source files are changed. Use the numeric trim fields for keyboard selection." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                           </StackPanel>
                         </UserControl>
                         <UserControl x:Name="AudioRangeActions" IsEnabled="False">

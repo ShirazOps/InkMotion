@@ -2557,6 +2557,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _sampleWaveformClosed = true;
+        ClearSampleWaveform();
         _audioMasterClosed = true;
         ClearAudioMasterAnalysis();
         SaveEditorLayout();
