@@ -33,6 +33,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         ClearInkSelection();
         _isInkLasso = true;
+        _isInkColourSampler = false;
         _inkShape = null;
         _isEraser = false;
         StatusText.Text = "Lasso selected. Draw a loop to select whole strokes on the active cel and layer; text is excluded.";

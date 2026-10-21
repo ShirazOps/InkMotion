@@ -30,6 +30,18 @@ public static class AudioRangeEditing
             throw new ArgumentOutOfRangeException(nameof(track), "The audio clip has no selectable source samples.");
         }
 
+        return GetSourceSampleDragRange(clipStart, clipEnd, startX, endX, width);
+    }
+
+    public static (long StartSampleFrame, long EndSampleFrame) GetSourceSampleDragRange(
+        long clipStart, long clipEnd, double startX, double endX, double width)
+    {
+        if (clipStart < 0 || clipEnd <= clipStart || clipEnd > 9007199254740991L ||
+            !double.IsFinite(startX) || !double.IsFinite(endX) || !double.IsFinite(width) || width <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Use a non-empty supported sample range and finite waveform coordinates.");
+        }
+
         double left = Math.Clamp(Math.Min(startX, endX) / width, 0, 1);
         double right = Math.Clamp(Math.Max(startX, endX) / width, 0, 1);
         long rangeLength = clipEnd - clipStart;

@@ -623,6 +623,8 @@ public sealed partial class MainWindow : Window
         UpdateAudioSourceRangeInspector();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
+        RelinkMatchingAudioSourcesButton.IsEnabled = hasSelection &&
+            !string.IsNullOrWhiteSpace(_audioTracks[_selectedAudioTrackIndex].Project.AudioPath);
         bool hasMonoClip = hasClip && _audioTracks[_selectedAudioTrackIndex].Player is AudioClipPlayer { ChannelCount: 1 };
         UpdateAudioRangeSelection();
         AudioVolumeSlider.IsEnabled = hasSelection;
@@ -1316,7 +1318,7 @@ public sealed partial class MainWindow : Window
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
         return _audioTracks.Any(track => track.LoadError is not null)
-            ? "One or more audio sources are missing or unavailable. Use Add audio to relink."
+            ? "One or more audio sources are missing or unavailable. Select a track and use Relink all matching audio sources."
             : null;
     }
 
@@ -1564,6 +1566,7 @@ public sealed partial class MainWindow : Window
     private void SelectPen_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkColourSampler = false;
         _isEraser = false;
         _inkShape = null;
         _isInkLasso = false;
@@ -1573,6 +1576,7 @@ public sealed partial class MainWindow : Window
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkColourSampler = false;
         _isEraser = true;
         _inkShape = null;
         _isInkLasso = false;
@@ -1662,6 +1666,14 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId is not null)
         {
+            return;
+        }
+
+        if (_isInkColourSampler)
+        {
+            var point = e.GetCurrentPoint(InkSurface).Position;
+            SampleInkColour(point.X, point.Y);
+            e.Handled = true;
             return;
         }
 
@@ -1887,6 +1899,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
+        RefreshInkTextSelection();
         _renderedStrokes.Clear();
         _renderedText.Clear();
         if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)
@@ -1998,6 +2011,7 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         _isEraser = false;
         _inkShape = shape;
+        _isInkColourSampler = false;
         _isInkLasso = false;
         StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
     }
@@ -2557,6 +2571,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _sampleWaveformClosed = true;
+        ClearSampleWaveform();
         _audioMasterClosed = true;
         ClearAudioMasterAnalysis();
         SaveEditorLayout();

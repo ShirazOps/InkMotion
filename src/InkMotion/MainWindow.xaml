@@ -560,14 +560,37 @@
                         <Button x:Name="MoveAudioClipButton" Content="Set clip start to playhead" Click="MoveAudioClipToPlayhead_Click" IsEnabled="False" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="CLIP EDITING" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="RelinkMatchingAudioSourcesButton" Content="Relink all matching audio sources..." Click="RelinkMatchingAudioSources_Click" IsEnabled="False" />
+                        <CheckBox x:Name="AudioRelinkUseReplacementEnd" Content="Use replacement end for unresolved clips" />
+                        <TextBlock Text="Relinks all audio tracks using the selected source, including missing files. Keeps placement, processing and tags. Validates every source range before changing links; undo restores all links. Known source ends are retained. Missing sources without a saved end are rejected unless the option above is enabled; that option can change their duration to the replacement end. Spatial panning requires a mono replacement." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock x:Name="AudioClipRangeText" Text="No clip selected" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" />
                         <UserControl x:Name="AudioSourceRangeActions" IsEnabled="False">
                           <StackPanel Spacing="8">
-                            <NumberBox x:Name="AudioSourceFirstSampleBox" Header="Source start sample frame (zero-based)" Minimum="0" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
-                            <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                            <NumberBox x:Name="AudioSourceFirstSampleBox" Header="Source start sample frame (zero-based)" Minimum="0" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioSourceSampleSelection_ValueChanged" />
+                            <NumberBox x:Name="AudioSourceEndSampleBox" Header="Source end sample frame (excluded)" Minimum="1" Maximum="9007199254740991" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="AudioSourceSampleSelection_ValueChanged" />
                             <Button Content="Apply source sample range" Click="ApplyAudioSourceSamples_Click" />
                             <TextBlock x:Name="AudioSourceSamplesText" Text="Load an audio clip to set sample-based source endpoints." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <TextBlock Text="Edits both source endpoints together, independently of the project video frame rate. Keeps the timeline start, tempo/pitch and other settings; duration can change. Existing fades must fit. Saved source endpoints use seconds; the boxes show source sample boundaries. Switch waveform drag to Source samples to set these fields, then apply to trim the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <TextBlock Text="SOURCE SAMPLE ZOOM" Style="{StaticResource SectionHeaderTextStyle}" />
+                            <Button x:Name="ShowAudioSamplesButton" Content="Show samples at source start field" Click="AudioSampleWindow_Click" />
+                            <UserControl x:Name="AudioSampleWaveformNavigation" IsEnabled="False">
+                              <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Zoom in" Tag="in" Click="AudioSampleWindow_Click" />
+                                    <Button Content="Zoom out" Tag="out" Click="AudioSampleWindow_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Previous window" Tag="previous" Click="AudioSampleWindow_Click" />
+                                    <Button Content="Next window" Tag="next" Click="AudioSampleWindow_Click" />
+                                </StackPanel>
+                              </StackPanel>
+                            </UserControl>
+                            <TextBlock x:Name="AudioSampleWaveformText" Text="Show a source window, then zoom to individual samples or step through the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <canvas:CanvasControl x:Name="AudioSampleWaveformSurface" Height="100" Draw="AudioSampleWaveform_Draw"
+                                PointerPressed="AudioSampleWaveform_PointerPressed" PointerMoved="AudioSampleWaveform_PointerMoved"
+                                PointerReleased="AudioSampleWaveform_PointerReleased" PointerCaptureLost="AudioSampleWaveform_PointerCaptureLost"
+                                AutomationProperties.Name="Per-channel source sample waveform; drag to set source trim fields" />
+                            <TextBlock Text="Session-only source view before tempo, gain, fades and effects; not a timeline zoom. Shows up to 32768 sample frames, separately per channel. Zoom to see individual sample dots; wider windows show min/max envelopes. Vertical scale is fixed at -1 to +1; over-range samples are visually clipped. Drag selects whole source sample frames with the end excluded; no source files are changed. Use the numeric trim fields for keyboard selection." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                           </StackPanel>
                         </UserControl>
                         <UserControl x:Name="AudioRangeActions" IsEnabled="False">
@@ -657,6 +680,12 @@
                         <TextBlock Text="20 Hz to Nyquist (logarithmic) | 0 dBFS at top, -120 at bottom" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock x:Name="AudioSpectrumText" Text="Analyse the start of the selected source range (up to 32768 samples)." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Snapshot of source audio before tempo, pitch, gain, fades and effects. Channel powers are averaged, so opposite-phase stereo does not cancel. Not a spectrogram or whole-clip average." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button x:Name="AnalyseAudioSpectrogramButton" Content="Spectrogram of selected source range" Tag="spectrogram" Click="AnalyseAudioSpectrum_Click" IsEnabled="False" />
+                        <Button Content="Cancel / clear source analysis" Click="ClearAudioAnalysis_Click" />
+                        <canvas:CanvasControl x:Name="AudioSpectrogramSurface" Height="220" Draw="AudioSpectrogramSurface_Draw" AutomationProperties.Name="Source spectrogram, time left to right, logarithmic frequency 20 Hz at bottom to Nyquist at top" />
+                        <TextBlock Text="Time: left to right | Frequency: 20 Hz bottom to Nyquist top (logarithmic) | Colour: black -120, cyan -60, white 0 dBFS" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="AudioSpectrogramText" Text="Analyse the selected source range to show frequency content over time." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Pre-effects source analysis, not the master mix. Streams every selected sample with non-overlapping Hann FFT windows up to 1024 frames. Up to 256 time columns average consecutive window powers, weighted by sample count; short final windows are normalised and zero-padded. Channel powers are averaged without phase cancellation. Long ranges lose time detail; log display cannot improve FFT frequency resolution. Changing selection cancels analysis." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO TAGS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="AudioTitleBox" PlaceholderText="Title" TextChanged="AudioTag_TextChanged" LostFocus="AudioTag_LostFocus" />
@@ -732,6 +761,11 @@
                         </ComboBox>
                         <TextBlock Text="Eraser radius (preview pixels)" Style="{StaticResource LabelTextStyle}" />
                         <Slider x:Name="InkEraserRadiusSlider" Minimum="2" Maximum="60" Value="18" StepFrequency="1" AutomationProperties.Name="Eraser radius" />
+                        <Button Content="Sample drawing colour..." Click="SelectInkColourSampler_Click" />
+                        <NumberBox x:Name="InkSampleXBox" Header="Sample X (% across drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkSampleYBox" Header="Sample Y (% down drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Sample drawing at X/Y" Click="SampleInkColourAtCoordinates_Click" />
+                        <TextBlock Text="Samples visible ink layers and cel text with their combined opacity, not video, images, timeline titles, background, onion skin or guides. Click once after choosing the sampler, or use X/Y for keyboard access. Empty pixels retain the current colour. Changes the brush only, not the drawing; locked layers can be sampled." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                             <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                             <ComboBoxItem Content="White" Tag="FFFFFFFF" />
@@ -764,6 +798,7 @@
                         <NumberBox x:Name="InkSelectionAngleBox" Header="Rotation (degrees)" Minimum="-360" Maximum="360" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" />
                         <Button Content="Apply selection transform" Tag="transform" Click="InkSelectionAction_Click" />
                         <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="InkTextOverlaySelector" Header="Existing text on this cel" HorizontalAlignment="Stretch" SelectionChanged="InkTextOverlay_SelectionChanged" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
                         <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="InkTextFontSelector" SelectedIndex="0">
@@ -781,6 +816,22 @@
                             <Button Content="Add text to cel" Click="AddInkText_Click" />
                             <Button Content="Remove last text" Click="RemoveInkText_Click" />
                         </StackPanel>
+                        <UserControl x:Name="InkSelectedTextProperties" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <NumberBox x:Name="InkTextXBox" Header="Selected text X (%)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                                <NumberBox x:Name="InkTextYBox" Header="Selected text Y (%)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                                <Button Content="Selected text colour">
+                                    <Button.Flyout>
+                                        <Flyout>
+                                            <ColorPicker x:Name="InkSelectedTextColour" IsAlphaEnabled="True" IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True" />
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
+                        </UserControl>
+                        <Button x:Name="ApplySelectedInkTextButton" Content="Apply to selected text" Click="SelectedInkTextAction_Click" IsEnabled="False" />
+                        <Button x:Name="RemoveSelectedInkTextButton" Content="Remove selected text" Tag="remove" Click="SelectedInkTextAction_Click" IsEnabled="False" />
+                        <TextBlock Text="Select an existing overlay to load its text, font, size, position and colour. Apply is explicit and undoable; switching cels or overlays discards unapplied edits. Add text still creates a centred overlay using the brush colour. Text is cel-wide, not owned by drawing layers; drawing locks do not prevent text edits. Selection here is by overlay, not by characters or canvas hit-testing." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
                         <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />
