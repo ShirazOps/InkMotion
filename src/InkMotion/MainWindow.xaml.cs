@@ -1165,12 +1165,34 @@ public sealed partial class MainWindow : Window
             args.DrawingSession.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
         }
 
-        if (ReferenceEquals(track, _audioRangeTrack) &&
-            double.IsFinite(AudioRangeStartBox.Value) && double.IsFinite(AudioRangeEndBox.Value))
+        if (ReferenceEquals(track, _audioRangeTrack))
         {
-            double frameLength = clipDuration * _frameRate;
-            float x0 = (float)Math.Clamp((AudioRangeStartBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
-            float x1 = (float)Math.Clamp((AudioRangeEndBox.Value - track.Project.StartFrame) / frameLength, 0, 1) * width;
+            double selectionStart;
+            double selectionEnd;
+            if (AudioWaveformSampleSelectionToggle.IsOn && track.Player is AudioClipPlayer player &&
+                double.IsFinite(AudioSourceFirstSampleBox.Value) && double.IsFinite(AudioSourceEndSampleBox.Value))
+            {
+                double visibleStart = Math.Round(track.Project.SourceInSeconds * player.SourceSampleRate);
+                double visibleEnd = track.Project.SourceOutSeconds is double sourceOut
+                    ? Math.Round(sourceOut * player.SourceSampleRate)
+                    : player.SourceSampleFrames;
+                double visibleLength = visibleEnd - visibleStart;
+                selectionStart = visibleLength > 0
+                    ? (AudioSourceFirstSampleBox.Value - visibleStart) / visibleLength
+                    : 0;
+                selectionEnd = visibleLength > 0
+                    ? (AudioSourceEndSampleBox.Value - visibleStart) / visibleLength
+                    : 0;
+            }
+            else
+            {
+                double frameLength = clipDuration * _frameRate;
+                selectionStart = (AudioRangeStartBox.Value - track.Project.StartFrame) / frameLength;
+                selectionEnd = (AudioRangeEndBox.Value - track.Project.StartFrame) / frameLength;
+            }
+
+            float x0 = (float)Math.Clamp(selectionStart, 0, 1) * width;
+            float x1 = (float)Math.Clamp(selectionEnd, 0, 1) * width;
             if (x1 > x0)
             {
                 args.DrawingSession.FillRectangle(x0, 0, x1 - x0, (float)sender.ActualHeight, ToColour(0x4064C8FF));

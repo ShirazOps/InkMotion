@@ -4,6 +4,42 @@ public sealed record AudioRangeParts(AudioTrackProject? Before, AudioTrackProjec
 
 public static class AudioRangeEditing
 {
+    public static (long StartSampleFrame, long EndSampleFrame) GetWaveformSourceSampleRange(
+        AudioTrackProject track, double startX, double endX, double width, long sourceSampleFrames, int sampleRate)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        if (!double.IsFinite(startX) || !double.IsFinite(endX) || !double.IsFinite(width) || width <= 0 ||
+            sourceSampleFrames <= 0 || sourceSampleFrames > 9007199254740991L || sampleRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Waveform coordinates and source sample format must be supported.");
+        }
+
+        double rawClipStart = track.SourceInSeconds * sampleRate;
+        double rawClipEnd = track.SourceOutSeconds is double sourceOut
+            ? sourceOut * sampleRate
+            : sourceSampleFrames;
+        if (!double.IsFinite(rawClipStart) || !double.IsFinite(rawClipEnd))
+        {
+            throw new ArgumentOutOfRangeException(nameof(track), "The source range must be finite.");
+        }
+
+        long clipStart = (long)Math.Round(Math.Clamp(rawClipStart, 0, sourceSampleFrames));
+        long clipEnd = (long)Math.Round(Math.Clamp(rawClipEnd, clipStart, sourceSampleFrames));
+        if (clipEnd <= clipStart)
+        {
+            throw new ArgumentOutOfRangeException(nameof(track), "The audio clip has no selectable source samples.");
+        }
+
+        double left = Math.Clamp(Math.Min(startX, endX) / width, 0, 1);
+        double right = Math.Clamp(Math.Max(startX, endX) / width, 0, 1);
+        long rangeLength = clipEnd - clipStart;
+        long rangeStart = clipStart + (long)Math.Floor(left * rangeLength);
+        long rangeEnd = clipStart + (long)Math.Ceiling(right * rangeLength);
+        rangeStart = Math.Clamp(rangeStart, clipStart, clipEnd - 1);
+        rangeEnd = Math.Clamp(rangeEnd, rangeStart + 1, clipEnd);
+        return (rangeStart, rangeEnd);
+    }
+
     public static (int StartFrame, int EndFrame) GetWaveformDragRange(
         AudioTrackProject track, double startX, double endX, double width, double frameRate, double sourceDuration)
     {

@@ -6,6 +6,38 @@ namespace InkMotion.Tests;
 public sealed class AudioRangeEditingTests
 {
     [Theory]
+    [InlineData(25, 75, 12, 18)]
+    [InlineData(75, 25, 12, 18)]
+    [InlineData(-5, 0, 10, 11)]
+    [InlineData(100, 110, 19, 20)]
+    public void WaveformSourceSampleRange_MapsDirectionAndClampsToVisibleSource(
+        double startX, double endX, long expectedStart, long expectedEnd)
+    {
+        var track = new AudioTrackProject { SourceInSeconds = 1, SourceOutSeconds = 2 };
+        (long start, long end) = AudioRangeEditing.GetWaveformSourceSampleRange(track, startX, endX, 100, 100, 10);
+        Assert.Equal(expectedStart, start);
+        Assert.Equal(expectedEnd, end);
+    }
+
+    [Fact]
+    public void WaveformSourceSampleRange_UsesFullSourceWhenClipHasNoExplicitEnd()
+    {
+        var track = new AudioTrackProject { SourceInSeconds = 1 };
+        (long start, long end) = AudioRangeEditing.GetWaveformSourceSampleRange(track, 0, 100, 100, 100, 10);
+        Assert.Equal((10, 100), (start, end));
+    }
+
+    [Fact]
+    public void WaveformSourceSampleRange_ProducesOneSampleForClickAndRejectsUnsupportedPrecision()
+    {
+        var track = new AudioTrackProject { SourceInSeconds = 0.5, SourceOutSeconds = 0.6 };
+        (long start, long end) = AudioRangeEditing.GetWaveformSourceSampleRange(track, 50, 50, 100, 100, 10);
+        Assert.Equal((5, 6), (start, end));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AudioRangeEditing.GetWaveformSourceSampleRange(track, 0, 1, 100, 9007199254740992L, 10));
+    }
+
+    [Theory]
     [InlineData(20, 60, 100, 24, 28, 39)]
     [InlineData(60, 20, 100, 24, 28, 39)]
     [InlineData(-10, 0, 100, 24, 24, 25)]
