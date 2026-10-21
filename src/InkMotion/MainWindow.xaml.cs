@@ -1566,6 +1566,7 @@ public sealed partial class MainWindow : Window
     private void SelectPen_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkColourSampler = false;
         _isEraser = false;
         _inkShape = null;
         _isInkLasso = false;
@@ -1575,6 +1576,7 @@ public sealed partial class MainWindow : Window
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkColourSampler = false;
         _isEraser = true;
         _inkShape = null;
         _isInkLasso = false;
@@ -1664,6 +1666,14 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId is not null)
         {
+            return;
+        }
+
+        if (_isInkColourSampler)
+        {
+            var point = e.GetCurrentPoint(InkSurface).Position;
+            SampleInkColour(point.X, point.Y);
+            e.Handled = true;
             return;
         }
 
@@ -2000,6 +2010,7 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         _isEraser = false;
         _inkShape = shape;
+        _isInkColourSampler = false;
         _isInkLasso = false;
         StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
     }

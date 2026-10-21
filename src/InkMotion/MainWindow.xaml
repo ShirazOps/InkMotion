@@ -761,6 +761,11 @@
                         </ComboBox>
                         <TextBlock Text="Eraser radius (preview pixels)" Style="{StaticResource LabelTextStyle}" />
                         <Slider x:Name="InkEraserRadiusSlider" Minimum="2" Maximum="60" Value="18" StepFrequency="1" AutomationProperties.Name="Eraser radius" />
+                        <Button Content="Sample drawing colour..." Click="SelectInkColourSampler_Click" />
+                        <NumberBox x:Name="InkSampleXBox" Header="Sample X (% across drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkSampleYBox" Header="Sample Y (% down drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Sample drawing at X/Y" Click="SampleInkColourAtCoordinates_Click" />
+                        <TextBlock Text="Samples visible ink layers and cel text with their combined opacity, not video, images, timeline titles, background, onion skin or guides. Click once after choosing the sampler, or use X/Y for keyboard access. Empty pixels retain the current colour. Changes the brush only, not the drawing; locked layers can be sampled." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                             <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                             <ComboBoxItem Content="White" Tag="FFFFFFFF" />

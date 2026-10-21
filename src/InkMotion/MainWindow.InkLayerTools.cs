@@ -136,6 +136,7 @@ public sealed partial class MainWindow
         InkStabilisationSlider.Value = preset.Stabilisation;
         InkCustomColourPicker.Color = ToColour(_brushColour);
         _isEraser = false;
+        _isInkColourSampler = false;
         _isInkLasso = false;
         _inkShape = null;
         ClearInkSelection();
