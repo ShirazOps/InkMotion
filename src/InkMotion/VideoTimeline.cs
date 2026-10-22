@@ -108,6 +108,28 @@ public static class VideoTimelineEditing
         return Math.Max(0, end - clip.SourceInSeconds) / clip.PlaybackSpeed;
     }
 
+    public static AudioTrackProject CreatePreviewAudioProject(
+        TimelineClipLocation active,
+        bool originalPreview,
+        bool hasSoloAudio)
+    {
+        ArgumentNullException.ThrowIfNull(active);
+        TimelineClipProject clip = active.Clip;
+        bool muted = clip.IsReversed ||
+            (!originalPreview && (active.Track.IsMuted || hasSoloAudio || clip.Volume <= 0));
+        return new AudioTrackProject
+        {
+            AudioPath = clip.SourcePath,
+            SourceInSeconds = clip.SourceInSeconds,
+            SourceOutSeconds = clip.SourceOutSeconds,
+            Volume = originalPreview ? 1 : clip.Volume,
+            FadeInSeconds = originalPreview ? 0 : clip.FadeInSeconds,
+            FadeOutSeconds = originalPreview ? 0 : clip.FadeOutSeconds,
+            TempoPercent = clip.PlaybackSpeed * 100,
+            Muted = muted,
+        };
+    }
+
     public static double GetEndSeconds(TimelineClipProject clip, TimelineTrackKind kind, double frameRate) =>
         GetStartSeconds(clip, frameRate) + GetDurationSeconds(clip, kind);
 

@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly AudioPreviewBus _audioPreviewBus = new();
     private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
     private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly List<RenderedText> _renderedText = [];
@@ -70,6 +71,7 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
         InitialiseVideoTimeline();
+        _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
         UpdateSelectedAudioTrack();
         RefreshInkLayers();
         InkBrushPresetSelector.ItemsSource = InkBrushPresets.All.Select(preset => preset.Name).ToArray();
@@ -1378,7 +1380,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout);
+            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout, _audioPreviewBus);
         }
         catch (Exception ex) when (
             IsFileAccessException(ex) ||
@@ -1416,6 +1418,15 @@ public sealed partial class MainWindow : Window
             {
                 _timelinePosition = TimeSpan.Zero;
                 SelectFrame(0, seekVideo: false);
+            }
+
+            try
+            {
+                _audioPreviewBus.Play();
+            }
+            catch (Exception ex) when (ex is NAudio.MmException or InvalidOperationException or IOException)
+            {
+                StatusText.Text = $"Audio preview could not start: {ex.Message}";
             }
 
             _isPlaying = true;
@@ -2457,6 +2468,7 @@ public sealed partial class MainWindow : Window
         {
             track.Player?.Pause();
         }
+        _audioPreviewBus.Pause();
 
         if (_timelineClock.IsRunning)
         {
@@ -2619,6 +2631,8 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Stop();
         DisposeAudioTracks();
         DisposeVideoTimeline();
+        _audioPreviewBus.PlaybackStopped -= AudioPreviewBus_PlaybackStopped;
+        _audioPreviewBus.Dispose();
     }
 
     private sealed class AudioTrackRuntime(AudioTrackProject project) : IDisposable

@@ -10,6 +10,7 @@ public sealed partial class MainWindow
 
     private void UpdateAudioMeter()
     {
+        AudioMeterReading masterReading = _audioPreviewBus.TakeMasterReading();
         if (_workspace != "Audio")
         {
             foreach (AudioTrackRuntime track in _audioTracks)
@@ -17,6 +18,16 @@ public sealed partial class MainWindow
                 track.Player?.TakeMeterReading();
             }
             return;
+        }
+
+        MasterAudioMeterProgress.Value = Math.Clamp((masterReading.PeakDecibels + 60) / 60 * 100, 0, 100);
+        MasterAudioMeterText.Text = masterReading.Peak == 0 && !_audioPreviewBus.IsPlaying
+            ? "Preview master: stopped"
+            : $"Preview master peak {MeterDecibels(masterReading.PeakDecibels)} / RMS {MeterDecibels(masterReading.RmsDecibels)} dBFS" +
+                (masterReading.Clipped ? " - CLIP (latched)" : string.Empty);
+        if (_videoAudioFallbackActive && _isPlaying)
+        {
+            MasterAudioMeterText.Text += " · Embedded video audio is using Windows preview and is not metered.";
         }
 
         AudioMeterReading? selectedReading = null;
@@ -45,11 +56,30 @@ public sealed partial class MainWindow
 
     private void ResetAudioClipIndicator_Click(object sender, RoutedEventArgs e)
     {
+        _audioPreviewBus.TakeMasterReading(resetClip: true);
         foreach (AudioTrackRuntime track in _audioTracks)
         {
             track.Player?.TakeMeterReading(resetClip: true);
         }
         UpdateAudioMeter();
+    }
+
+    private void AudioPreviewBus_PlaybackStopped(object? sender, NAudio.Wave.StoppedEventArgs e)
+    {
+        if (e.Exception is null || _audioMasterClosed)
+        {
+            return;
+        }
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_isPlaying)
+            {
+                PausePlayback();
+            }
+
+            StatusText.Text = $"Audio preview stopped: {e.Exception.Message}";
+        });
     }
 
     private void AudioSolo_Click(object sender, RoutedEventArgs e)

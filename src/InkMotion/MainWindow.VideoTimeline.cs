@@ -33,6 +33,13 @@ public sealed partial class MainWindow
     private readonly HashSet<string> _unavailablePreviewVideoSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, VideoColourGradingEffect> _previewColourGradingEffects = [];
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
+    private AudioClipPlayer? _videoAudioPlayer;
+    private AudioTrackProject? _videoAudioPlayerSettings;
+    private string? _videoAudioPlayerClipId;
+    private string? _videoAudioPlayerPath;
+    private string? _videoAudioFailedClipId;
+    private string? _videoAudioFailedPath;
+    private bool _videoAudioFallbackActive;
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
     private CanvasBitmap? _videoLumaWaveformBitmap;
@@ -330,6 +337,8 @@ public sealed partial class MainWindow
         if (!string.Equals(_previewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
         {
             _previewMediaPlayer.Pause();
+            ClearVideoAudioPlayer();
+            _previewMediaPlayer.IsMuted = true;
             MediaSource? previous = _previewMediaSource;
             _previewSourcePath = file.Path;
             _previewReady = false;
@@ -343,17 +352,19 @@ public sealed partial class MainWindow
 
         if (!_previewReady)
         {
+            _videoAudioPlayer?.Pause();
             return false;
         }
 
         TimelineClipProject clip = active.Clip;
+        MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
+        double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
+        bool videoAudioRouted = SyncVideoAudioPreview(active, sourceSeconds, forceSeek);
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
-        _previewMediaPlayer.IsMuted = clip.IsReversed ||
+        _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
             (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
         _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
         PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
-        MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
-        double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
         double tolerance = forceSeek || !_isPlaying
             ? 0.001
             : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
@@ -375,6 +386,102 @@ public sealed partial class MainWindow
         }
 
         return true;
+    }
+
+    private bool SyncVideoAudioPreview(TimelineClipLocation active, double sourceSeconds, bool forceSeek)
+    {
+        TimelineClipProject clip = active.Clip;
+        string? path = clip.SourcePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ClearVideoAudioPlayer();
+            return false;
+        }
+
+        AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio);
+        bool shouldHear = !project.Muted;
+        if (string.Equals(_videoAudioFailedClipId, clip.Id, StringComparison.Ordinal) &&
+            string.Equals(_videoAudioFailedPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            _videoAudioFallbackActive = shouldHear;
+            return false;
+        }
+
+        if (!string.Equals(_videoAudioPlayerClipId, clip.Id, StringComparison.Ordinal) ||
+            !string.Equals(_videoAudioPlayerPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearVideoAudioPlayer();
+            _videoAudioPlayerClipId = clip.Id;
+            _videoAudioPlayerPath = path;
+            try
+            {
+                _videoAudioPlayer = new AudioClipPlayer(path, project, _audioMixLayout, _audioPreviewBus);
+            }
+            catch (Exception ex) when (
+                IsFileAccessException(ex) ||
+                ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
+            {
+                _videoAudioFailedClipId = clip.Id;
+                _videoAudioFailedPath = path;
+                _videoAudioFallbackActive = shouldHear;
+                return false;
+            }
+        }
+
+        if (_videoAudioPlayer is not AudioClipPlayer player)
+        {
+            return false;
+        }
+
+        bool routeAvailable = _audioPreviewBus.IsPlaying;
+        if (_videoAudioPlayerSettings is null || !VideoAudioSettingsEqual(_videoAudioPlayerSettings, project))
+        {
+            player.Update(project, _audioMixLayout);
+            _videoAudioPlayerSettings = project;
+        }
+
+        if (shouldHear && _isPlaying && routeAvailable)
+        {
+            if (forceSeek || !player.IsPlaying || Math.Abs(player.AudiblePositionSeconds - sourceSeconds) > 0.2)
+            {
+                player.Seek(sourceSeconds);
+            }
+
+            player.Play();
+        }
+        else
+        {
+            player.Pause();
+            if (forceSeek || Math.Abs(player.AudiblePositionSeconds - sourceSeconds) > 0.05)
+            {
+                player.Seek(sourceSeconds);
+            }
+        }
+
+        _videoAudioFallbackActive = shouldHear && _isPlaying && !routeAvailable;
+        return routeAvailable;
+    }
+
+    private static bool VideoAudioSettingsEqual(AudioTrackProject left, AudioTrackProject right) =>
+        string.Equals(left.AudioPath, right.AudioPath, StringComparison.OrdinalIgnoreCase) &&
+        left.SourceInSeconds == right.SourceInSeconds &&
+        left.SourceOutSeconds == right.SourceOutSeconds &&
+        left.Volume == right.Volume &&
+        left.FadeInSeconds == right.FadeInSeconds &&
+        left.FadeOutSeconds == right.FadeOutSeconds &&
+        left.TempoPercent == right.TempoPercent &&
+        left.Muted == right.Muted;
+
+    private void ClearVideoAudioPlayer()
+    {
+        _videoAudioPlayer?.Dispose();
+        _videoAudioPlayer = null;
+        _videoAudioPlayerSettings = null;
+        _videoAudioPlayerClipId = null;
+        _videoAudioPlayerPath = null;
+        _videoAudioFailedClipId = null;
+        _videoAudioFailedPath = null;
+        _videoAudioFallbackActive = false;
     }
 
     private void ApplyVideoPreviewTransform(
@@ -402,6 +509,7 @@ public sealed partial class MainWindow
 
     private void ClearPreviewSource()
     {
+        ClearVideoAudioPlayer();
         if (_previewMediaPlayer.Source is not null)
         {
             _previewMediaPlayer.Pause();

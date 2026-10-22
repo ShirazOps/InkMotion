@@ -692,9 +692,13 @@
                         <ToggleSwitch x:Name="AudioSpatialPanToggle" Header="Spatial azimuth pan (mono sources)" OnContent="Enabled" OffContent="Disabled" Toggled="AudioSpatialPan_Toggled" IsEnabled="False" />
                         <NumberBox x:Name="AudioSpatialPanAzimuthBox" Header="Azimuth (-180° to +180°)" Minimum="-180" Maximum="180" Value="0" SmallChange="15" SpinButtonPlacementMode="Compact" ValueChanged="AudioSpatialPanAzimuth_ValueChanged" IsEnabled="False" />
                         <TextBlock Text="Positions a mono clip around the horizontal speaker layout with equal-power panning. Stereo balance is bypassed while spatial pan is enabled; height and LFE channels are not pan targets. Preview folds to stereo, while export uses the selected mix layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="LIVE PREVIEW MASTER" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ProgressBar x:Name="MasterAudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Live preview master peak level" />
+                        <TextBlock x:Name="MasterAudioMeterText" Text="Preview master: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Measures peak, RMS and latched clipping from the actual summed stereo samples routed through InkMotion's preview mix, including routed video audio. It is pre-device and pre-encoding, not true peak or LUFS." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
                         <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                        <Button Content="Reset clip indicator" Click="ResetAudioClipIndicator_Click" />
+                        <Button Content="Reset clip indicators" Click="ResetAudioClipIndicator_Click" />
                         <TextBlock Text="Meters show this track's stereo monitor after effects/balance, not the summed master mix. Full scale or higher latches CLIP." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="MASTER MIX ANALYSIS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Button x:Name="AnalyseAudioMasterButton" Content="Analyse complete export mix" Click="AnalyseAudioMaster_Click" />
