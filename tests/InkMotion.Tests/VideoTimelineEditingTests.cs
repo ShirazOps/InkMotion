@@ -291,9 +291,13 @@ public sealed class VideoTimelineEditingTests
 
         Assert.Same(bottomClip, VideoTimelineEditing.GetActiveVideoClip(tracks, 0.5, Fps)?.Clip);
         Assert.Same(topClip, VideoTimelineEditing.GetActiveVideoClip(tracks, 1.5, Fps)?.Clip);
+        Assert.Equal([bottomClip, topClip],
+            VideoTimelineEditing.GetVisibleVideoLayers(tracks, 1.5, Fps).Select(location => location.Clip));
         Assert.Same(bottomClip, VideoTimelineEditing.GetActiveVideoClip(tracks, 2, Fps)?.Clip);
         top.IsVisible = false;
         Assert.Same(bottomClip, VideoTimelineEditing.GetActiveVideoClip(tracks, 1.5, Fps)?.Clip);
+        Assert.Equal([bottomClip],
+            VideoTimelineEditing.GetVisibleVideoLayers(tracks, 1.5, Fps).Select(location => location.Clip));
         Assert.Null(VideoTimelineEditing.GetActiveVideoClip(tracks, 10, Fps));
     }
 
@@ -310,6 +314,8 @@ public sealed class VideoTimelineEditingTests
 
         Assert.Equal([image, title], VideoTimelineEditing.GetVisibleOverlays(tracks, 1, Fps).Select(location => location.Track));
         Assert.Equal([image], VideoTimelineEditing.GetVisibleOverlays(tracks, 3, Fps).Select(location => location.Track));
+        Assert.Equal([video, image, title],
+            VideoTimelineEditing.GetVisibleLayers(tracks, 1, Fps).Select(location => location.Track));
         Assert.Equal(4, VideoTimelineEditing.GetTimelineEndSeconds(tracks, Fps));
     }
 

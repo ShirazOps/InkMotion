@@ -448,6 +448,15 @@ public static class VideoTimelineEditing
         return null;
     }
 
+    /// <summary>Returns every visible video clip in bottom-to-top compositing order, expanding active dissolves.</summary>
+    public static IReadOnlyList<TimelineClipLocation> GetVisibleVideoLayers(
+        IReadOnlyList<TimelineTrackProject> tracks,
+        double seconds,
+        double frameRate) =>
+        GetVisibleLayers(tracks, seconds, frameRate)
+            .Where(location => location.Track.Kind == TimelineTrackKind.Video)
+            .ToArray();
+
     /// <summary>Returns visible image and title clips at the given time in drawing order (bottom track first).</summary>
     public static IReadOnlyList<TimelineClipLocation> GetVisibleOverlays(
         IReadOnlyList<TimelineTrackProject> tracks,

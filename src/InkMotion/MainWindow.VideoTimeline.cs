@@ -46,10 +46,7 @@ public sealed partial class MainWindow
     private CanvasBitmap? _videoVectorscopeBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
     private long _lastVideoScopeSampleMilliseconds;
-    private TimelineVideoFrameSource? _previewVideoFrameSource;
-    private string? _previewVideoFrameSourcePath;
-    private TimelineVideoFrameSource? _transitionVideoFrameSource;
-    private string? _transitionVideoFrameSourcePath;
+    private readonly Dictionary<string, (string Path, TimelineVideoFrameSource Source)> _previewVideoFrameSources = [];
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
@@ -573,23 +570,6 @@ public sealed partial class MainWindow
         }
 
         DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
-        foreach (TimelineClipLocation overlay in VideoTimelineEditing.GetVisibleOverlays(_videoTracks, seconds, _frameRate))
-        {
-            float opacity = (float)VideoTimelineEditing.GetOpacity(overlay.Clip, overlay.Track.Kind, seconds, _frameRate);
-            if (opacity <= 0)
-            {
-                continue;
-            }
-
-            if (overlay.Track.Kind == TimelineTrackKind.Image)
-            {
-                DrawImageOverlay(sender, args.DrawingSession, overlay.Clip, width, height, opacity);
-            }
-            else
-            {
-                TimelineCompositor.DrawTitle(args.DrawingSession, overlay.Clip, width, height, opacity);
-            }
-        }
     }
 
     private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height)
@@ -600,27 +580,48 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate) is not TimelineClipLocation active)
+        IReadOnlyList<TimelineClipLocation> layers =
+            VideoTimelineEditing.GetVisibleLayers(_videoTracks, seconds, _frameRate);
+        IReadOnlyList<TimelineClipLocation> videoLayers =
+            VideoTimelineEditing.GetVisibleVideoLayers(_videoTracks, seconds, _frameRate);
+        if (videoLayers.Count == 0)
         {
             DisposePreviewVideoFrameSources();
             SetVideoScopeUnavailable("No active video clip at the playhead.");
             return;
         }
 
-        if (VideoTransitions.GetAt(active.Track, seconds, _frameRate) is VideoCrossDissolve transition)
+        var activeIds = videoLayers.Select(location => location.Clip.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (string clipId in _previewVideoFrameSources.Keys.Where(id => !activeIds.Contains(id)).ToArray())
         {
-            float outgoingOpacity = (float)VideoTimelineEditing.GetOpacity(
-                new TimelineClipLocation(active.Track, transition.OutgoingClip), seconds, _frameRate);
-            float incomingOpacity = (float)VideoTimelineEditing.GetOpacity(
-                new TimelineClipLocation(active.Track, transition.IncomingClip), seconds, _frameRate);
-            DrawComposedVideoClip(canvas, session, transition.OutgoingClip, seconds, width, height, outgoingOpacity, secondary: true);
-            DrawComposedVideoClip(canvas, session, transition.IncomingClip, seconds, width, height, incomingOpacity, secondary: false);
-            return;
+            _previewVideoFrameSources[clipId].Source.Dispose();
+            _previewVideoFrameSources.Remove(clipId);
         }
 
-        DisposeTransitionVideoFrameSource();
-        float opacity = (float)VideoTimelineEditing.GetOpacity(active.Clip, TimelineTrackKind.Video, seconds, _frameRate);
-        DrawComposedVideoClip(canvas, session, active.Clip, seconds, width, height, opacity, secondary: false);
+        string? scopeClipId = VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate)?.Clip.Id;
+        foreach (TimelineClipLocation layer in layers)
+        {
+            float opacity = (float)VideoTimelineEditing.GetOpacity(layer.Clip, layer.Track.Kind, seconds, _frameRate);
+            if (opacity <= 0)
+            {
+                continue;
+            }
+
+            switch (layer.Track.Kind)
+            {
+                case TimelineTrackKind.Video:
+                    DrawComposedVideoClip(
+                        canvas, session, layer.Clip, seconds, width, height, opacity,
+                        updateScopes: layer.Clip.Id == scopeClipId);
+                    break;
+                case TimelineTrackKind.Image:
+                    DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity);
+                    break;
+                case TimelineTrackKind.Text:
+                    TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
+                    break;
+            }
+        }
     }
 
     private void DrawComposedVideoClip(
@@ -631,24 +632,24 @@ public sealed partial class MainWindow
         float width,
         float height,
         float opacity,
-        bool secondary)
+        bool updateScopes)
     {
         if (clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
         {
-            if (!secondary)
+            if (updateScopes)
             {
                 SetVideoScopeUnavailable("The active video clip has no available source.");
             }
             return;
         }
-        if (secondary && opacity <= 0)
+        if (opacity <= 0)
         {
             return;
         }
 
         if (_unavailablePreviewVideoSources.Contains(path))
         {
-            if (!secondary)
+            if (updateScopes)
             {
                 PreviewPlayer.Opacity = 1;
                 SetVideoScopeUnavailable("The active video frame is unavailable for scope analysis.");
@@ -656,32 +657,32 @@ public sealed partial class MainWindow
             return;
         }
 
-        TimelineVideoFrameSource? source = secondary ? _transitionVideoFrameSource : _previewVideoFrameSource;
-        string? sourcePath = secondary ? _transitionVideoFrameSourcePath : _previewVideoFrameSourcePath;
-        if (!string.Equals(sourcePath, path, StringComparison.OrdinalIgnoreCase))
+        TimelineVideoFrameSource? source = null;
+        if (_previewVideoFrameSources.TryGetValue(clip.Id, out var cached))
         {
-            source?.Dispose();
-            source = null;
+            if (string.Equals(cached.Path, path, StringComparison.OrdinalIgnoreCase))
+            {
+                source = cached.Source;
+            }
+            else
+            {
+                cached.Source.Dispose();
+                _previewVideoFrameSources.Remove(clip.Id);
+            }
         }
 
         try
         {
-            source ??= new TimelineVideoFrameSource(path);
-            if (secondary)
+            if (source is null)
             {
-                _transitionVideoFrameSource = source;
-                _transitionVideoFrameSourcePath = path;
-            }
-            else
-            {
-                _previewVideoFrameSource = source;
-                _previewVideoFrameSourcePath = path;
+                source = new TimelineVideoFrameSource(path);
+                _previewVideoFrameSources.Add(clip.Id, (path, source));
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
             if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
             {
-                if (!secondary)
+                if (updateScopes)
                 {
                     SetVideoScopeUnavailable("Waiting for an active video frame.");
                 }
@@ -707,7 +708,7 @@ public sealed partial class MainWindow
                     clip,
                     colourGradingEffect);
             }
-            if (!secondary)
+            if (updateScopes)
             {
                 UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
             }
@@ -716,23 +717,16 @@ public sealed partial class MainWindow
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
             source?.Dispose();
-            if (secondary)
-            {
-                _transitionVideoFrameSource = null;
-                _transitionVideoFrameSourcePath = null;
-            }
-            else
-            {
-                _previewVideoFrameSource = null;
-                _previewVideoFrameSourcePath = null;
-            }
+            _previewVideoFrameSources.Remove(clip.Id);
 
             _unavailablePreviewVideoSources.Add(path);
-            if (!secondary)
+            if (updateScopes)
             {
                 PreviewPlayer.Opacity = 1;
             }
-            StatusText.Text = $"Could not render {Path.GetFileName(path)} in the modified preview; showing the native video preview instead: {ex.Message}";
+            StatusText.Text = updateScopes
+                ? $"Could not render {Path.GetFileName(path)} in the modified preview; showing the native video preview instead: {ex.Message}"
+                : $"Could not render composited video layer {Path.GetFileName(path)}: {ex.Message}";
         }
     }
 
@@ -971,17 +965,12 @@ public sealed partial class MainWindow
 
     private void DisposePreviewVideoFrameSources()
     {
-        _previewVideoFrameSource?.Dispose();
-        _previewVideoFrameSource = null;
-        _previewVideoFrameSourcePath = null;
-        DisposeTransitionVideoFrameSource();
-    }
+        foreach ((string _, TimelineVideoFrameSource source) in _previewVideoFrameSources.Values)
+        {
+            source.Dispose();
+        }
 
-    private void DisposeTransitionVideoFrameSource()
-    {
-        _transitionVideoFrameSource?.Dispose();
-        _transitionVideoFrameSource = null;
-        _transitionVideoFrameSourcePath = null;
+        _previewVideoFrameSources.Clear();
         foreach (VideoColourGradingEffect effect in _previewColourGradingEffects.Values)
         {
             effect.Dispose();
