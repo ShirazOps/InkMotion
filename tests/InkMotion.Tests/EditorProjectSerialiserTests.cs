@@ -93,6 +93,18 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionThirtyFiveProject_DisablesNoiseReductionWithoutAProfile()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":35,"AudioTracks":[{"AudioPath":"C:\\Media\\speech.wav","Effects":{"Enabled":true}}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        AudioEffectSettings effects = Assert.Single(restored.AudioTracks).Effects;
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.False(effects.NoiseReductionEnabled);
+        Assert.Null(effects.NoiseProfile);
+    }
+
+    [Fact]
     public void Deserialise_VersionTwentyProject_MigratesWithNoTransformKeyframes()
     {
         EditorProject restored = EditorProjectSerialiser.Deserialise(
@@ -624,6 +636,15 @@ public sealed class EditorProjectSerialiserTests
                     GainDecibels = 3.2,
                     TempoPercent = 125,
                     PitchSemitones = -3.5,
+                    Effects = new AudioEffectSettings
+                    {
+                        Enabled = true,
+                        NoiseReductionEnabled = true,
+                        NoiseReductionStrengthDecibels = 9,
+                        NoiseProfile = new AudioNoiseProfile(
+                            @"C:\Media\voice.wav", 48000, 1, AudioNoiseProfile.DefaultFftSize,
+                            Enumerable.Repeat(0.025, AudioNoiseProfile.DefaultFftSize / 2 + 1).ToArray()),
+                    },
                 },
             ],
             AudioMixLayout = AudioChannelLayout.Surround121,
@@ -639,6 +660,11 @@ public sealed class EditorProjectSerialiserTests
         Assert.Equal(3.2, track.GainDecibels);
         Assert.Equal(125, track.TempoPercent);
         Assert.Equal(-3.5, track.PitchSemitones);
+        Assert.True(track.Effects.NoiseReductionEnabled);
+        Assert.Equal(9, track.Effects.NoiseReductionStrengthDecibels);
+        AudioNoiseProfile profile = Assert.IsType<AudioNoiseProfile>(track.Effects.NoiseProfile);
+        Assert.Equal(513, profile.Magnitudes.Length);
+        Assert.All(profile.Magnitudes, value => Assert.Equal(0.025, value));
         Assert.Equal(AudioChannelLayout.Surround121, restored.AudioMixLayout);
     }
 

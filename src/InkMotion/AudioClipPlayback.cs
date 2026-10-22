@@ -94,6 +94,7 @@ public sealed class AudioClipPlayer : IDisposable
 {
     private const int OutputLatencyMilliseconds = 100;
     private readonly AudioFileReader _reader;
+    private readonly string _audioPath;
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
     private readonly AudioEffectsSampleProvider _effects;
@@ -115,6 +116,7 @@ public sealed class AudioClipPlayer : IDisposable
     {
         ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
+        _audioPath = Path.GetFullPath(audioPath);
         _previewBus = previewBus;
         _gainSettings = AudioClipEditing.CreateGainSettings(project);
         try
@@ -130,7 +132,7 @@ public sealed class AudioClipPlayer : IDisposable
             _tempoRatio = AudioClipEditing.GetTempoRatio(project);
             _pitchSemitones = project.PitchSemitones;
             _stretch.SetParameters(_tempoRatio, _pitchSemitones);
-            _effects = new AudioEffectsSampleProvider(_stretch, project.Effects);
+            _effects = new AudioEffectsSampleProvider(_stretch, GetCompatibleEffects(project.Effects));
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout,
                 project.Balance, project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
@@ -183,7 +185,7 @@ public sealed class AudioClipPlayer : IDisposable
             _stretch.SetParameters(tempoRatio, _pitchSemitones);
             _previewInput.Reset();
         }
-        _effects.Update(project.Effects);
+        _effects.Update(GetCompatibleEffects(project.Effects));
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
             project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
@@ -235,4 +237,11 @@ public sealed class AudioClipPlayer : IDisposable
         _previewInput.Dispose();
         _reader.Dispose();
     }
+
+    private AudioEffectSettings GetCompatibleEffects(AudioEffectSettings settings) =>
+        settings.NoiseReductionEnabled &&
+        settings.NoiseProfile is AudioNoiseProfile profile &&
+        !profile.MatchesSource(_audioPath, _reader.WaveFormat.SampleRate, _reader.WaveFormat.Channels)
+            ? settings with { NoiseReductionEnabled = false }
+            : settings;
 }

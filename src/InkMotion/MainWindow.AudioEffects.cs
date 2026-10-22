@@ -5,10 +5,39 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private bool _capturingAudioNoiseProfile;
+
     private void UpdateAudioEffectsInspector(AudioTrackProject? track)
     {
         AudioEffectsControls.IsEnabled = track is not null;
         AudioEffectSettings settings = track?.Effects ?? new();
+        AudioNoiseProfile? profile = settings.NoiseProfile;
+        AudioClipPlayer? player = TryGetSelectedAudioClip(out AudioTrackRuntime? selectedTrack) &&
+            ReferenceEquals(selectedTrack.Project, track) ? selectedTrack.Player : null;
+        bool profileMatchesSource = profile is not null && player is not null &&
+            track?.AudioPath is string sourcePath &&
+            profile.MatchesSource(sourcePath, player.SourceSampleRate, player.ChannelCount);
+        CaptureAudioNoiseProfileButton.IsEnabled = track?.AudioPath is not null && player is not null &&
+            !_capturingAudioNoiseProfile;
+        AudioNoiseReductionEnabled.IsEnabled = profileMatchesSource;
+        AudioNoiseReductionStrengthBox.IsEnabled = profileMatchesSource;
+        if (player is not null)
+        {
+            AudioNoiseProfileStartBox.Value = 0;
+            AudioNoiseProfileEndBox.Value = player.SourceSampleFrames;
+        }
+
+        AudioNoiseProfileText.Text = profile switch
+        {
+            null => player is null
+                ? "Load an audio source, then capture a noise-only range of at least 512 sample frames."
+                : $"Source: {player.SourceSampleRate:N0} Hz · {player.ChannelCount} channel(s) · " +
+                  $"{player.SourceSampleFrames:N0} frames. Select a noise-only range below.",
+            _ when profileMatchesSource =>
+                $"Profile ready · {profile.SampleRate:N0} Hz · {profile.Channels} channel(s) · " +
+                $"{profile.Magnitudes.Length:N0} spectral bins. Saved in the project.",
+            _ => "Saved profile does not match this source. Capture a new noise-only sample before enabling reduction.",
+        };
         AudioEffectsEnabled.IsChecked = settings.Enabled;
         AudioHighPassBox.Value = settings.HighPassHz;
         AudioLowPassBox.Value = settings.LowPassHz;
@@ -24,6 +53,8 @@ public sealed partial class MainWindow
         AudioGateAttackBox.Value = settings.GateAttackMilliseconds;
         AudioGateReleaseBox.Value = settings.GateReleaseMilliseconds;
         AudioGateHoldBox.Value = settings.GateHoldMilliseconds;
+        AudioNoiseReductionEnabled.IsChecked = settings.NoiseReductionEnabled;
+        AudioNoiseReductionStrengthBox.Value = settings.NoiseReductionStrengthDecibels;
         AudioLimiterEnabled.IsChecked = settings.LimiterEnabled;
         AudioLimiterCeilingBox.Value = settings.LimiterCeilingDecibels;
         AudioLimiterReleaseBox.Value = settings.LimiterReleaseMilliseconds;
@@ -41,6 +72,60 @@ public sealed partial class MainWindow
     private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();
 
     private void AudioEffectNumberChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) => ApplyAudioEffects();
+
+    private async void CaptureAudioNoiseProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (_capturingAudioNoiseProfile || !TryGetSelectedAudioClip(out AudioTrackRuntime? track) ||
+            track.Project.AudioPath is not string sourcePath || track.Player is not AudioClipPlayer player)
+        {
+            StatusText.Text = "Select an available audio clip before capturing its noise profile.";
+            return;
+        }
+
+        double firstValue = AudioNoiseProfileStartBox.Value;
+        double endValue = AudioNoiseProfileEndBox.Value;
+        if (!double.IsFinite(firstValue) || !double.IsFinite(endValue) ||
+            firstValue != Math.Truncate(firstValue) || endValue != Math.Truncate(endValue) ||
+            firstValue < 0 || endValue <= firstValue || endValue > player.SourceSampleFrames ||
+            endValue - firstValue < AudioNoiseProfile.HopSize)
+        {
+            StatusText.Text = $"Choose a valid noise-only range of at least {AudioNoiseProfile.HopSize} whole source sample frames.";
+            return;
+        }
+
+        _capturingAudioNoiseProfile = true;
+        CaptureAudioNoiseProfileButton.IsEnabled = false;
+        AudioNoiseProfileText.Text = "Analysing the selected source range for a noise profile...";
+        try
+        {
+            AudioNoiseProfile profile = await Task.Run(() => AudioNoiseProfile.Capture(
+                sourcePath, (long)firstValue, (long)endValue));
+            if (!TryGetSelectedAudioClip(out AudioTrackRuntime? currentTrack) ||
+                !ReferenceEquals(currentTrack, track))
+            {
+                return;
+            }
+
+            ApplyAudioClipEdit(selected =>
+            {
+                selected.Project.Effects = selected.Project.Effects with { NoiseProfile = profile };
+                return true;
+            }, "Noise profile captured and saved with the project. Enable reduction to apply it.",
+                "Could not save the noise profile.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
+            InvalidOperationException or NotSupportedException or FormatException or OverflowException or
+            System.Runtime.InteropServices.COMException)
+        {
+            AudioNoiseProfileText.Text = $"Noise profile capture failed: {ex.Message}";
+            StatusText.Text = "Could not capture the selected noise profile.";
+        }
+        finally
+        {
+            _capturingAudioNoiseProfile = false;
+            UpdateSelectedAudioTrack();
+        }
+    }
 
     private void ApplyAudioEffects()
     {
@@ -66,6 +151,9 @@ public sealed partial class MainWindow
             GateAttackMilliseconds = AudioGateAttackBox.Value,
             GateReleaseMilliseconds = AudioGateReleaseBox.Value,
             GateHoldMilliseconds = AudioGateHoldBox.Value,
+            NoiseReductionEnabled = AudioNoiseReductionEnabled.IsChecked == true,
+            NoiseReductionStrengthDecibels = AudioNoiseReductionStrengthBox.Value,
+            NoiseProfile = track.Project.Effects.NoiseProfile,
             LimiterEnabled = AudioLimiterEnabled.IsChecked == true,
             LimiterCeilingDecibels = AudioLimiterCeilingBox.Value,
             LimiterReleaseMilliseconds = AudioLimiterReleaseBox.Value,
@@ -81,7 +169,17 @@ public sealed partial class MainWindow
         };
         if (!settings.IsValid)
         {
-            StatusText.Text = "Use valid effect values: filters off at 0 Hz or 20-20000 Hz, high-pass below low-pass; reverb scale 0.5-2, decay 0.1-10 s, damping 0-0.95; delay 1-2000 ms, feedback 0-0.95; wet gains 0-1.";
+            StatusText.Text = "Use valid effect values and capture a matching noise-only profile before enabling spectral noise reduction.";
+            UpdateSelectedAudioTrack();
+            return;
+        }
+
+        if (settings.NoiseReductionEnabled &&
+            (track.Player is not AudioClipPlayer player || track.Project.AudioPath is not string path ||
+             settings.NoiseProfile is not AudioNoiseProfile noiseProfile ||
+             !noiseProfile.MatchesSource(path, player.SourceSampleRate, player.ChannelCount)))
+        {
+            StatusText.Text = "Capture a noise-only profile from the selected source before enabling noise reduction.";
             UpdateSelectedAudioTrack();
             return;
         }

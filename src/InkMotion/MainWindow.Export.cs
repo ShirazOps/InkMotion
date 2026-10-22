@@ -105,6 +105,7 @@ public sealed partial class MainWindow
         ExportVideoButton.IsEnabled = false;
         ExportAudioButton.IsEnabled = false;
         ToolbarExportButton.IsEnabled = false;
+        ToolbarExportAudioButton.IsEnabled = false;
         VideoEncoderCapabilitiesText.Text =
             "Measuring a two-second synthetic sample for the selected profile. This writes only a temporary file.";
         try
@@ -136,6 +137,7 @@ public sealed partial class MainWindow
             ExportVideoButton.IsEnabled = !_submittingExport && !_hasActiveExports;
             ExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
             ToolbarExportButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            ToolbarExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
         }
     }
 
@@ -284,6 +286,7 @@ public sealed partial class MainWindow
     {
         ExportVideoButton.IsEnabled = !running;
         ToolbarExportButton.IsEnabled = !running;
+        ToolbarExportAudioButton.IsEnabled = !running;
         ExportAudioButton.IsEnabled = !running;
         AudioExportOptions.IsEnabled = !running;
         CheckAudioEncodersButton.IsEnabled = !running && !_checkingAudioEncoders;

@@ -128,7 +128,16 @@ public sealed class ExportAudioMixer : IDisposable
         var stretch = new TimeStretchSampleProvider(clip, clip.Seek);
         stretch.SetParameters(AudioClipEditing.GetTempoRatio(track), track.PitchSemitones);
         stretch.Seek(track.SourceInSeconds);
-        var effects = new AudioEffectsSampleProvider(stretch, track.Effects);
+        AudioEffectSettings effectsSettings = track.Effects;
+        if (effectsSettings.NoiseReductionEnabled &&
+            effectsSettings.NoiseProfile is AudioNoiseProfile profile &&
+            !profile.MatchesSource(path, reader.WaveFormat.SampleRate, reader.WaveFormat.Channels))
+        {
+            effectsSettings = effectsSettings with { NoiseReductionEnabled = false };
+            _warnings.Add($"Spectral noise reduction was bypassed for {Path.GetFileName(path)} because its saved profile does not match this source.");
+        }
+
+        var effects = new AudioEffectsSampleProvider(stretch, effectsSettings);
         AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration,
             track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees);
     }
