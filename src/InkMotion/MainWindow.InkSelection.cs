@@ -37,6 +37,7 @@ public sealed partial class MainWindow
         ClearInkSelection();
         _isInkLasso = true;
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _inkShape = null;
         _isEraser = false;
         StatusText.Text = "Lasso selected. Draw a loop on the active cel and layer using the inspector's whole/partial stroke mode; text is excluded.";

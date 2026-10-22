@@ -1612,6 +1612,7 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isEraser = false;
         _inkShape = null;
         _isInkLasso = false;
@@ -1622,6 +1623,7 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isEraser = true;
         _inkShape = null;
         _isInkLasso = false;
@@ -1714,6 +1716,14 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId is not null)
         {
+            return;
+        }
+
+        if (_isInkTextPicker)
+        {
+            var point = e.GetCurrentPoint(InkSurface).Position;
+            SelectInkTextAtPoint(point.X, point.Y);
+            e.Handled = true;
             return;
         }
 
@@ -2016,6 +2026,7 @@ public sealed partial class MainWindow : Window
         }
 
         DrawInkSelection(args.DrawingSession, width, height);
+        DrawSelectedInkText(args.DrawingSession, width, height);
         DrawInkRulers(args.DrawingSession, width, height);
     }
 
@@ -2061,6 +2072,7 @@ public sealed partial class MainWindow : Window
         _isEraser = false;
         _inkShape = shape;
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isInkLasso = false;
         StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
     }

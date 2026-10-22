@@ -137,6 +137,7 @@ public sealed partial class MainWindow
         InkCustomColourPicker.Color = ToColour(_brushColour);
         _isEraser = false;
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isInkLasso = false;
         _inkShape = null;
         ClearInkSelection();

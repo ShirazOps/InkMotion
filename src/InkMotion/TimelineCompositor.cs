@@ -250,18 +250,36 @@ public static class TimelineCompositor
             return;
         }
 
+        using CanvasTextLayout layout = CreateInkTextLayout(session, overlay, fontSize);
+        session.DrawTextLayout(layout,
+            new Vector2((float)(overlay.X * width), (float)(overlay.Y * height)),
+            WithOpacity(ToColour(overlay.Colour), opacity));
+    }
+
+    public static Rect GetInkTextBounds(ICanvasResourceCreator device, InkTextOverlay overlay,
+        float width, float height, float sizeScale = 1)
+    {
+        if (overlay.FontSize * sizeScale < 1 || string.IsNullOrWhiteSpace(overlay.Text))
+        {
+            return Rect.Empty;
+        }
+
+        using CanvasTextLayout layout = CreateInkTextLayout(device, overlay, (float)(overlay.FontSize * sizeScale));
+        Rect bounds = layout.DrawBounds;
+        return new Rect(bounds.X + overlay.X * width, bounds.Y + overlay.Y * height, bounds.Width, bounds.Height);
+    }
+
+    private static CanvasTextLayout CreateInkTextLayout(ICanvasResourceCreator device, InkTextOverlay overlay, float fontSize)
+    {
         using var format = new CanvasTextFormat
         {
             FontFamily = overlay.FontFamily,
             FontSize = fontSize,
             HorizontalAlignment = CanvasHorizontalAlignment.Center,
             VerticalAlignment = CanvasVerticalAlignment.Center,
+            WordWrapping = CanvasWordWrapping.NoWrap,
         };
-        session.DrawText(
-            overlay.Text,
-            new Vector2((float)(overlay.X * width), (float)(overlay.Y * height)),
-            WithOpacity(ToColour(overlay.Colour), opacity),
-            format);
+        return new CanvasTextLayout(device, overlay.Text, format, 0, 0);
     }
 
     /// <summary>Draws every visible ink layer and the frame's text overlays for one animation drawing.</summary>

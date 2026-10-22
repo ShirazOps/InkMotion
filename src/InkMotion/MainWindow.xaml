@@ -1035,6 +1035,7 @@
                         <NumberBox x:Name="InkSelectionAngleBox" Header="Rotation (degrees)" Minimum="-360" Maximum="360" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" />
                         <Button Content="Apply selection transform" Tag="transform" Click="InkSelectionAction_Click" />
                         <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button Content="Select text on canvas..." Click="SelectInkTextOnCanvas_Click" />
                         <ComboBox x:Name="InkTextOverlaySelector" Header="Existing text on this cel" HorizontalAlignment="Stretch" SelectionChanged="InkTextOverlay_SelectionChanged" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
                         <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
@@ -1068,7 +1069,7 @@
                         </UserControl>
                         <Button x:Name="ApplySelectedInkTextButton" Content="Apply to selected text" Click="SelectedInkTextAction_Click" IsEnabled="False" />
                         <Button x:Name="RemoveSelectedInkTextButton" Content="Remove selected text" Tag="remove" Click="SelectedInkTextAction_Click" IsEnabled="False" />
-                        <TextBlock Text="Select an existing overlay to load its text, font, size, position and colour. Apply is explicit and undoable; switching cels or overlays discards unapplied edits. Add text still creates a centred overlay using the brush colour. Text is cel-wide, not owned by drawing layers; drawing locks do not prevent text edits. Selection here is by overlay, not by characters or canvas hit-testing." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Select an existing overlay from the list or choose Select text on canvas and click its text bounds. The topmost visible cel text wins; transparent text, timeline titles, ink and onion guides are excluded. Selection loads text, font, size, position and colour; edit characters in the text box. Apply is explicit and undoable; switching cels or overlays discards unapplied edits. Add text still creates a centred overlay using the brush colour. Text is cel-wide, not owned by drawing layers; drawing locks do not prevent text edits. Canvas selection is by overlay, not by individual characters." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
                         <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Graphics.Canvas;
 
 namespace InkMotion;
 
@@ -8,6 +9,71 @@ public sealed partial class MainWindow
     private EditorFrame? _textInspectorFrame;
     private InkTextOverlay[] _textInspectorItems = [];
     private bool _updatingTextInspector;
+    private bool _isInkTextPicker;
+
+    private void SelectInkTextOnCanvas_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsOriginalPreview)
+        {
+            StatusText.Text = "Switch to Modified preview before selecting cel text on the canvas.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        ClearInkSelection();
+        _isInkTextPicker = true;
+        _isInkColourSampler = false;
+        _isInkLasso = false;
+        _isEraser = false;
+        _inkShape = null;
+        InkSurface.Invalidate();
+        StatusText.Text = "Click a cel text overlay to select it for editing. Topmost visible text wins; drawing layers and timeline titles are excluded.";
+    }
+
+    private void SelectInkTextAtPoint(double x, double y)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        try
+        {
+            InkTextOverlay? overlay = InkTextEditing.HitTest(InkSurface, CurrentFrame,
+                InkSurface.ActualWidth, InkSurface.ActualHeight, x, y);
+            RefreshInkTextSelection();
+            InkTextOverlaySelector.SelectedItem = InkTextOverlaySelector.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => ReferenceEquals(item.Tag, overlay));
+            StatusText.Text = overlay is null
+                ? "No visible cel text at this point. Pen selected; project unchanged."
+                : "Cel text selected. Edit its properties in the inspector and choose Apply to selected text. Pen selected; project unchanged.";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            StatusText.Text = $"Could not select cel text: {ex.Message}";
+        }
+        finally
+        {
+            _isInkTextPicker = false;
+            InkSurface.Invalidate();
+        }
+    }
+
+    private void DrawSelectedInkText(CanvasDrawingSession session, float width, float height)
+    {
+        if (_workspace != "Ink" || _isPlaying || IsOriginalPreview ||
+            !ReferenceEquals(_textInspectorFrame, CurrentFrame) ||
+            InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay selected } ||
+            !CurrentFrame.TextOverlays.Contains(selected))
+        {
+            return;
+        }
+
+        Windows.Foundation.Rect bounds = TimelineCompositor.GetInkTextBounds(session, selected, width, height);
+        if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+        {
+            session.DrawRectangle(bounds, ToColour(0xFF64C8FF),
+                (float)(1 / Math.Max(0.25, PreviewCanvasTransform.ScaleX)));
+        }
+    }
 
     private void RefreshInkTextSelection()
     {
@@ -59,6 +125,7 @@ public sealed partial class MainWindow
         ApplySelectedInkTextButton.IsEnabled = valid;
         RemoveSelectedInkTextButton.IsEnabled = valid;
         InkSelectedTextProperties.IsEnabled = valid;
+        InkSurface.Invalidate();
         if (!valid || InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay selected })
         {
             return;

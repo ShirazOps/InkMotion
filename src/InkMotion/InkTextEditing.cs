@@ -1,7 +1,19 @@
+using Microsoft.Graphics.Canvas;
+
 namespace InkMotion;
 
 public static class InkTextEditing
 {
+    public static InkTextOverlay? HitTest(ICanvasResourceCreator device, EditorFrame frame,
+        double width, double height, double x, double y)
+    {
+        InkColourSampling.GetPixel(x, y, width, height);
+        return frame.TextOverlays.LastOrDefault(overlay =>
+            (overlay.Colour >> 24) != 0 &&
+            TimelineCompositor.GetInkTextBounds(device, overlay, (float)width, (float)height)
+                .Contains(new Windows.Foundation.Point(x, y)));
+    }
+
     public static bool Update(EditorFrame frame, InkTextOverlay selected, string text, string font,
         double size, double x, double y, uint colour)
     {
