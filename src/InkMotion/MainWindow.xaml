@@ -101,7 +101,7 @@
 
         <Grid Grid.Row="1" Background="{StaticResource PanelBrush}">
             <CommandBar x:Name="VideoActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" HorizontalContentAlignment="Stretch">
+                        Background="Transparent" HorizontalAlignment="Left">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button Content="Add video…" Click="AddVideoClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add image…" Click="AddImageClip_Click" /></AppBarElementContainer>
@@ -132,7 +132,7 @@
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="AudioActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" Visibility="Collapsed">
+                        Background="Transparent" HorizontalAlignment="Left" Visibility="Collapsed">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button Content="Add audio clip…" Click="OpenAudio_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add audio track" Click="AddAudioTrack_Click" /></AppBarElementContainer>
@@ -151,7 +151,7 @@
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="InkActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" Visibility="Collapsed">
+                        Background="Transparent" HorizontalAlignment="Left" Visibility="Collapsed">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button Content="Pen" Click="SelectPen_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Eraser" Click="SelectEraser_Click" /></AppBarElementContainer>
@@ -171,7 +171,7 @@
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="ExportActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" Visibility="Collapsed">
+                        Background="Transparent" HorizontalAlignment="Left" Visibility="Collapsed">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button x:Name="ToolbarExportButton" Content="Export video…" Click="ExportVideo_Click" Style="{StaticResource AccentButtonStyle}" /></AppBarElementContainer>
                     <AppBarElementContainer><Button x:Name="ToolbarExportAudioButton" Content="Export audio…" Click="ExportAudio_Click" /></AppBarElementContainer>
