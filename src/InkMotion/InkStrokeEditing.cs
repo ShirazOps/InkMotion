@@ -140,7 +140,7 @@ public static class InkStrokeEditing
         return changed;
     }
 
-    private static InkPoint Interpolate(InkPoint a, InkPoint b, double t) => new()
+    internal static InkPoint Interpolate(InkPoint a, InkPoint b, double t) => new()
     {
         X = a.X + (b.X - a.X) * t,
         Y = a.Y + (b.Y - a.Y) * t,

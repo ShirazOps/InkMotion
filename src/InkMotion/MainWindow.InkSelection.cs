@@ -10,6 +10,7 @@ public sealed partial class MainWindow
     private bool _isInkLasso;
     private readonly List<InkPoint> _inkLasso = [];
     private List<List<InkPoint>> _selectedInkStrokes = [];
+    private List<InkStrokePartition> _partialInkSelection = [];
     private List<List<InkPoint>> _copiedInkSelection = [];
     private EditorFrame? _inkSelectionFrame;
     private string? _inkSelectionLayerId;
@@ -17,6 +18,7 @@ public sealed partial class MainWindow
     private void ClearInkSelection()
     {
         _selectedInkStrokes.Clear();
+        _partialInkSelection.Clear();
         _inkLasso.Clear();
         _inkSelectionFrame = null;
         _inkSelectionLayerId = null;
@@ -24,8 +26,9 @@ public sealed partial class MainWindow
 
     private bool HasCurrentInkSelection =>
         ReferenceEquals(CurrentFrame, _inkSelectionFrame) && _activeInkLayerId == _inkSelectionLayerId &&
-        _selectedInkStrokes.Count > 0 && _selectedInkStrokes.All(stroke =>
-            GetLayerStrokes(CurrentFrame, _activeInkLayerId).Contains(stroke));
+        _selectedInkStrokes.Count > 0 && (_partialInkSelection.Count > 0
+            ? _partialInkSelection.All(partition => GetLayerStrokes(CurrentFrame, _activeInkLayerId).Contains(partition.Original))
+            : _selectedInkStrokes.All(stroke => GetLayerStrokes(CurrentFrame, _activeInkLayerId).Contains(stroke)));
 
     private void SelectInkLasso_Click(object sender, RoutedEventArgs e)
     {
@@ -36,7 +39,7 @@ public sealed partial class MainWindow
         _isInkColourSampler = false;
         _inkShape = null;
         _isEraser = false;
-        StatusText.Text = "Lasso selected. Draw a loop to select whole strokes on the active cel and layer; text is excluded.";
+        StatusText.Text = "Lasso selected. Draw a loop on the active cel and layer using the inspector's whole/partial stroke mode; text is excluded.";
         InkSurface.Invalidate();
     }
 
@@ -64,9 +67,15 @@ public sealed partial class MainWindow
     {
         _inkSelectionFrame = CurrentFrame;
         _inkSelectionLayerId = _activeInkLayerId;
-        _selectedInkStrokes = InkSelectionEditing.Select(GetLayerStrokes(CurrentFrame, _activeInkLayerId), _inkLasso);
+        bool partial = InkLassoModeSelector.SelectedIndex == 1;
+        _partialInkSelection = partial
+            ? InkSelectionEditing.SelectPartial(GetLayerStrokes(CurrentFrame, _activeInkLayerId), _inkLasso)
+            : [];
+        _selectedInkStrokes = partial
+            ? _partialInkSelection.SelectMany(partition => partition.Selected).ToList()
+            : InkSelectionEditing.Select(GetLayerStrokes(CurrentFrame, _activeInkLayerId), _inkLasso);
         _inkLasso.Clear();
-        StatusText.Text = $"{_selectedInkStrokes.Count} whole stroke(s) selected on the active layer. Use Selection tools in the inspector.";
+        StatusText.Text = $"{_selectedInkStrokes.Count} {(partial ? "stroke portion(s)" : "whole stroke(s)")} selected on the active layer. Copy does not alter drawings; splitting occurs only when transforming or deleting.";
         InkSurface.Invalidate();
     }
 
@@ -105,6 +114,7 @@ public sealed partial class MainWindow
 
             BeginEdit();
             PromoteInterpolatedFrameForEditing();
+            ClearInkSelection();
             List<List<InkPoint>> copies = InkEditing.CloneStrokes(_copiedInkSelection);
             CurrentStrokes.AddRange(copies);
             _selectedInkStrokes = copies;
@@ -137,9 +147,10 @@ public sealed partial class MainWindow
             return;
         }
 
-        BeginEdit();
         if (action == "delete")
         {
+            BeginEdit();
+            InkSelectionEditing.ApplyPartitions(CurrentStrokes, _partialInkSelection);
             CurrentStrokes.RemoveAll(stroke => _selectedInkStrokes.Contains(stroke));
             ClearInkSelection();
         }
@@ -152,25 +163,36 @@ public sealed partial class MainWindow
             if (new[] { x, y, scale, angle }.Any(value => !double.IsFinite(value)) || scale <= 0 ||
                 InkSurface.ActualWidth <= 0 || InkSurface.ActualHeight <= 0)
             {
-                CommitEdit();
                 StatusText.Text = "Use finite selection offsets/rotation and a positive scale.";
                 return;
             }
 
             if (x == 0 && y == 0 && scale == 1 && angle == 0)
             {
-                CommitEdit();
                 StatusText.Text = "The selection transform is unchanged.";
                 return;
             }
 
-            if (!InkSelectionEditing.Transform(_selectedInkStrokes, x, y, scale, angle,
+            List<List<InkPoint>> transformed = InkEditing.CloneStrokes(_selectedInkStrokes);
+            if (!InkSelectionEditing.Transform(transformed, x, y, scale, angle,
                 InkSurface.ActualWidth, InkSurface.ActualHeight))
             {
-                CommitEdit();
                 StatusText.Text = "The transformed stroke paths would leave the canvas. Reduce the offset or scale.";
                 return;
             }
+
+            BeginEdit();
+            InkSelectionEditing.ApplyPartitions(CurrentStrokes, _partialInkSelection);
+            for (int stroke = 0; stroke < _selectedInkStrokes.Count; stroke++)
+            {
+                for (int point = 0; point < _selectedInkStrokes[stroke].Count; point++)
+                {
+                    _selectedInkStrokes[stroke][point].X = transformed[stroke][point].X;
+                    _selectedInkStrokes[stroke][point].Y = transformed[stroke][point].Y;
+                }
+            }
+
+            _partialInkSelection.Clear();
         }
 
         MarkEditChanged();

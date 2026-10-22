@@ -1018,7 +1018,11 @@
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
                         </StackPanel>
                         <TextBlock Text="STROKE SELECTION" Style="{StaticResource SectionHeaderTextStyle}" />
-                        <TextBlock Text="Lasso selects whole strokes on this cel and layer, not text. Offsets use canvas percentages; rotation uses preview aspect ratio. Brush widths stay unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ComboBox x:Name="InkLassoModeSelector" Header="Lasso mode" SelectedIndex="0">
+                            <ComboBoxItem Content="Whole strokes" />
+                            <ComboBoxItem Content="Partial strokes" />
+                        </ComboBox>
+                        <TextBlock Text="Lasso selects whole strokes or only path portions inside the loop on this cel and layer, not text. Partial selection/copy leaves the drawing unchanged; transform/delete splits crossing paths at the loop boundary in one undoable edit. Boundary pressure and width are interpolated; round caps may overlap at cuts. Uses stored strokes, not generated/held drawings. All always selects whole strokes. Offsets use canvas percentages; rotation uses preview aspect ratio. Brush widths stay unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Content="All" Tag="all" Click="InkSelectionAction_Click" />
                             <Button Content="Copy" Tag="copy" Click="InkSelectionAction_Click" />
