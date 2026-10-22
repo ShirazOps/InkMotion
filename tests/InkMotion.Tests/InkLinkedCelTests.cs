@@ -132,6 +132,81 @@ public sealed class InkLinkedCelTests
     }
 
     [Fact]
+    public void LinkedInkAndStyledCelTextExportOverVideoWithoutChangingTheSource()
+    {
+        if (!VideoExportTests.HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-reference-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-linked-overlay-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var background = new EditorProject
+            {
+                Frames = [new()
+                {
+                    IsKeyframe = true, ExposureFrames = 24,
+                    Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle, 0, 0, 1, 1, 4, 0xFF00FF00, true)],
+                }],
+            };
+            var profile = VideoExportProfile.Create(ExportResolution.P720, 24);
+            VideoExporter.Export(new(background, profile, VideoExportCodec.H264, source, 400, PreferHardware: false),
+                null, CancellationToken.None);
+            byte[] original = File.ReadAllBytes(source);
+            var text = new InkTextOverlay { Text = "MMMM", FontSize = 100, Y = 0.3 };
+            var project = new EditorProject
+            {
+                VideoTracks = [new()
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips = [new() { SourcePath = source, SourceDurationSeconds = 1, DurationSeconds = 1 }],
+                }],
+                Frames = [new()
+                {
+                    IsKeyframe = true, ExposureFrames = 12, TextOverlays = [text],
+                    Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle, 0.3, 0.65, 0.7, 0.85, 4, 0xFFFFFFFF, true)],
+                }],
+            };
+            InkLinkedCels.Repeat(project.Frames, project.InkLayers, 0, 0, 1);
+            List<EditorFrame> before = Snapshot(project);
+            project.Frames[1].Strokes[0].ForEach(point => point.BrushColour = 0xFFFF0000);
+            InkTextEditing.ApplyStyle(project.Frames[1], project.Frames[1].TextOverlays[0], 1, 4,
+                new() { FontSize = 100, Colour = 0xFF0000FF, Bold = true });
+            InkLinkedCels.Synchronise(project.Frames, before, 1);
+            project = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+            VideoExporter.Export(new(project, profile, VideoExportCodec.H264, output, 400, PreferHardware: false),
+                null, CancellationToken.None);
+
+            using (var reader = new MediaFoundationVideoReader(output))
+            {
+                foreach (double seconds in new[] { 0.1, 0.7 })
+                {
+                    Assert.True(reader.TryGetFrame(seconds));
+                    byte[] pixels = reader.Pixels;
+                    int green = (reader.Width / 10 + reader.Height / 10 * reader.Width) * 4;
+                    Assert.True(pixels[green + 1] > 180 && pixels[green + 2] < 60 && pixels[green] < 60);
+                    int red = (reader.Width / 2 + reader.Height * 3 / 4 * reader.Width) * 4;
+                    Assert.True(pixels[red + 2] > 180 && pixels[red + 1] < 60 && pixels[red] < 60);
+                    Assert.True(Enumerable.Range(0, pixels.Length / 4).Count(i =>
+                        pixels[i * 4] > 180 && pixels[i * 4 + 1] < 60 && pixels[i * 4 + 2] < 60) > 100);
+                }
+            }
+            Assert.Equal(original, File.ReadAllBytes(source));
+            using var sourceReader = new MediaFoundationVideoReader(source);
+            Assert.True(sourceReader.TryGetFrame(0.7));
+            Assert.DoesNotContain(Enumerable.Range(0, sourceReader.Pixels.Length / 4), i =>
+                sourceReader.Pixels[i * 4 + 2] > 180 || sourceReader.Pixels[i * 4] > 180);
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void OldCelsMigrateWithoutLinksAndHistorySnapshotsRetainThem()
     {
         EditorProject old = EditorProjectSerialiser.Deserialise(

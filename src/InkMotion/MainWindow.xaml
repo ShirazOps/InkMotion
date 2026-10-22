@@ -169,6 +169,9 @@
                     <AppBarElementContainer><Button Content="Add ink layer" Click="AddInkLayer_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" /></AppBarElementContainer>
+                    <AppBarSeparator />
+                    <AppBarElementContainer><Button Content="Import reference image…" Click="AddImageClip_Click" ToolTipService.ToolTip="Add a normal image timeline clip beneath ink at the playhead; visible media is included in exports" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Import reference video…" Click="AddVideoClip_Click" ToolTipService.ToolTip="Add a normal video timeline clip beneath ink at the playhead; visible media and unmuted source audio are included in exports" /></AppBarElementContainer>
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="ExportActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
@@ -1092,6 +1095,10 @@
                         <Button x:Name="ApplySelectedInkTextButton" Content="Apply to selected text" Click="SelectedInkTextAction_Click" IsEnabled="False" />
                         <Button x:Name="RemoveSelectedInkTextButton" Content="Remove selected text" Tag="remove" Click="SelectedInkTextAction_Click" IsEnabled="False" />
                         <TextBlock Text="Select an overlay or choose character-range selection and click the first then last character on that same overlay (reverse order is allowed). Numeric inclusive character numbers also work; complete Unicode text elements stay together. Style character range applies the inspector font, size, selected-text colour and bold/italic/underline without changing content or position. Reset returns the range to the overlay's base style. Range highlights are preview-only; styles are saved/exported and undoable. Apply to selected text changes base properties; changing content resets its range styles to avoid stale indices. Existing range styles override base properties. No on-canvas typing/caret. Text remains cel-wide and outside drawing-layer locks; other overlays, timeline titles and guides are excluded." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="REFERENCE MEDIA" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button Content="Import reference image…" Click="AddImageClip_Click" />
+                        <Button Content="Import reference video…" Click="AddVideoClip_Click" />
+                        <TextBlock Text="Imports normal timeline media at the playhead beneath your ink and cel text, without changing the source file. Switch to Video Editor to trim, move, transform, hide or remove the clip; extend cel exposures or add cels to draw at later positions. References are not preview-only guides: visible media and unmuted video audio are exported. Hiding a video track does not mute its audio; mute source audio separately in Video Editor. Media stays externally linked and must remain available when reopening the project." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
                         <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />
