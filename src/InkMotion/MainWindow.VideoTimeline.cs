@@ -872,7 +872,7 @@ public sealed partial class MainWindow
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
-            if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
+            if (source.GetFrame(canvas.Device, sourceSeconds, clip.RollingShutterProfile) is not CanvasBitmap bitmap)
             {
                 if (requireComplete)
                 {
@@ -2422,6 +2422,8 @@ public sealed partial class MainWindow
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         StabiliseVideoButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         StabiliseVideoButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
+        ClearRollingShutterButton.IsEnabled = isVideo && !location.Track.IsLocked &&
+            !_isStabilisationRunning && clip.RollingShutterProfile.Count > 0;
         ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipColourGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
@@ -3380,11 +3382,12 @@ public sealed partial class MainWindow
         string clipId = selected.Clip.Id;
         _isStabilisationRunning = true;
         StabiliseVideoButton.IsEnabled = false;
-        StatusText.Text = "Analysing source motion for translation and small-angle rotational stabilisation…";
+        StatusText.Text = "Analysing camera motion and rolling-shutter skew…";
         try
         {
-            IReadOnlyList<VideoTransformKeyframe> stabilised = await Task.Run(
-                () => VideoStabilisation.Analyse(snapshot, _frameRate));
+            var stabilised = await Task.Run(() =>
+                (Transforms: VideoStabilisation.Analyse(snapshot, _frameRate),
+                    Rolling: VideoRollingShutter.Analyse(snapshot, _frameRate)));
 
             if (SelectedTimelineClip is not TimelineClipLocation current ||
                 current.Clip.Id != clipId ||
@@ -3399,11 +3402,12 @@ public sealed partial class MainWindow
                 return;
             }
 
-            location.Clip.TransformKeyframes = stabilised.ToList();
+            location.Clip.TransformKeyframes = stabilised.Transforms.ToList();
+            location.Clip.RollingShutterProfile = stabilised.Rolling.ToList();
             ApplyClipPreview();
             CommitEdit();
             UpdateVideoInspector();
-            StatusText.Text = $"Applied translation and rotational stabilisation with {stabilised.Count} motion samples.";
+            StatusText.Text = $"Applied translation/rotation stabilisation and rolling-shutter correction with {stabilised.Transforms.Count} motion samples.";
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -3415,6 +3419,27 @@ public sealed partial class MainWindow
             _isStabilisationRunning = false;
             UpdateVideoInspector();
         }
+    }
+
+    private void ClearRollingShutter_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video || selected.Track.IsLocked ||
+            selected.Clip.RollingShutterProfile.Count == 0)
+        {
+            return;
+        }
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+        location.Clip.RollingShutterProfile.Clear();
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = "Rolling-shutter row warp cleared; global transform stabilisation is unchanged.";
     }
 
     private void ClipMaskShape_Changed(object sender, SelectionChangedEventArgs e) =>

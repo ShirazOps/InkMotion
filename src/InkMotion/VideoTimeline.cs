@@ -191,6 +191,7 @@ public sealed class TimelineClipProject
     public double ChromaKeySpillSuppression { get; set; }
     public double BlurAmount { get; set; }
     public double SharpenAmount { get; set; }
+    public List<VideoRollingShutterKeyframe> RollingShutterProfile { get; set; } = [];
     public double VignetteAmount { get; set; }
     public VideoMaskShape MaskShape { get; set; }
     public double MaskX { get; set; } = 0.5;
@@ -903,6 +904,7 @@ public static class VideoTimelineEditing
         ChromaKeySpillSuppression = clip.ChromaKeySpillSuppression,
         BlurAmount = clip.BlurAmount,
         SharpenAmount = clip.SharpenAmount,
+        RollingShutterProfile = VideoRollingShutter.CloneProfile(clip.RollingShutterProfile),
         VignetteAmount = clip.VignetteAmount,
         MaskShape = clip.MaskShape,
         MaskX = clip.MaskX,
@@ -985,6 +987,18 @@ public static class VideoTimelineEditing
                 if (VideoChromaKey.Validate(clip, track.Kind) is string chromaKeyError)
                 {
                     return chromaKeyError;
+                }
+                try
+                {
+                    VideoRollingShutter.ValidateProfile(clip.RollingShutterProfile);
+                    if (clip.RollingShutterProfile.Count > 0 && track.Kind != TimelineTrackKind.Video)
+                    {
+                        return "Rolling-shutter correction is supported only for video clips.";
+                    }
+                }
+                catch (InvalidDataException ex)
+                {
+                    return ex.Message;
                 }
 
                 if (VideoBlurEffect.Validate(clip, track.Kind) is string blurError)

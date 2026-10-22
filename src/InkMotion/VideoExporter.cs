@@ -420,7 +420,7 @@ public static class VideoExporter
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _project.FrameRate);
-            if (video.GetFrame(_device, sourceSeconds) is CanvasBitmap bitmap)
+            if (video.GetFrame(_device, sourceSeconds, clip.RollingShutterProfile) is CanvasBitmap bitmap)
             {
                 (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);

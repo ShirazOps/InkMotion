@@ -102,6 +102,12 @@ public static class VideoClipJoining
             joined.SourceOutSeconds = rightEnd;
         }
         joined.FadeOutSeconds = right.FadeOutSeconds;
+        joined.RollingShutterProfile = left.RollingShutterProfile
+            .Concat(right.RollingShutterProfile)
+            .GroupBy(keyframe => keyframe.SourceSeconds)
+            .Select(group => group.Last())
+            .OrderBy(keyframe => keyframe.SourceSeconds)
+            .ToList();
         return joined;
     }
 }
