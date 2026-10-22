@@ -2496,6 +2496,7 @@ public sealed partial class MainWindow
                 colour == clip.ChromaKeyColour);
         ClipChromaKeyToleranceBox.Value = clip.ChromaKeyTolerance;
         ClipChromaKeyFeather.IsChecked = clip.ChromaKeyFeather;
+        ClipChromaKeySpillBox.Value = clip.ChromaKeySpillSuppression;
         ClipBlurAmountBox.Value = clip.BlurAmount;
         ClipSharpenAmountBox.Value = clip.SharpenAmount;
         ClipVignetteAmountBox.Value = clip.VignetteAmount;
@@ -2728,6 +2729,21 @@ public sealed partial class MainWindow
         ApplyClipChromaKeySettings(commitEdit: false);
     }
 
+    private void ClipChromaKeySpill_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject)
+        {
+            return;
+        }
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < 0 or > 1)
+        {
+            StatusText.Text = "Chroma-key spill suppression must be between 0 and 1.";
+            UpdateVideoInspector();
+            return;
+        }
+        ApplyClipChromaKeySettings(commitEdit: false);
+    }
+
     private void ClipBlurAmount_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (_isInitialising || _isRestoringProject)
@@ -2828,6 +2844,8 @@ public sealed partial class MainWindow
                 System.Globalization.CultureInfo.InvariantCulture, out uint colour) ||
             !double.IsFinite(ClipChromaKeyToleranceBox.Value) ||
             ClipChromaKeyToleranceBox.Value is < 0 or > 1 ||
+            !double.IsFinite(ClipChromaKeySpillBox.Value) ||
+            ClipChromaKeySpillBox.Value is < 0 or > 1 ||
             !TryBeginClipPropertyEdit(out TimelineClipLocation location))
         {
             return;
@@ -2837,8 +2855,10 @@ public sealed partial class MainWindow
         bool enabled = ClipChromaKeyEnabled.IsChecked == true;
         double tolerance = ClipChromaKeyToleranceBox.Value;
         bool feather = ClipChromaKeyFeather.IsChecked == true;
+        double spill = ClipChromaKeySpillBox.Value;
         if (clip.ChromaKeyEnabled == enabled && clip.ChromaKeyColour == colour &&
-            clip.ChromaKeyTolerance == tolerance && clip.ChromaKeyFeather == feather)
+            clip.ChromaKeyTolerance == tolerance && clip.ChromaKeyFeather == feather &&
+            clip.ChromaKeySpillSuppression == spill)
         {
             CommitEdit();
             return;
@@ -2848,6 +2868,7 @@ public sealed partial class MainWindow
         clip.ChromaKeyColour = colour;
         clip.ChromaKeyTolerance = tolerance;
         clip.ChromaKeyFeather = feather;
+        clip.ChromaKeySpillSuppression = spill;
         ApplyClipPreview();
         if (commitEdit)
         {

@@ -188,6 +188,7 @@ public sealed class TimelineClipProject
     public uint ChromaKeyColour { get; set; } = 0xFF00FF00;
     public double ChromaKeyTolerance { get; set; } = 0.1;
     public bool ChromaKeyFeather { get; set; } = true;
+    public double ChromaKeySpillSuppression { get; set; }
     public double BlurAmount { get; set; }
     public double SharpenAmount { get; set; }
     public double VignetteAmount { get; set; }
@@ -899,6 +900,7 @@ public static class VideoTimelineEditing
         ChromaKeyColour = clip.ChromaKeyColour,
         ChromaKeyTolerance = clip.ChromaKeyTolerance,
         ChromaKeyFeather = clip.ChromaKeyFeather,
+        ChromaKeySpillSuppression = clip.ChromaKeySpillSuppression,
         BlurAmount = clip.BlurAmount,
         SharpenAmount = clip.SharpenAmount,
         VignetteAmount = clip.VignetteAmount,

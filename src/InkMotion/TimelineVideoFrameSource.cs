@@ -25,6 +25,12 @@ internal sealed class TimelineVideoFrameSource : IDisposable
 
         if (_reader.FrameVersion != _version && _reader.Width > 0 && _reader.Height > 0)
         {
+            // RGB32 decoder output has an unused padding byte, not source transparency.
+            byte[] pixels = _reader.Pixels;
+            for (int index = 3; index < pixels.Length; index += 4)
+            {
+                pixels[index] = 255;
+            }
             if (_bitmap is null ||
                 _bitmap.SizeInPixels.Width != _reader.Width ||
                 _bitmap.SizeInPixels.Height != _reader.Height)
@@ -32,16 +38,16 @@ internal sealed class TimelineVideoFrameSource : IDisposable
                 _bitmap?.Dispose();
                 _bitmap = CanvasBitmap.CreateFromBytes(
                     device,
-                    _reader.Pixels,
+                    pixels,
                     _reader.Width,
                     _reader.Height,
                     DirectXPixelFormat.B8G8R8A8UIntNormalized,
                     96,
-                    CanvasAlphaMode.Ignore);
+                    CanvasAlphaMode.Premultiplied);
             }
             else
             {
-                _bitmap.SetPixelBytes(_reader.Pixels);
+                _bitmap.SetPixelBytes(pixels);
             }
 
             _version = _reader.FrameVersion;

@@ -562,6 +562,8 @@
                                 </ComboBox>
                                 <NumberBox x:Name="ClipChromaKeyToleranceBox" Header="Colour tolerance (0-1)" Minimum="0" Maximum="1" Value="0.1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeyTolerance_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKey_Changed" />
+                                <NumberBox x:Name="ClipChromaKeySpillBox" Header="Spill suppression (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeySpill_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Reduces excess key-colour channels without changing the key's transparency. Applies across the foreground, so genuine green/blue/magenta objects may also lose colour. Zero preserves the original foreground." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <TextBlock Text="Removes the selected key colour to transparency before compositing. Feather softens the transition edge; this is a basic colour key, not spill suppression or a tracked matte." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <TextBlock Text="BLUR" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <NumberBox x:Name="ClipBlurAmountBox" Header="Gaussian blur (0-20)" Minimum="0" Maximum="20" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipBlurAmount_Changed" LostFocus="ClipProperty_LostFocus" />

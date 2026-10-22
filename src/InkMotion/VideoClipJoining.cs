@@ -76,6 +76,7 @@ public static class VideoClipJoining
             left.ChromaKeyColour != right.ChromaKeyColour ||
             left.ChromaKeyTolerance != right.ChromaKeyTolerance ||
             left.ChromaKeyFeather != right.ChromaKeyFeather ||
+            left.ChromaKeySpillSuppression != right.ChromaKeySpillSuppression ||
             left.BlurAmount != right.BlurAmount ||
             left.SharpenAmount != right.SharpenAmount ||
             left.VignetteAmount != right.VignetteAmount ||
