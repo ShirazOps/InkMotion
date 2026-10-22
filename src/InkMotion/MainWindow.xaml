@@ -277,6 +277,14 @@
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Horizontal: source image position · vertical: luma (black at bottom, white at top) · brightness: pixel density."
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="VECTORSCOPE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <canvas:CanvasControl x:Name="VideoVectorscopeSurface" Height="150" MinHeight="130"
+                            Draw="VideoVectorscope_Draw"
+                            AutomationProperties.Name="Vectorscope for the active video source after clip colour grading, using Rec. 709 Cb and Cr chroma axes" />
+                        <TextBlock x:Name="VideoVectorscopeStatus" Text="Switch to Modified preview to view the active clip's chroma distribution."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Rec. 709 Cb/Cr chroma: neutral at centre, greater saturation farther from centre; pixel brightness shows density."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Active video source after clip colour grading; crop, transform, opacity, cross-dissolves and overlays are excluded."
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="TIMELINE MARKERS" Style="{StaticResource SectionHeaderTextStyle}" />

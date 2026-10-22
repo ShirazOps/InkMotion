@@ -72,4 +72,50 @@ public sealed class VideoScopesTests
     {
         Assert.Throws<ArgumentException>(() => VideoLumaWaveformData.Analyse([0, 0, 0, 255], 2, 1));
     }
+
+    [Fact]
+    public void Vectorscope_MapsRec709ChromaAndIgnoresTransparentPixels()
+    {
+        byte[] pixels =
+        [
+            0, 0, 255, 255,
+            0, 255, 0, 255,
+            255, 0, 0, 255,
+            0, 0, 0, 0,
+        ];
+
+        VideoVectorscopeData vectorscope = VideoVectorscopeData.Analyse(pixels);
+
+        Assert.Equal(3, vectorscope.SampleCount);
+        Assert.Equal(1, vectorscope.Density[(11 * VideoVectorscopeData.Width) + 51]);
+        Assert.Equal(1, vectorscope.Density[(112 * VideoVectorscopeData.Width) + 23]);
+        Assert.Equal(1, vectorscope.Density[(68 * VideoVectorscopeData.Width) + 116]);
+    }
+
+    [Fact]
+    public void Vectorscope_CombinesNeutralSamplesAtCentreAndProducesPremultipliedPixels()
+    {
+        byte[] pixels =
+        [
+            128, 128, 128, 255,
+            64, 64, 64, 128,
+        ];
+
+        VideoVectorscopeData vectorscope = VideoVectorscopeData.Analyse(pixels);
+
+        Assert.Equal(2, vectorscope.SampleCount);
+        Assert.Equal(2, vectorscope.Density[(64 * VideoVectorscopeData.Width) + 64]);
+        for (int offset = 0; offset < vectorscope.BgraPixels.Length; offset += 4)
+        {
+            Assert.True(vectorscope.BgraPixels[offset] <= vectorscope.BgraPixels[offset + 3]);
+            Assert.True(vectorscope.BgraPixels[offset + 1] <= vectorscope.BgraPixels[offset + 3]);
+            Assert.True(vectorscope.BgraPixels[offset + 2] <= vectorscope.BgraPixels[offset + 3]);
+        }
+    }
+
+    [Fact]
+    public void Vectorscope_RejectsIncompleteBgraPixels()
+    {
+        Assert.Throws<ArgumentException>(() => VideoVectorscopeData.Analyse([1, 2, 3]));
+    }
 }

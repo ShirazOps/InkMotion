@@ -170,3 +170,95 @@ public sealed record VideoLumaWaveformData(byte[] BgraPixels, int SampleCount)
         }
     }
 }
+
+public sealed record VideoVectorscopeData(int[] Density, byte[] BgraPixels, int SampleCount)
+{
+    public const int Width = 128;
+    public const int Height = 128;
+    private const double ChromaRange = 0.6;
+
+    public static VideoVectorscopeData Analyse(ReadOnlySpan<byte> bgraPixels)
+    {
+        if (bgraPixels.Length % 4 != 0)
+        {
+            throw new ArgumentException("BGRA pixel data must contain complete four-byte pixels.", nameof(bgraPixels));
+        }
+
+        int[] density = new int[Width * Height];
+        int[] blueSums = new int[density.Length];
+        int[] greenSums = new int[density.Length];
+        int[] redSums = new int[density.Length];
+        int sampleCount = 0;
+        for (int offset = 0; offset < bgraPixels.Length; offset += 4)
+        {
+            int alpha = bgraPixels[offset + 3];
+            if (alpha == 0)
+            {
+                continue;
+            }
+
+            int blue = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset], alpha);
+            int green = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset + 1], alpha);
+            int red = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset + 2], alpha);
+            double luma = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+            double cb = (blue - luma) / (byte.MaxValue * 2 * (1 - 0.0722));
+            double cr = (red - luma) / (byte.MaxValue * 2 * (1 - 0.2126));
+            int x = Math.Clamp((int)Math.Round(((cb / (2 * ChromaRange)) + 0.5) * (Width - 1)), 0, Width - 1);
+            int y = Math.Clamp((int)Math.Round((0.5 - (cr / (2 * ChromaRange))) * (Height - 1)), 0, Height - 1);
+            int index = (y * Width) + x;
+            density[index]++;
+            blueSums[index] += blue;
+            greenSums[index] += green;
+            redSums[index] += red;
+            sampleCount++;
+        }
+
+        int maximum = density.Max();
+        byte[] pixels = new byte[density.Length * 4];
+        for (int index = 0; index < density.Length; index++)
+        {
+            int count = density[index];
+            if (count == 0)
+            {
+                continue;
+            }
+
+            int alpha = (int)Math.Round(70 + (185 * Math.Sqrt(count / (double)maximum)));
+            int offset = index * 4;
+            pixels[offset] = Premultiply(blueSums[index] / count, alpha);
+            pixels[offset + 1] = Premultiply(greenSums[index] / count, alpha);
+            pixels[offset + 2] = Premultiply(redSums[index] / count, alpha);
+            pixels[offset + 3] = (byte)alpha;
+        }
+
+        return new VideoVectorscopeData(density, pixels, sampleCount);
+    }
+
+    public static void Draw(CanvasDrawingSession session, Rect bounds, CanvasBitmap? bitmap)
+    {
+        session.FillRectangle(bounds, Color.FromArgb(255, 18, 22, 28));
+        double diameter = Math.Max(0, Math.Min(bounds.Width, bounds.Height) - 8);
+        if (diameter <= 0)
+        {
+            return;
+        }
+
+        float centreX = (float)(bounds.X + (bounds.Width / 2));
+        float centreY = (float)(bounds.Y + (bounds.Height / 2));
+        float radius = (float)(diameter / 2);
+        Rect plot = new(centreX - radius, centreY - radius, diameter, diameter);
+        if (bitmap is not null)
+        {
+            session.DrawImage(bitmap, plot, new Rect(0, 0, Width, Height), 1);
+        }
+
+        Color gridColour = Color.FromArgb(120, 130, 145, 160);
+        session.DrawEllipse(centreX, centreY, radius, radius, gridColour, 1);
+        session.DrawEllipse(centreX, centreY, radius * 0.5f, radius * 0.5f, Color.FromArgb(65, 130, 145, 160), 1);
+        session.DrawLine(centreX - radius, centreY, centreX + radius, centreY, gridColour, 1);
+        session.DrawLine(centreX, centreY - radius, centreX, centreY + radius, gridColour, 1);
+    }
+
+    private static byte Premultiply(int channel, int alpha) =>
+        (byte)((channel * alpha + (byte.MaxValue / 2)) / byte.MaxValue);
+}

@@ -36,6 +36,7 @@ public sealed partial class MainWindow
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
     private CanvasBitmap? _videoLumaWaveformBitmap;
+    private CanvasBitmap? _videoVectorscopeBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
     private long _lastVideoScopeSampleMilliseconds;
     private TimelineVideoFrameSource? _previewVideoFrameSource;
@@ -524,14 +525,16 @@ public sealed partial class MainWindow
         float opacity,
         bool secondary)
     {
-        if (opacity <= 0 || clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
+        if (clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
         {
             if (!secondary)
             {
-                SetVideoScopeUnavailable(opacity <= 0
-                    ? "The active video clip is fully transparent."
-                    : "The active video clip has no available source.");
+                SetVideoScopeUnavailable("The active video clip has no available source.");
             }
+            return;
+        }
+        if (secondary && opacity <= 0)
+        {
             return;
         }
 
@@ -580,19 +583,22 @@ public sealed partial class MainWindow
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
-            TimelineCompositor.DrawFitted(
-                session,
-                bitmap,
-                VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
-                width,
-                height,
-                transform.Scale,
-                transform.X,
-                transform.Y,
-                opacity,
-                transform.RotationDegrees,
-                clip,
-                colourGradingEffect);
+            if (opacity > 0)
+            {
+                TimelineCompositor.DrawFitted(
+                    session,
+                    bitmap,
+                    VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
+                    width,
+                    height,
+                    transform.Scale,
+                    transform.X,
+                    transform.Y,
+                    opacity,
+                    transform.RotationDegrees,
+                    clip,
+                    colourGradingEffect);
+            }
             if (!secondary)
             {
                 UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
@@ -726,11 +732,30 @@ public sealed partial class MainWindow
                 _videoLumaWaveformBitmap.SetPixelBytes(waveform.BgraPixels);
             }
 
+            VideoVectorscopeData vectorscope = VideoVectorscopeData.Analyse(pixels);
+            if (_videoVectorscopeBitmap is null)
+            {
+                _videoVectorscopeBitmap = CanvasBitmap.CreateFromBytes(
+                    canvas.Device,
+                    vectorscope.BgraPixels,
+                    VideoVectorscopeData.Width,
+                    VideoVectorscopeData.Height,
+                    Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                    96,
+                    CanvasAlphaMode.Premultiplied);
+            }
+            else
+            {
+                _videoVectorscopeBitmap.SetPixelBytes(vectorscope.BgraPixels);
+            }
+
             _lastVideoScopeSampleMilliseconds = now;
             VideoRgbHistogramSurface.Invalidate();
             VideoLumaWaveformSurface.Invalidate();
+            VideoVectorscopeSurface.Invalidate();
             VideoScopeStatus.Text = $"{_videoRgbHistogram.SampleCount:N0} sampled pixels · red, green and blue channels";
             VideoLumaWaveformStatus.Text = $"{waveform.SampleCount:N0} sampled pixels · Rec. 709 luma";
+            VideoVectorscopeStatus.Text = $"{vectorscope.SampleCount:N0} sampled pixels · Rec. 709 Cb/Cr";
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -750,10 +775,14 @@ public sealed partial class MainWindow
         _videoRgbHistogram = null;
         _videoLumaWaveformBitmap?.Dispose();
         _videoLumaWaveformBitmap = null;
+        _videoVectorscopeBitmap?.Dispose();
+        _videoVectorscopeBitmap = null;
         VideoScopeStatus.Text = message;
         VideoLumaWaveformStatus.Text = message.Replace("RGB distribution", "luma waveform", StringComparison.Ordinal);
+        VideoVectorscopeStatus.Text = message.Replace("RGB distribution", "chroma distribution", StringComparison.Ordinal);
         VideoRgbHistogramSurface.Invalidate();
         VideoLumaWaveformSurface.Invalidate();
+        VideoVectorscopeSurface.Invalidate();
     }
 
     private void DisposeVideoScopeSampleTarget()
@@ -762,6 +791,8 @@ public sealed partial class MainWindow
         _videoScopeSampleTarget = null;
         _videoLumaWaveformBitmap?.Dispose();
         _videoLumaWaveformBitmap = null;
+        _videoVectorscopeBitmap?.Dispose();
+        _videoVectorscopeBitmap = null;
         _lastVideoScopeSampleMilliseconds = 0;
     }
 
@@ -770,6 +801,12 @@ public sealed partial class MainWindow
             args.DrawingSession,
             new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
             _videoLumaWaveformBitmap);
+
+    private void VideoVectorscope_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoVectorscopeData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoVectorscopeBitmap);
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
     {
