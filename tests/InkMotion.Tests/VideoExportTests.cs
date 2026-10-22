@@ -187,6 +187,51 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_CropsVideoSourceBeforeFittingItToTheFrame()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-crop-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-crop-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(source, 0xFFFF0000);
+            var clip = new TimelineClipProject
+            {
+                SourcePath = source,
+                SourceOutSeconds = 1,
+                SourceDurationSeconds = 1,
+                CropLeftPercent = 40,
+            };
+            var project = new EditorProject
+            {
+                VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+            };
+
+            VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            Assert.True(GetPixel(video, 320, 504).R > 80);
+            Assert.True(GetPixel(video, 100, 504).R < 30);
+        }
+        finally
+        {
+            foreach (string path in new[] { source, output })
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void Quality_ChangesTheTargetBitRate()
     {
         var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);

@@ -68,8 +68,8 @@ public sealed partial class MainWindow
         TransitionPreviewPlayer.SetMediaPlayer(_transitionPreviewMediaPlayer);
         _previewVideoTransform.ScaleX = _previewVideoTransform.ScaleY = 1;
         _transitionVideoTransform.ScaleX = _transitionVideoTransform.ScaleY = 1;
-        PreviewPlayer.RenderTransformOrigin = new Point(0.5, 0.5);
-        TransitionPreviewPlayer.RenderTransformOrigin = new Point(0.5, 0.5);
+        PreviewPlayer.RenderTransformOrigin = new Point(0, 0);
+        TransitionPreviewPlayer.RenderTransformOrigin = new Point(0, 0);
         PreviewPlayer.RenderTransform = _previewVideoTransform;
         TransitionPreviewPlayer.RenderTransform = _transitionVideoTransform;
         _previewMediaPlayer.MediaOpened += PreviewMediaPlayer_MediaOpened;
@@ -453,10 +453,20 @@ public sealed partial class MainWindow
         VideoTransformValue value = clip is null
             ? new VideoTransformValue(0.5, 0.5, 1, 0)
             : VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
-        transform.ScaleX = transform.ScaleY = value.Scale;
-        transform.Rotation = value.RotationDegrees;
-        transform.TranslateX = (value.X - 0.5) * element.ActualWidth;
-        transform.TranslateY = (value.Y - 0.5) * element.ActualHeight;
+        MediaPlaybackSession session = ReferenceEquals(element, PreviewPlayer)
+            ? _previewMediaPlayer.PlaybackSession
+            : _transitionPreviewMediaPlayer.PlaybackSession;
+        VideoPreviewTransform preview = VideoCrop.GetPreviewTransform(
+            new Size(element.ActualWidth, element.ActualHeight),
+            new Size(session.NaturalVideoWidth, session.NaturalVideoHeight),
+            clip ?? new TimelineClipProject(),
+            value);
+        transform.CenterX = preview.PivotX;
+        transform.CenterY = preview.PivotY;
+        transform.ScaleX = transform.ScaleY = preview.Scale;
+        transform.Rotation = preview.RotationDegrees;
+        transform.TranslateX = preview.TranslateX;
+        transform.TranslateY = preview.TranslateY;
     }
 
     private void HideTransitionPreview()
@@ -603,7 +613,7 @@ public sealed partial class MainWindow
         }
 
         VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
-        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, transform.Scale, transform.X, transform.Y,
+        TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height, transform.Scale, transform.X, transform.Y,
             opacity, transform.RotationDegrees);
     }
 
@@ -905,6 +915,10 @@ public sealed partial class MainWindow
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
+        destination.CropLeftPercent = source.CropLeftPercent;
+        destination.CropTopPercent = source.CropTopPercent;
+        destination.CropRightPercent = source.CropRightPercent;
+        destination.CropBottomPercent = source.CropBottomPercent;
         destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
 
@@ -1774,6 +1788,8 @@ public sealed partial class MainWindow
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
@@ -1814,6 +1830,10 @@ public sealed partial class MainWindow
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipScaleSlider.Value = transform.Scale;
         ClipRotationBox.Value = transform.RotationDegrees;
+        ClipCropLeftBox.Value = clip.CropLeftPercent;
+        ClipCropRightBox.Value = clip.CropRightPercent;
+        ClipCropTopBox.Value = clip.CropTopPercent;
+        ClipCropBottomBox.Value = clip.CropBottomPercent;
         ClipXSlider.Value = transform.X;
         ClipYSlider.Value = transform.Y;
         if (supportsTransform)
@@ -1936,6 +1956,70 @@ public sealed partial class MainWindow
             UpdateVideoInspector();
             return;
         }
+        ApplyClipPreview();
+    }
+
+    private void ClipCrop_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject || !double.IsFinite(args.NewValue) ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        TimelineClipProject clip = location.Clip;
+        double left = clip.CropLeftPercent;
+        double right = clip.CropRightPercent;
+        double top = clip.CropTopPercent;
+        double bottom = clip.CropBottomPercent;
+        if (ReferenceEquals(sender, ClipCropLeftBox))
+        {
+            left = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropRightBox))
+        {
+            right = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropTopBox))
+        {
+            top = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropBottomBox))
+        {
+            bottom = args.NewValue;
+        }
+        else
+        {
+            CommitEdit();
+            return;
+        }
+
+        var candidate = VideoTimelineEditing.Clone(clip);
+        candidate.CropLeftPercent = left;
+        candidate.CropRightPercent = right;
+        candidate.CropTopPercent = top;
+        candidate.CropBottomPercent = bottom;
+        if (left == clip.CropLeftPercent && right == clip.CropRightPercent &&
+            top == clip.CropTopPercent && bottom == clip.CropBottomPercent)
+        {
+            CommitEdit();
+            return;
+        }
+
+        if (VideoCrop.Validate(candidate, location.Track.Kind) is string error)
+        {
+            CommitEdit();
+            StatusText.Text = error;
+            UpdateVideoInspector();
+            return;
+        }
+
+        clip.CropLeftPercent = left;
+        clip.CropRightPercent = right;
+        clip.CropTopPercent = top;
+        clip.CropBottomPercent = bottom;
         ApplyClipPreview();
     }
 

@@ -321,7 +321,7 @@ public static class VideoExporter
                         case TimelineTrackKind.Image when GetImage(layer.Clip.SourcePath) is CanvasBitmap image:
                             VideoTransformValue imageTransform = VideoTransformKeyframes.GetValueAtTime(
                                 layer.Clip, seconds, _project.FrameRate);
-                            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height,
+                            TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, layer.Clip), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
                                 imageTransform.RotationDegrees);
                             break;
@@ -379,7 +379,7 @@ public static class VideoExporter
             {
                 (int x, int y, int w, int h) = video.Reader.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
-                TimelineCompositor.DrawFitted(session, bitmap, new Rect(x, y, w, h), width, height,
+                TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), clip), width, height,
                     transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees);
             }
         }

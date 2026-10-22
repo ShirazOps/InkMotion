@@ -448,6 +448,21 @@
                                 </StackPanel>
                                 <TextBlock Text="Transform keyframes interpolate linearly. Once enabled, changing position, scale or rotation creates or updates a keyframe at the playhead." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
+                            <TextBlock x:Name="ClipCropLabel" Text="Crop each source edge by a percentage. Crop is non-destructive and stays with the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <Grid x:Name="ClipCropGrid" ColumnSpacing="6" RowSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <NumberBox x:Name="ClipCropLeftBox" Header="Crop left (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropRightBox" Grid.Column="1" Header="Crop right (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropTopBox" Grid.Row="1" Header="Crop top (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropBottomBox" Grid.Row="1" Grid.Column="1" Header="Crop bottom (%)" Minimum="0" Maximum="49" SmallChange="1" ValueChanged="ClipCrop_Changed" />
+                            </Grid>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
                             <ComboBox x:Name="ClipFontSelector" Header="Font" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">

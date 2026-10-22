@@ -68,6 +68,18 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionTwentyOneProject_MigratesWithNoCrop()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":21,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal((0, 0, 0, 0),
+            (clip.CropLeftPercent, clip.CropTopPercent, clip.CropRightPercent, clip.CropBottomPercent));
+    }
+
+    [Fact]
     public void Serialise_RoundTripsCrossDissolveTransition()
     {
         TimelineTrackProject track = new()

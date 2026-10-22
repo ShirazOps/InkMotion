@@ -34,6 +34,10 @@ public sealed class TimelineClipProject
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
     public double TransitionInSeconds { get; set; }
+    public double CropLeftPercent { get; set; }
+    public double CropTopPercent { get; set; }
+    public double CropRightPercent { get; set; }
+    public double CropBottomPercent { get; set; }
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -593,6 +597,10 @@ public static class VideoTimelineEditing
         FadeInSeconds = clip.FadeInSeconds,
         FadeOutSeconds = clip.FadeOutSeconds,
         TransitionInSeconds = clip.TransitionInSeconds,
+        CropLeftPercent = clip.CropLeftPercent,
+        CropTopPercent = clip.CropTopPercent,
+        CropRightPercent = clip.CropRightPercent,
+        CropBottomPercent = clip.CropBottomPercent,
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
@@ -638,6 +646,11 @@ public static class VideoTimelineEditing
                 if (VideoTransformKeyframes.Validate(clip, track.Kind, frameRate) is string keyframeError)
                 {
                     return keyframeError;
+                }
+
+                if (VideoCrop.Validate(clip, track.Kind) is string cropError)
+                {
+                    return cropError;
                 }
             }
 
