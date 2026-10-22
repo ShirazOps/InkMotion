@@ -216,6 +216,20 @@ public static class TimelineCompositor
         float height,
         float widthScale)
     {
+        if (stroke.Count >= 3 && stroke[0].IsFilled)
+        {
+            using var path = new CanvasPathBuilder(session);
+            path.BeginFigure((float)(stroke[0].X * width), (float)(stroke[0].Y * height));
+            foreach (InkPoint point in stroke.Skip(1))
+            {
+                path.AddLine((float)(point.X * width), (float)(point.Y * height));
+            }
+            path.EndFigure(CanvasFigureLoop.Closed);
+            using var geometry = CanvasGeometry.CreatePath(path);
+            session.FillGeometry(geometry, colour);
+            return;
+        }
+
         if (stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Grain)
         {
             InkGrainBrush.Draw(session, stroke, colour, width, height, widthScale);

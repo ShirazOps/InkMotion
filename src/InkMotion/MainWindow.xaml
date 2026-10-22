@@ -1022,6 +1022,8 @@
                             <ComboBoxItem Content="Grain (procedural)" />
                         </ComboBox>
                         <TextBlock Text="Grain pencil/chalk use deterministic pressure-sensitive stippling, not imported brush images. Texture is saved with strokes and shared by preview, colour sampling and export. Existing strokes keep their texture; editing a path can regenerate its grain pattern." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <CheckBox x:Name="InkSolidFillCheckBox" Content="Solid fill for new rectangles / ellipses" />
+                        <TextBlock Text="Filled shapes use the current colour and alpha, without an outline or grain texture. Pen and line tools are unchanged. Eraser and both lasso modes treat each filled shape as one object, including hits inside it. This is shape fill, not a bucket flood fill between existing strokes." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="STROKE SELECTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLassoModeSelector" Header="Lasso mode" SelectedIndex="0">
                             <ComboBoxItem Content="Whole strokes" />

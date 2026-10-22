@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 37;
+    public const int CurrentVersion = 38;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -219,6 +219,7 @@ public sealed class InkPoint
     public double Pressure { get; set; } = 0.5;
     public double BrushWidth { get; set; } = 4;
     public InkBrushTexture BrushTexture { get; set; }
+    public bool IsFilled { get; set; }
     [JsonPropertyName("BrushColor")]
     public uint BrushColour { get; set; } = 0xFFFFA500;
 }
@@ -391,6 +392,10 @@ public static class EditorProjectSerialiser
             project.Version = 36;
         }
         if (project.Version == 36)
+        {
+            project.Version = 37;
+        }
+        if (project.Version == 37)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -622,6 +627,7 @@ public static class InkAnimation
                     BrushWidth = Lerp(first[pointIndex].BrushWidth, second[pointIndex].BrushWidth, progress),
                     BrushColour = first[pointIndex].BrushColour,
                     BrushTexture = first[pointIndex].BrushTexture,
+                    IsFilled = first[pointIndex].IsFilled,
                 });
             }
 
@@ -710,7 +716,8 @@ public static class InkAnimation
         startStrokes.Count > 0 &&
         startStrokes.Count == endStrokes.Count &&
         startStrokes.All(stroke => stroke.Count > 0) &&
-        endStrokes.All(stroke => stroke.Count > 0);
+        endStrokes.All(stroke => stroke.Count > 0) &&
+        startStrokes.Select((stroke, index) => stroke[0].IsFilled == endStrokes[index][0].IsFilled).All(match => match);
 
     private static double ApplyInterpolation(double progress, InkInterpolationMode mode) =>
         mode switch
@@ -745,6 +752,7 @@ public static class InkAnimation
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
                     BrushTexture = stroke[0].BrushTexture,
+                    IsFilled = stroke[0].IsFilled,
                 })
                 .ToList();
         }
@@ -769,6 +777,7 @@ public static class InkAnimation
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
                     BrushTexture = stroke[0].BrushTexture,
+                    IsFilled = stroke[0].IsFilled,
                 })
                 .ToList();
         }
@@ -793,6 +802,7 @@ public static class InkAnimation
                 BrushWidth = Lerp(stroke[segment - 1].BrushWidth, stroke[segment].BrushWidth, progress),
                 BrushColour = stroke[segment - 1].BrushColour,
                 BrushTexture = stroke[segment - 1].BrushTexture,
+                IsFilled = stroke[segment - 1].IsFilled,
             });
         }
 
@@ -997,6 +1007,12 @@ internal static class EditorProjectValidation
                     !Enum.IsDefined(point.BrushTexture)))
                 {
             throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
+        }
+
+        if (stroke.Count > 0 && (stroke.Any(point => point.IsFilled != stroke[0].IsFilled) ||
+            (stroke[0].IsFilled && stroke.Count < 3)))
+        {
+            throw new InvalidDataException("A filled ink shape needs at least three points with a consistent fill setting.");
         }
     }
 }

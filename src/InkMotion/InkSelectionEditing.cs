@@ -7,6 +7,31 @@ public sealed record InkStrokePartition(
 
 public static class InkSelectionEditing
 {
+    internal static bool ContainsPoint(IReadOnlyList<InkPoint> polygon, double x, double y)
+    {
+        bool inside = false;
+        for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
+        {
+            InkPoint a = polygon[j];
+            InkPoint b = polygon[i];
+            double cross = (b.X - a.X) * (y - a.Y) - (b.Y - a.Y) * (x - a.X);
+            if (Math.Abs(cross) < 1e-12 &&
+                x >= Math.Min(a.X, b.X) && x <= Math.Max(a.X, b.X) &&
+                y >= Math.Min(a.Y, b.Y) && y <= Math.Max(a.Y, b.Y))
+            {
+                return true;
+            }
+
+            if ((a.Y > y) != (b.Y > y) &&
+                x < (b.X - a.X) * (y - a.Y) / (b.Y - a.Y) + a.X)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
     public static List<InkStrokePartition> SelectPartial(
         List<List<InkPoint>> strokes, IReadOnlyList<InkPoint> polygon)
     {
@@ -18,34 +43,21 @@ public static class InkSelectionEditing
             return [];
         }
 
-        bool Inside(InkPoint point)
-        {
-            bool inside = false;
-            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
-            {
-                InkPoint a = polygon[j];
-                InkPoint b = polygon[i];
-                double cross = (b.X - a.X) * (point.Y - a.Y) - (b.Y - a.Y) * (point.X - a.X);
-                if (Math.Abs(cross) < 1e-12 &&
-                    point.X >= Math.Min(a.X, b.X) && point.X <= Math.Max(a.X, b.X) &&
-                    point.Y >= Math.Min(a.Y, b.Y) && point.Y <= Math.Max(a.Y, b.Y))
-                {
-                    return true;
-                }
-
-                if ((a.Y > point.Y) != (b.Y > point.Y) &&
-                    point.X < (b.X - a.X) * (point.Y - a.Y) / (b.Y - a.Y) + a.X)
-                {
-                    inside = !inside;
-                }
-            }
-
-            return inside;
-        }
+        bool Inside(InkPoint point) => ContainsPoint(polygon, point.X, point.Y);
 
         var partitions = new List<InkStrokePartition>();
         foreach (List<InkPoint> stroke in strokes)
         {
+            if (stroke.Count >= 3 && stroke[0].IsFilled)
+            {
+                if (Select([stroke], polygon).Count > 0)
+                {
+                    List<InkPoint> shape = InkEditing.CloneStrokes([stroke])[0];
+                    partitions.Add(new(stroke, [shape], [shape]));
+                }
+                continue;
+            }
+
             if (stroke.Count == 1)
             {
                 if (Inside(stroke[0]))
@@ -156,27 +168,14 @@ public static class InkSelectionEditing
             return [];
         }
 
-        bool Inside(InkPoint point)
-        {
-            bool inside = false;
-            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
-            {
-                InkPoint a = polygon[i];
-                InkPoint b = polygon[j];
-                if ((a.Y > point.Y) != (b.Y > point.Y) &&
-                    point.X < (b.X - a.X) * (point.Y - a.Y) / (b.Y - a.Y) + a.X)
-                {
-                    inside = !inside;
-                }
-            }
-
-            return inside;
-        }
-
-        return strokes.Where(stroke => stroke.Any(Inside) ||
+        return strokes.Where(stroke => stroke.Any(point => ContainsPoint(polygon, point.X, point.Y)) ||
+            (stroke.Count >= 3 && stroke[0].IsFilled && ContainsPoint(stroke, polygon[0].X, polygon[0].Y)) ||
             Enumerable.Range(1, Math.Max(0, stroke.Count - 1)).Any(index =>
                 Enumerable.Range(0, polygon.Count).Any(edge => Intersects(stroke[index - 1], stroke[index],
-                    polygon[edge], polygon[(edge + 1) % polygon.Count])))).ToList();
+                    polygon[edge], polygon[(edge + 1) % polygon.Count]))) ||
+            (stroke.Count >= 3 && stroke[0].IsFilled &&
+                Enumerable.Range(0, polygon.Count).Any(edge =>
+                    Intersects(stroke[^1], stroke[0], polygon[edge], polygon[(edge + 1) % polygon.Count])))).ToList();
     }
 
     private static bool Intersects(InkPoint a, InkPoint b, InkPoint c, InkPoint d)

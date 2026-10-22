@@ -9,7 +9,8 @@ public enum InkShape
 
 public static class InkStrokeEditing
 {
-    public static List<InkPoint> CreateShape(InkShape shape, double x0, double y0, double x1, double y1, double brushWidth, uint colour)
+    public static List<InkPoint> CreateShape(InkShape shape, double x0, double y0, double x1, double y1, double brushWidth, uint colour,
+        bool filled = false)
     {
         if (!Enum.IsDefined(shape) || new[] { x0, y0, x1, y1 }.Any(value => !double.IsFinite(value) || value < 0 || value > 1) ||
             !double.IsFinite(brushWidth) || brushWidth <= 0 || brushWidth > 64)
@@ -17,7 +18,11 @@ public static class InkStrokeEditing
             throw new ArgumentOutOfRangeException(nameof(shape), "A shape needs valid canvas coordinates and brush width.");
         }
 
-        InkPoint Point(double x, double y) => new() { X = x, Y = y, BrushWidth = brushWidth, BrushColour = colour, Pressure = 0.5 };
+        InkPoint Point(double x, double y) => new()
+        {
+            X = x, Y = y, BrushWidth = brushWidth, BrushColour = colour, Pressure = 0.5,
+            IsFilled = filled && shape != InkShape.Line,
+        };
         if (shape == InkShape.Line)
         {
             return [Point(x0, y0), Point(x1, y1)];
@@ -55,6 +60,33 @@ public static class InkStrokeEditing
         var remaining = new List<List<InkPoint>>();
         foreach (List<InkPoint> stroke in strokes)
         {
+            if (stroke.Count >= 3 && stroke[0].IsFilled)
+            {
+                bool filledHit = InkSelectionEditing.ContainsPoint(stroke, x / width, y / height);
+                for (int index = 0; !filledHit && index < stroke.Count; index++)
+                {
+                    InkPoint a = stroke[index];
+                    InkPoint b = stroke[(index + 1) % stroke.Count];
+                    double dx = (b.X - a.X) * width;
+                    double dy = (b.Y - a.Y) * height;
+                    double ax = a.X * width - x;
+                    double ay = a.Y * height - y;
+                    double lengthSquared = dx * dx + dy * dy;
+                    double t = lengthSquared == 0 ? 0 : Math.Clamp(-(ax * dx + ay * dy) / lengthSquared, 0, 1);
+                    filledHit = Math.Pow(ax + t * dx, 2) + Math.Pow(ay + t * dy, 2) < radius * radius;
+                }
+
+                if (filledHit)
+                {
+                    changed = true;
+                }
+                else
+                {
+                    remaining.Add(stroke);
+                }
+                continue;
+            }
+
             var pieces = new List<List<InkPoint>>();
             List<InkPoint>? piece = null;
             bool hit = false;
@@ -148,6 +180,7 @@ public static class InkStrokeEditing
         BrushWidth = a.BrushWidth + (b.BrushWidth - a.BrushWidth) * t,
         BrushColour = t < 1 ? a.BrushColour : b.BrushColour,
         BrushTexture = t < 1 ? a.BrushTexture : b.BrushTexture,
+        IsFilled = a.IsFilled,
     };
 
     public static InkPoint Stabilise(InkPoint input, InkPoint? previous, double amount)
@@ -165,6 +198,7 @@ public static class InkStrokeEditing
             BrushWidth = input.BrushWidth,
             BrushColour = input.BrushColour,
             BrushTexture = input.BrushTexture,
+            IsFilled = input.IsFilled,
         };
     }
 }

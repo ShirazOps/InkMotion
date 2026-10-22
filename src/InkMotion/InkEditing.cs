@@ -294,6 +294,7 @@ public static class InkEditing
             BrushWidth = point.BrushWidth,
             BrushColour = point.BrushColour,
             BrushTexture = point.BrushTexture,
+            IsFilled = point.IsFilled,
         }).ToList()).ToList();
 
     public static int InsertCopy(List<EditorFrame> frames, int afterIndex, EditorFrame source)

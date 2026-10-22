@@ -2075,7 +2075,7 @@ public sealed partial class MainWindow : Window
         _isInkColourSampler = false;
         _isInkTextPicker = false;
         _isInkLasso = false;
-        StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
+        StatusText.Text = $"{name} tool selected. Drag on the canvas; rectangles and ellipses use the inspector's solid-fill setting. Lines remain outlines.";
     }
 
     private void UpdateInkShape(Point point)
@@ -2090,7 +2090,8 @@ public sealed partial class MainWindow : Window
             Math.Clamp(_shapeStartPoint.X / InkSurface.ActualWidth, 0, 1),
             Math.Clamp(_shapeStartPoint.Y / InkSurface.ActualHeight, 0, 1),
             Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
-            Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour);
+            Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour,
+            filled: InkSolidFillCheckBox.IsChecked == true);
         foreach (InkPoint shapePoint in points)
         {
             shapePoint.BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex;
@@ -2542,6 +2543,7 @@ public sealed partial class MainWindow : Window
                     BrushWidth = point.BrushWidth,
                     BrushColour = point.BrushColour,
                     BrushTexture = point.BrushTexture,
+                    IsFilled = point.IsFilled,
                 }).ToList())
                 .ToList());
         }
