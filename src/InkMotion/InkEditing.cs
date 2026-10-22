@@ -266,10 +266,13 @@ public static class InkEditing
         Opacity = layer.Opacity,
     };
 
-    public static EditorFrame Clone(EditorFrame frame) => new()
+    public static EditorFrame Clone(EditorFrame frame) => Clone(frame, preserveDrawingLink: false);
+
+    public static EditorFrame Clone(EditorFrame frame, bool preserveDrawingLink) => new()
     {
         Number = frame.Number,
         GroupName = frame.GroupName,
+        DrawingLinkId = preserveDrawingLink ? frame.DrawingLinkId : "",
         ExposureFrames = frame.ExposureFrames,
         IsKeyframe = frame.IsKeyframe,
         InterpolationMode = frame.InterpolationMode,

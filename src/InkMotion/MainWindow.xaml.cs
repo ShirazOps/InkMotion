@@ -1508,6 +1508,11 @@ public sealed partial class MainWindow : Window
 
     private void ToggleKeyframe_Click(object sender, RoutedEventArgs e)
     {
+        if (CurrentFrame.DrawingLinkId.Length > 0)
+        {
+            StatusText.Text = "Linked drawings remain keyframes. Unlink this cel before removing its keyframe.";
+            return;
+        }
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
@@ -2257,7 +2262,7 @@ public sealed partial class MainWindow : Window
         List<TimelineTrackProject> videoTracks = _videoTracks.Select(VideoTimelineEditing.Clone).ToList();
         LinkedAudioVideoEditing.ClearMissingLinks(videoTracks, tracks);
         AudioTrackProject? firstLoadedTrack = tracks.FirstOrDefault(track => !string.IsNullOrWhiteSpace(track.AudioPath));
-        return new EditorProject
+        var snapshot = new EditorProject
         {
             FrameRate = _frameRate,
             VideoTracks = videoTracks,
@@ -2273,6 +2278,11 @@ public sealed partial class MainWindow : Window
             SelectedFrameIndex = _selectedFrameIndex,
             Frames = _frames.Select(CloneFrame).ToList(),
         };
+        if (_pendingEdit is not null && _pendingEditChanged)
+        {
+            InkLinkedCels.Synchronise(snapshot.Frames, _pendingEdit.Frames, _selectedFrameIndex);
+        }
+        return snapshot;
     }
 
     private static AudioTrackProject CloneAudioTrack(AudioTrackProject track) => AudioClipEditing.Clone(track);
@@ -2288,7 +2298,7 @@ public sealed partial class MainWindow : Window
         !string.IsNullOrWhiteSpace(project.Comments) ||
         project.Year > 0;
 
-    private static EditorFrame CloneFrame(EditorFrame frame) => InkEditing.Clone(frame);
+    private static EditorFrame CloneFrame(EditorFrame frame) => InkEditing.Clone(frame, preserveDrawingLink: true);
 
     private void RestoreProjectState(EditorProject project)
     {
@@ -2393,6 +2403,7 @@ public sealed partial class MainWindow : Window
         VideoMulticamEditing.RemoveMissingTracks(_videoMulticamGroups, existingVideoTrackIds);
         if (_pendingEdit is not null && _pendingEditChanged)
         {
+            InkLinkedCels.Synchronise(_frames, _pendingEdit.Frames, _selectedFrameIndex);
             PushHistory(_undoHistory, _pendingEdit);
             _redoHistory.Clear();
             UpdateHistoryButtons();
@@ -2613,14 +2624,20 @@ public sealed partial class MainWindow : Window
         button.Width = Math.Min(220, 54 + ((frame.ExposureFrames - 1) * 4));
         bool isInterpolated = _interpolatedFrameIndices.Contains(index);
         string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
+        if (frame.DrawingLinkId.Length > 0)
+        {
+            prefix = "L ";
+        }
         button.Content = $"{prefix}{frame.Number:000}";
         ToolTipService.SetToolTip(
             button,
             $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
             $"exposed for {frame.ExposureFrames} output frame(s)" +
-            (frame.GroupName.Length == 0 ? "" : $"; group: {frame.GroupName}"));
+            (frame.GroupName.Length == 0 ? "" : $"; group: {frame.GroupName}") +
+            (frame.DrawingLinkId.Length == 0 ? "" : "; linked drawing"));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,
-            $"Cel {frame.Number}" + (frame.GroupName.Length == 0 ? "" : $", group {frame.GroupName}"));
+            $"Cel {frame.Number}" + (frame.GroupName.Length == 0 ? "" : $", group {frame.GroupName}") +
+            (frame.DrawingLinkId.Length == 0 ? "" : ", linked drawing"));
         bool isSelected = index == _selectedFrameIndex;
         button.Background = (Brush)Application.Current.Resources[isSelected ? "AccentFillColorDefaultBrush" : "PanelRaisedBrush"];
         button.Foreground = (Brush)Application.Current.Resources[isSelected ? "TextOnAccentFillColorPrimaryBrush" : "TextPrimaryBrush"];

@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 40;
+    public const int CurrentVersion = 41;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -68,6 +68,7 @@ public sealed class EditorFrame
 {
     public int Number { get; set; } = 1;
     public string GroupName { get; set; } = "";
+    public string DrawingLinkId { get; set; } = "";
     public int ExposureFrames { get; set; } = 1;
     public bool IsKeyframe { get; set; }
     public InkInterpolationMode InterpolationMode { get; set; } = InkInterpolationMode.Linear;
@@ -418,6 +419,10 @@ public static class EditorProjectSerialiser
             project.Version = 39;
         }
         if (project.Version == 39)
+        {
+            project.Version = 40;
+        }
+        if (project.Version == 40)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -1018,6 +1023,7 @@ internal static class EditorProjectValidation
                 InkTextEditing.ValidateStyles(text);
             }
         }
+        InkLinkedCels.Validate(project.Frames);
     }
 
     private static void ValidateStroke(List<InkPoint>? stroke)
