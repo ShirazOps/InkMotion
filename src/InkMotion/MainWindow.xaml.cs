@@ -2230,6 +2230,7 @@ public sealed partial class MainWindow : Window
         {
             FrameRate = _frameRate,
             VideoTracks = videoTracks,
+            VideoMulticamGroups = _videoMulticamGroups.Select(VideoMulticamEditing.Clone).ToList(),
             Markers = _timelineMarkers.Select(TimelineMarkers.Clone).ToList(),
             AudioPath = firstLoadedTrack?.AudioPath,
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
@@ -2271,6 +2272,8 @@ public sealed partial class MainWindow : Window
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         RestoreVideoTracks(project.VideoTracks);
+        _videoMulticamGroups.Clear();
+        _videoMulticamGroups.AddRange(project.VideoMulticamGroups.Select(VideoMulticamEditing.Clone));
         _timelineMarkers.Clear();
         _timelineMarkers.AddRange(project.Markers.Select(TimelineMarkers.Clone));
         _audioMixLayout = project.AudioMixLayout;
@@ -2352,6 +2355,11 @@ public sealed partial class MainWindow : Window
 
     private void CommitEdit()
     {
+        var existingVideoTrackIds = _videoTracks
+            .Where(track => track.Kind == TimelineTrackKind.Video)
+            .Select(track => track.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        VideoMulticamEditing.RemoveMissingTracks(_videoMulticamGroups, existingVideoTrackIds);
         if (_pendingEdit is not null && _pendingEditChanged)
         {
             PushHistory(_undoHistory, _pendingEdit);

@@ -7,6 +7,135 @@ public enum TimelineTrackKind
     Text,
 }
 
+public sealed class VideoMulticamGroup
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "Multicam";
+    public int StartFrame { get; set; } = 1;
+    public List<VideoMulticamAngle> Angles { get; set; } = [];
+    public List<VideoMulticamSwitch> Switches { get; set; } = [];
+}
+
+public sealed class VideoMulticamAngle
+{
+    public string TrackId { get; set; } = string.Empty;
+    public string Name { get; set; } = "Camera";
+}
+
+public sealed record VideoMulticamSwitch(int Frame, string TrackId);
+
+public static class VideoMulticamEditing
+{
+    public static void RemoveMissingTracks(IList<VideoMulticamGroup> groups, ISet<string> existingTrackIds)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        ArgumentNullException.ThrowIfNull(existingTrackIds);
+        foreach (VideoMulticamGroup group in groups)
+        {
+            group.Angles.RemoveAll(angle => !existingTrackIds.Contains(angle.TrackId));
+            group.Switches.RemoveAll(item => !group.Angles.Any(angle => angle.TrackId == item.TrackId));
+        }
+
+        for (int index = groups.Count - 1; index >= 0; index--)
+        {
+            if (groups[index].Angles.Count < 2)
+            {
+                groups.RemoveAt(index);
+            }
+        }
+    }
+
+    public static IReadOnlyList<TimelineClipLocation> FilterVisibleLayers(
+        IReadOnlyList<TimelineClipLocation> layers,
+        IReadOnlyList<VideoMulticamGroup> groups,
+        double seconds,
+        double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+        ArgumentNullException.ThrowIfNull(groups);
+        int frame = Math.Max(1, (int)Math.Floor(seconds * frameRate) + 1);
+        var members = groups
+            .Where(group => frame >= group.StartFrame)
+            .SelectMany(group => group.Angles.Select(angle => (angle.TrackId, ActiveId: GetActiveTrackId(group, frame))))
+            .ToDictionary(item => item.TrackId, item => item.ActiveId, StringComparer.Ordinal);
+        return layers.Where(layer =>
+            !members.TryGetValue(layer.Track.Id, out string? activeId) ||
+            string.Equals(layer.Track.Id, activeId, StringComparison.Ordinal)).ToArray();
+    }
+
+    public static string GetActiveTrackId(VideoMulticamGroup group, int frame)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        return group.Switches
+            .Where(item => item.Frame <= frame)
+            .OrderBy(item => item.Frame)
+            .LastOrDefault()?.TrackId ?? group.Angles.FirstOrDefault()?.TrackId ?? string.Empty;
+    }
+
+    public static VideoMulticamGroup Clone(VideoMulticamGroup group) => new()
+    {
+        Id = group.Id,
+        Name = group.Name,
+        StartFrame = group.StartFrame,
+        Angles = group.Angles.Select(angle => new VideoMulticamAngle
+        {
+            TrackId = angle.TrackId,
+            Name = angle.Name,
+        }).ToList(),
+        Switches = group.Switches.ToList(),
+    };
+
+    public static void SetAngleAtFrame(VideoMulticamGroup group, int frame, string trackId)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentException.ThrowIfNullOrWhiteSpace(trackId);
+        if (frame < group.StartFrame || !group.Angles.Any(angle => angle.TrackId == trackId))
+        {
+            throw new ArgumentOutOfRangeException(nameof(frame), "Choose a grouped camera at or after the multicamera start frame.");
+        }
+
+        group.Switches.RemoveAll(item => item.Frame == frame);
+        if (GetActiveTrackId(group, frame - 1) != trackId)
+        {
+            group.Switches.Add(new VideoMulticamSwitch(frame, trackId));
+            group.Switches.Sort((left, right) => left.Frame.CompareTo(right.Frame));
+        }
+    }
+}
+
+public static class VideoProxy
+{
+    public static bool IsAvailable(TimelineClipProject clip)
+    {
+        if (string.IsNullOrWhiteSpace(clip.ProxyPath) || !File.Exists(clip.ProxyPath))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(clip.SourcePath) || !File.Exists(clip.SourcePath) ||
+            clip.ProxySourceLength is null || clip.ProxySourceLastWriteUtcTicks is null)
+        {
+            return true;
+        }
+
+        var source = new FileInfo(clip.SourcePath);
+        try
+        {
+            return source.Length == clip.ProxySourceLength &&
+                source.LastWriteTimeUtc.Ticks == clip.ProxySourceLastWriteUtcTicks;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    public static string GetRenderPath(TimelineClipProject clip) =>
+        clip.UseProxy && IsAvailable(clip)
+            ? clip.ProxyPath!
+            : clip.SourcePath ?? string.Empty;
+}
+
 public sealed class TimelineTrackProject
 {
     public string Id { get; set; } = VideoTimelineEditing.NewTrackId();
@@ -23,6 +152,10 @@ public sealed class TimelineClipProject
     public string Id { get; set; } = VideoTimelineEditing.NewClipId();
     public int StartFrame { get; set; } = 1;
     public string? SourcePath { get; set; }
+    public string? ProxyPath { get; set; }
+    public bool UseProxy { get; set; }
+    public long? ProxySourceLength { get; set; }
+    public long? ProxySourceLastWriteUtcTicks { get; set; }
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     /// <summary>Length of the source video, or 0 while it has not been probed.</summary>
@@ -51,6 +184,21 @@ public sealed class TimelineClipProject
     public List<VideoColourCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
     public string? ColourLutPath { get; set; }
+    public bool ChromaKeyEnabled { get; set; }
+    public uint ChromaKeyColour { get; set; } = 0xFF00FF00;
+    public double ChromaKeyTolerance { get; set; } = 0.1;
+    public bool ChromaKeyFeather { get; set; } = true;
+    public double BlurAmount { get; set; }
+    public double SharpenAmount { get; set; }
+    public double VignetteAmount { get; set; }
+    public VideoMaskShape MaskShape { get; set; }
+    public double MaskX { get; set; } = 0.5;
+    public double MaskY { get; set; } = 0.5;
+    public double MaskWidth { get; set; } = 1;
+    public double MaskHeight { get; set; } = 1;
+    public bool MaskInverted { get; set; }
+    public double MaskFeather { get; set; }
+    public List<VideoMaskKeyframe> MaskKeyframes { get; set; } = [];
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -452,8 +600,9 @@ public static class VideoTimelineEditing
     public static IReadOnlyList<TimelineClipLocation> GetVisibleVideoLayers(
         IReadOnlyList<TimelineTrackProject> tracks,
         double seconds,
-        double frameRate) =>
-        GetVisibleLayers(tracks, seconds, frameRate)
+        double frameRate,
+        IReadOnlyList<VideoMulticamGroup>? multicamGroups = null) =>
+        GetVisibleLayers(tracks, seconds, frameRate, multicamGroups)
             .Where(location => location.Track.Kind == TimelineTrackKind.Video)
             .ToArray();
 
@@ -484,7 +633,8 @@ public static class VideoTimelineEditing
     public static IReadOnlyList<TimelineClipLocation> GetVisibleLayers(
         IReadOnlyList<TimelineTrackProject> tracks,
         double seconds,
-        double frameRate)
+        double frameRate,
+        IReadOnlyList<VideoMulticamGroup>? multicamGroups = null)
     {
         ArgumentNullException.ThrowIfNull(tracks);
         var layers = new List<TimelineClipLocation>();
@@ -507,7 +657,9 @@ public static class VideoTimelineEditing
             }
         }
 
-        return layers;
+        return multicamGroups is { Count: > 0 }
+            ? VideoMulticamEditing.FilterVisibleLayers(layers, multicamGroups, seconds, frameRate)
+            : layers;
     }
 
     public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate) =>
@@ -713,6 +865,10 @@ public static class VideoTimelineEditing
         Id = clip.Id,
         StartFrame = clip.StartFrame,
         SourcePath = clip.SourcePath,
+        ProxyPath = clip.ProxyPath,
+        UseProxy = clip.UseProxy,
+        ProxySourceLength = clip.ProxySourceLength,
+        ProxySourceLastWriteUtcTicks = clip.ProxySourceLastWriteUtcTicks,
         SourceInSeconds = clip.SourceInSeconds,
         SourceOutSeconds = clip.SourceOutSeconds,
         SourceDurationSeconds = clip.SourceDurationSeconds,
@@ -739,6 +895,28 @@ public static class VideoTimelineEditing
         GreenCurve = clip.GreenCurve?.ToList() ?? [],
         BlueCurve = clip.BlueCurve?.ToList() ?? [],
         ColourLutPath = clip.ColourLutPath,
+        ChromaKeyEnabled = clip.ChromaKeyEnabled,
+        ChromaKeyColour = clip.ChromaKeyColour,
+        ChromaKeyTolerance = clip.ChromaKeyTolerance,
+        ChromaKeyFeather = clip.ChromaKeyFeather,
+        BlurAmount = clip.BlurAmount,
+        SharpenAmount = clip.SharpenAmount,
+        VignetteAmount = clip.VignetteAmount,
+        MaskShape = clip.MaskShape,
+        MaskX = clip.MaskX,
+        MaskY = clip.MaskY,
+        MaskWidth = clip.MaskWidth,
+        MaskHeight = clip.MaskHeight,
+        MaskInverted = clip.MaskInverted,
+        MaskFeather = clip.MaskFeather,
+        MaskKeyframes = clip.MaskKeyframes.Select(key => new VideoMaskKeyframe
+        {
+            FrameOffset = key.FrameOffset,
+            X = key.X,
+            Y = key.Y,
+            Width = key.Width,
+            Height = key.Height,
+        }).ToList(),
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
@@ -800,6 +978,31 @@ public static class VideoTimelineEditing
                 if (VideoColourGrading.Validate(clip, track.Kind) is string colourError)
                 {
                     return colourError;
+                }
+
+                if (VideoChromaKey.Validate(clip, track.Kind) is string chromaKeyError)
+                {
+                    return chromaKeyError;
+                }
+
+                if (VideoBlurEffect.Validate(clip, track.Kind) is string blurError)
+                {
+                    return blurError;
+                }
+
+                if (VideoSharpen.Validate(clip, track.Kind) is string sharpenError)
+                {
+                    return sharpenError;
+                }
+
+                if (VideoVignette.Validate(clip, track.Kind) is string vignetteError)
+                {
+                    return vignetteError;
+                }
+
+                if (VideoClipMask.Validate(clip, track.Kind) is string maskError)
+                {
+                    return maskError;
                 }
             }
 

@@ -26,7 +26,7 @@ public sealed record VideoExportResult(
     string? SurroundStemPath,
     int FrameCount,
     double DurationSeconds,
-    bool UsedHardwareEncoder,
+    bool HardwareTransformsEnabled,
     IReadOnlyList<string> Warnings,
     int AudioChannels = 0);
 
@@ -73,12 +73,16 @@ public static class VideoExporter
 
         MediaFoundationVideoWriter? writer = null;
         MultichannelWaveWriter? stem = null;
-        bool usedHardware = false;
+        bool hardwareTransformsEnabled = false;
+        if (request.PreferHardware)
+        {
+            warnings.Add("Media Foundation hardware transforms were enabled by preference; this API does not confirm whether the video encoder used hardware.");
+        }
         try
         {
             try
             {
-                writer = CreateWriter(request, frameCount, hasAudio ? encodedInfo : null, warnings, out usedHardware);
+                writer = CreateWriter(request, frameCount, hasAudio ? encodedInfo : null, warnings, out hardwareTransformsEnabled);
             }
             catch (AudioEncoderUnavailableException) when (encodedInfo.ChannelCount > 2)
             {
@@ -86,7 +90,7 @@ public static class VideoExporter
                 encodedLayout = AudioChannelLayout.Stereo;
                 encodedInfo = AudioChannelLayouts.Get(encodedLayout);
                 downmix = AudioChannelLayouts.CreateMixMatrix(mixer.Layout, encodedLayout);
-                writer = CreateWriter(request, frameCount, encodedInfo, warnings, out usedHardware);
+                writer = CreateWriter(request, frameCount, encodedInfo, warnings, out hardwareTransformsEnabled);
             }
 
             AudioChannelLayoutInfo mixInfo = AudioChannelLayouts.Get(mixer.Layout);
@@ -130,7 +134,7 @@ public static class VideoExporter
                 stemPath,
                 frameCount,
                 duration,
-                usedHardware,
+                hardwareTransformsEnabled,
                 warnings,
                 hasAudio ? encodedInfo.ChannelCount : 0);
         }
@@ -154,11 +158,11 @@ public static class VideoExporter
         int frameCount,
         AudioChannelLayoutInfo? audio,
         List<string> warnings,
-        out bool usedHardware)
+        out bool hardwareTransformsEnabled)
     {
         VideoExportProfile profile = request.Profile;
         int bitRate = ExportPlanning.GetVideoBitRate(profile, request.Codec, request.Quality);
-        MediaFoundationVideoWriter Create(bool hardware) => new(
+        MediaFoundationVideoWriter Create(bool enableHardwareTransforms) => new(
             request.OutputPath,
             profile.Width,
             profile.Height,
@@ -167,7 +171,7 @@ public static class VideoExporter
             bitRate,
             audio?.ChannelCount ?? 0,
             audio?.ChannelMask ?? 0,
-            hardware,
+            enableHardwareTransforms,
             request.AudioSampleRate,
             request.AudioBitRate);
 
@@ -175,17 +179,17 @@ public static class VideoExporter
         {
             try
             {
-                usedHardware = true;
+                hardwareTransformsEnabled = true;
                 return Create(true);
             }
             catch (COMException)
             {
                 TryDelete(request.OutputPath);
-                warnings.Add("The GPU encoder was unavailable, so the software encoder was used.");
+                warnings.Add("Media Foundation could not start with hardware transforms enabled; the export retried with the hardware-transform preference disabled.");
             }
         }
 
-        usedHardware = false;
+        hardwareTransformsEnabled = false;
         try
         {
             return Create(false);
@@ -279,6 +283,11 @@ public static class VideoExporter
         private readonly Dictionary<string, CanvasBitmap?> _images = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TimelineVideoFrameSource?> _videos = [];
         private readonly Dictionary<string, VideoColourGradingEffect> _colourGradingEffects = [];
+        private readonly Dictionary<string, VideoChromaKeyEffect> _chromaKeyEffects = [];
+        private readonly Dictionary<string, VideoBlurCanvasEffect> _blurEffects = [];
+        private readonly Dictionary<string, VideoSharpenCanvasEffect> _sharpenEffects = [];
+        private readonly Dictionary<string, VideoVignetteCanvasEffect> _vignetteEffects = [];
+        private readonly HashSet<string> _missingProxyWarnings = new(StringComparer.Ordinal);
 
         public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings)
         {
@@ -300,7 +309,8 @@ public static class VideoExporter
             IReadOnlyList<TimelineClipLocation> layers = VideoTimelineEditing.GetVisibleLayers(
                 _project.VideoTracks,
                 seconds,
-                _project.FrameRate);
+                _project.FrameRate,
+                _project.VideoMulticamGroups);
             ReleaseFinishedVideos(layers);
             using (CanvasDrawingSession session = _target.CreateDrawingSession())
             {
@@ -323,7 +333,10 @@ public static class VideoExporter
                                 layer.Clip, seconds, _project.FrameRate);
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, layer.Clip), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
-                                imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip));
+                                imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip),
+                                GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip), GetVignetteEffect(layer.Clip),
+                                VideoTransformKeyframes.GetFrameOffset(layer.Clip, seconds, _project.FrameRate),
+                                GetSharpenEffect(layer.Clip));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
@@ -363,11 +376,38 @@ public static class VideoExporter
                 effect.Dispose();
             }
 
+            foreach (VideoChromaKeyEffect effect in _chromaKeyEffects.Values)
+            {
+                effect.Dispose();
+            }
+
+            foreach (VideoBlurCanvasEffect effect in _blurEffects.Values)
+            {
+                effect.Dispose();
+            }
+
+            foreach (VideoVignetteCanvasEffect effect in _vignetteEffects.Values)
+            {
+                effect.Dispose();
+            }
+
+            foreach (VideoSharpenCanvasEffect effect in _sharpenEffects.Values)
+            {
+                effect.Dispose();
+            }
+
             _target.Dispose();
         }
 
         private void DrawVideo(CanvasDrawingSession session, TimelineClipProject clip, double seconds, float width, float height, float opacity)
         {
+            if (clip.UseProxy &&
+                !VideoProxy.IsAvailable(clip) &&
+                _missingProxyWarnings.Add(clip.Id))
+            {
+                _warnings.Add($"Proxy unavailable for {Path.GetFileName(clip.SourcePath)}; the original source was used.");
+            }
+
             if (!_videos.TryGetValue(clip.Id, out TimelineVideoFrameSource? video))
             {
                 video = OpenVideo(clip);
@@ -385,7 +425,10 @@ public static class VideoExporter
                 (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), clip), width, height,
-                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip, GetColourGradingEffect(clip));
+                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
+                    GetColourGradingEffect(clip), GetChromaKeyEffect(clip), GetBlurEffect(clip), GetVignetteEffect(clip),
+                    VideoTransformKeyframes.GetFrameOffset(clip, seconds, _project.FrameRate),
+                    GetSharpenEffect(clip));
             }
         }
 
@@ -405,20 +448,85 @@ public static class VideoExporter
             return effect;
         }
 
+        private VideoChromaKeyEffect? GetChromaKeyEffect(TimelineClipProject clip)
+        {
+            if (!clip.ChromaKeyEnabled)
+            {
+                return null;
+            }
+
+            if (!_chromaKeyEffects.TryGetValue(clip.Id, out VideoChromaKeyEffect? effect))
+            {
+                effect = new VideoChromaKeyEffect();
+                _chromaKeyEffects.Add(clip.Id, effect);
+            }
+
+            return effect;
+        }
+
+        private VideoBlurCanvasEffect? GetBlurEffect(TimelineClipProject clip)
+        {
+            if (clip.BlurAmount <= 0)
+            {
+                return null;
+            }
+
+            if (!_blurEffects.TryGetValue(clip.Id, out VideoBlurCanvasEffect? effect))
+            {
+                effect = new VideoBlurCanvasEffect();
+                _blurEffects.Add(clip.Id, effect);
+            }
+
+            return effect;
+        }
+
+        private VideoVignetteCanvasEffect? GetVignetteEffect(TimelineClipProject clip)
+        {
+            if (clip.VignetteAmount <= 0)
+            {
+                return null;
+            }
+
+            if (!_vignetteEffects.TryGetValue(clip.Id, out VideoVignetteCanvasEffect? effect))
+            {
+                effect = new VideoVignetteCanvasEffect();
+                _vignetteEffects.Add(clip.Id, effect);
+            }
+
+            return effect;
+        }
+
+        private VideoSharpenCanvasEffect? GetSharpenEffect(TimelineClipProject clip)
+        {
+            if (clip.SharpenAmount <= 0)
+            {
+                return null;
+            }
+
+            if (!_sharpenEffects.TryGetValue(clip.Id, out VideoSharpenCanvasEffect? effect))
+            {
+                effect = new VideoSharpenCanvasEffect();
+                _sharpenEffects.Add(clip.Id, effect);
+            }
+
+            return effect;
+        }
+
         private TimelineVideoFrameSource? OpenVideo(TimelineClipProject clip)
         {
-            if (string.IsNullOrWhiteSpace(clip.SourcePath))
+            string path = VideoProxy.GetRenderPath(clip);
+            if (string.IsNullOrWhiteSpace(path))
             {
                 return null;
             }
 
             try
             {
-                return new TimelineVideoFrameSource(clip.SourcePath);
+                return new TimelineVideoFrameSource(path);
             }
             catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                _warnings.Add($"Skipped video {Path.GetFileName(clip.SourcePath)}: {ex.Message}");
+                _warnings.Add($"Skipped video {Path.GetFileName(path)}: {ex.Message}");
                 return null;
             }
         }

@@ -116,6 +116,10 @@
                             <Button Content="Split" Click="SplitClip_Click" />
                             <Button Content="Duplicate" Click="DuplicateVideoClip_Click" />
                             <Button Content="Ripple delete" Click="RippleDeleteClip_Click" />
+                            <Button x:Name="CreateMulticamGroupButton" Content="Group cameras at playhead" Click="CreateMulticamGroup_Click" />
+                            <Button x:Name="SwitchMulticamAngleButton" Content="Switch to selected angle" Click="SwitchMulticamAngle_Click" />
+                            <Button x:Name="GenerateVideoProxyButton" Content="Generate proxy" Click="GenerateVideoProxy_Click" />
+                            <Button x:Name="ToggleVideoProxyButton" Content="Use proxy" Click="ToggleVideoProxy_Click" />
                         </StackPanel>
                     </UserControl>
                     <Button Content="Copy clip" Click="CopyVideoClip_Click" />
@@ -468,6 +472,9 @@
                             </StackPanel>
                             <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button x:Name="StabiliseVideoButton" Content="Analyse and stabilise video" Click="StabiliseVideo_Click" />
+                                <TextBlock Text="Translation-only stabilisation estimates frame motion and smooths the path; it may crop by up to 25%. Existing transform keyframes are replaced." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button x:Name="SetMaskKeyframeButton" Content="Add/update mask tracking keyframe" Click="SetMaskKeyframe_Click" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetTransformKeyframeButton" Content="Add/update keyframe" Click="SetTransformKeyframe_Click" />
                                     <Button x:Name="RemoveTransformKeyframeButton" Content="Remove keyframe" Click="RemoveTransformKeyframe_Click" />
@@ -531,6 +538,47 @@
                                     <Button Content="Load 3D LUT (.cube)..." Click="LoadClipColourLut_Click" />
                                     <Button x:Name="RemoveClipColourLutButton" Content="Remove LUT" Click="RemoveClipColourLut_Click" />
                                 </StackPanel>
+                                <TextBlock Text="CHROMA KEY" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <ToggleButton x:Name="ClipChromaKeyEnabled" Content="Remove key colour" Click="ClipChromaKey_Changed" />
+                                <ComboBox x:Name="ClipChromaKeyColourSelector" Header="Key colour" SelectionChanged="ClipChromaKeyColour_Changed">
+                                    <ComboBoxItem Content="Green screen" Tag="FF00FF00" />
+                                    <ComboBoxItem Content="Blue screen" Tag="FF0000FF" />
+                                    <ComboBoxItem Content="Magenta screen" Tag="FFFF00FF" />
+                                </ComboBox>
+                                <NumberBox x:Name="ClipChromaKeyToleranceBox" Header="Colour tolerance (0-1)" Minimum="0" Maximum="1" Value="0.1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeyTolerance_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKey_Changed" />
+                                <TextBlock Text="Removes the selected key colour to transparency before compositing. Feather softens the transition edge; this is a basic colour key, not spill suppression or a tracked matte." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="BLUR" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <NumberBox x:Name="ClipBlurAmountBox" Header="Gaussian blur (0-20)" Minimum="0" Maximum="20" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipBlurAmount_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Softens the video or image source before it is composited. Zero leaves the source unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <NumberBox x:Name="ClipSharpenAmountBox" Header="Sharpen (0-10)" Minimum="0" Maximum="10" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipSharpenAmount_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Enhances source edges before compositing. Use modest values to avoid accentuating compression noise." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <NumberBox x:Name="ClipVignetteAmountBox" Header="Vignette (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipVignetteAmount_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Darkens the edges of the video or image source. Zero leaves the source unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="MASK" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <ComboBox x:Name="ClipMaskShapeSelector" Header="Mask shape" SelectedIndex="0" SelectionChanged="ClipMaskShape_Changed">
+                                    <ComboBoxItem Content="None" Tag="None" />
+                                    <ComboBoxItem Content="Rectangle" Tag="Rectangle" />
+                                    <ComboBoxItem Content="Ellipse" Tag="Ellipse" />
+                                </ComboBox>
+                                <ToggleButton x:Name="ClipMaskInvertedCheck" Content="Invert mask" Click="ClipMaskSettings_Changed" />
+                                <NumberBox x:Name="ClipMaskFeatherBox" Header="Mask feather (0-0.25 frame)" Minimum="0" Maximum="0.25" Value="0" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskFeather_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <Button x:Name="TrackMaskSubjectButton" Content="Track mask from playhead" Click="TrackMaskSubject_Click" />
+                                <Grid ColumnSpacing="6" RowSpacing="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <NumberBox x:Name="ClipMaskXBox" Header="Centre X (0-1)" Minimum="0" Maximum="1" Value="0.5" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
+                                    <NumberBox x:Name="ClipMaskYBox" Grid.Column="1" Header="Centre Y (0-1)" Minimum="0" Maximum="1" Value="0.5" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
+                                    <NumberBox x:Name="ClipMaskWidthBox" Grid.Row="1" Header="Width (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
+                                    <NumberBox x:Name="ClipMaskHeightBox" Grid.Row="1" Grid.Column="1" Header="Height (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
+                                </Grid>
+                                <TextBlock Text="Hard-edged rectangle/ellipse masks composite with other layers. On video clips, add mask keyframes at selected playhead positions to animate the mask manually; automatic subject tracking and feathered/inverted masks are not included." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
@@ -595,7 +643,10 @@
                             <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
                             <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
                         </ComboBox>
-                        <ToggleSwitch x:Name="ExportHardwareToggle" Header="GPU encoding" OnContent="Prefer hardware (software fallback)" OffContent="Software encoding" IsOn="True" />
+                        <ToggleSwitch x:Name="ExportHardwareToggle" Header="Hardware transforms" OnContent="Prefer hardware transforms" OffContent="Disable hardware transforms" IsOn="True" />
+                        <Button x:Name="CheckVideoEncodersButton" Content="Check video encoder profiles" Click="CheckVideoEncoders_Click" />
+                        <Button x:Name="MeasureVideoPerformanceButton" Content="Measure selected profile (2 seconds)" Click="MeasureVideoPerformance_Click" />
+                        <TextBlock x:Name="VideoEncoderCapabilitiesText" Text="Probe H.264/HEVC software encode support across common resolutions and frame rates. Hardware encoder use is not confirmed by Media Foundation's preference flag." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Slider x:Name="ExportQualitySlider" Header="Video quality / file size" Minimum="0" Maximum="100" Value="50"
                                 StepFrequency="1" ValueChanged="ExportSettings_Changed" AutomationProperties.Name="Video quality and file size" />
                         <Grid>
@@ -659,7 +710,7 @@
                         <Button x:Name="CheckAudioEncodersButton" Content="Check installed audio encoders" Click="CheckAudioEncoders_Click" />
                         <TextBlock x:Name="AudioEncoderCapabilitiesText" Text="Windows MP3/AAC format availability varies by PC. Export requires an exact rate, channel count and bit rate match; unsupported combinations report an error rather than substituting settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
-                        <TextBlock Text="Export renders on the GPU and encodes with the Windows hardware encoder when available. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="Export renders with Win2D and asks Media Foundation to enable hardware transforms when preferred. Windows does not report the actual encoder hardware through this API, so GPU encoder use cannot be claimed. Every visible video, image and title track is composited in timeline order with the ink layers on top. Surround mixes beyond 5.1 are also saved as a multichannel WAV beside the video." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>

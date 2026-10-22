@@ -58,6 +58,41 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionThirtyProject_MigratesWithNoProxyOrMulticamState()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":30,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Empty(restored.VideoMulticamGroups);
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Null(clip.ProxyPath);
+        Assert.False(clip.UseProxy);
+    }
+
+    [Fact]
+    public void Deserialise_VersionThirtyThreeProject_MigratesMulticamClipIdsToTrackIds()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":33,"VideoTracks":[{"Id":"track-a","Kind":"Video","Name":"Camera A","Clips":[{"Id":"clip-a","SourcePath":"C:\\Media\\a.mp4","SourceDurationSeconds":10}]},{"Id":"track-b","Kind":"Video","Name":"Camera B","Clips":[{"Id":"clip-b","SourcePath":"C:\\Media\\b.mp4","SourceDurationSeconds":10}]}],"VideoMulticamGroups":[{"Id":"group","Name":"Two cameras","StartFrame":1,"Angles":[{"ClipId":"clip-a","Name":"Camera A"},{"ClipId":"clip-b","Name":"Camera B"}],"Switches":[{"Frame":25,"ClipId":"clip-b"}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        VideoMulticamGroup group = Assert.Single(restored.VideoMulticamGroups);
+        Assert.Equal(["track-a", "track-b"], group.Angles.Select(angle => angle.TrackId));
+        Assert.Equal("track-b", VideoMulticamEditing.GetActiveTrackId(group, 25));
+    }
+
+    [Fact]
+    public void Deserialise_VersionThirtyFourProject_DefaultsSharpeningToDisabled()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":34,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(0, Assert.Single(Assert.Single(restored.VideoTracks).Clips).SharpenAmount);
+    }
+
+    [Fact]
     public void Deserialise_VersionTwentyProject_MigratesWithNoTransformKeyframes()
     {
         EditorProject restored = EditorProjectSerialiser.Deserialise(

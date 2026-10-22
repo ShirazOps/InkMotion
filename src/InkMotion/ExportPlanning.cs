@@ -32,7 +32,8 @@ public static class ExportPlanning
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         string fullPath = Path.GetFullPath(outputPath);
         IEnumerable<string?> sources = project.AudioTracks.Select(track => track.AudioPath)
-            .Concat(project.VideoTracks.SelectMany(track => track.Clips).Select(clip => clip.SourcePath));
+            .Concat(project.VideoTracks.SelectMany(track => track.Clips)
+                .SelectMany(clip => new[] { clip.SourcePath, clip.ProxyPath }));
         if (sources.OfType<string>().Any(path => !string.IsNullOrWhiteSpace(path) &&
             string.Equals(Path.GetFullPath(path), fullPath, StringComparison.OrdinalIgnoreCase)))
         {

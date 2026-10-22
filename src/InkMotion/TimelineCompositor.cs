@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.Text;
 using Windows.Foundation;
 using Windows.UI;
@@ -53,7 +54,12 @@ public static class TimelineCompositor
         float opacity,
         double rotationDegrees = 0,
         TimelineClipProject? colourGrade = null,
-        VideoColourGradingEffect? colourGradeEffect = null)
+        VideoColourGradingEffect? colourGradeEffect = null,
+        VideoChromaKeyEffect? chromaKeyEffect = null,
+        VideoBlurCanvasEffect? blurEffect = null,
+        VideoVignetteCanvasEffect? vignetteEffect = null,
+        int clipFrameOffset = 0,
+        VideoSharpenCanvasEffect? sharpenEffect = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -66,21 +72,108 @@ public static class TimelineCompositor
                     new Vector2((float)(x * width), (float)(y * height))) * previous;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade))
                 {
-                    session.DrawImage(bitmap, destination, sourceRect, opacity);
+                    ICanvasImage output = bitmap;
+                    if (colourGrade is not null && !string.IsNullOrWhiteSpace(colourGrade.ColourLutPath))
+                    {
+                        VideoColourGradingEffect effect = colourGradeEffect ??
+                            (temporaryColourGradeEffect = new VideoColourGradingEffect());
+                        output = effect.GetOutput(bitmap, colourGrade);
+                    }
+
+                    if (colourGrade?.ChromaKeyEnabled == true)
+                    {
+                        output = (chromaKeyEffect ??
+                            throw new InvalidOperationException("The active chroma-key effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade is not null && colourGrade.BlurAmount > 0)
+                    {
+                        output = (blurEffect ??
+                            throw new InvalidOperationException("The active blur effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade is not null && colourGrade.VignetteAmount > 0)
+                    {
+                        output = (vignetteEffect ??
+                            throw new InvalidOperationException("The active vignette effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade is not null && colourGrade.SharpenAmount > 0)
+                    {
+                        output = (sharpenEffect ??
+                            throw new InvalidOperationException("The active sharpen effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    DrawWithMask(session, output, destination, sourceRect, opacity, colourGrade, clipFrameOffset, width, height);
                 }
                 else
                 {
                     VideoColourGradingEffect effect = colourGradeEffect ??
                         (temporaryColourGradeEffect = new VideoColourGradingEffect());
-                    session.DrawImage(effect.GetOutput(bitmap, colourGrade), destination, sourceRect, opacity);
+                    ICanvasImage output = effect.GetOutput(bitmap, colourGrade);
+                    if (colourGrade.ChromaKeyEnabled)
+                    {
+                        output = (chromaKeyEffect ??
+                            throw new InvalidOperationException("The active chroma-key effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade.BlurAmount > 0)
+                    {
+                        output = (blurEffect ??
+                            throw new InvalidOperationException("The active blur effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade.VignetteAmount > 0)
+                    {
+                        output = (vignetteEffect ??
+                            throw new InvalidOperationException("The active vignette effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    if (colourGrade.SharpenAmount > 0)
+                    {
+                        output = (sharpenEffect ??
+                            throw new InvalidOperationException("The active sharpen effect was not provided."))
+                            .GetOutput(output, colourGrade);
+                    }
+
+                    DrawWithMask(session, output, destination, sourceRect, opacity, colourGrade, clipFrameOffset, width, height);
                 }
             }
+
             finally
             {
                 temporaryColourGradeEffect?.Dispose();
                 session.Transform = previous;
             }
         }
+    }
+
+    private static void DrawWithMask(
+        CanvasDrawingSession session,
+        ICanvasImage output,
+        Rect destination,
+        Rect sourceRect,
+        float opacity,
+        TimelineClipProject? clip,
+        int clipFrameOffset,
+        float width,
+        float height)
+    {
+        if (clip is null || clip.MaskShape == VideoMaskShape.None)
+        {
+            session.DrawImage(output, destination, sourceRect, opacity);
+            return;
+        }
+
+        VideoClipMask.DrawMaskedImage(
+            session, output, destination, sourceRect, opacity, clip, clipFrameOffset, width, height);
     }
 
     public static void DrawTitle(
