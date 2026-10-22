@@ -23,7 +23,8 @@ public sealed record VideoExportPerformance(
 public static class VideoExportCapabilities
 {
     public const double PerformanceSampleDurationSeconds = 2;
-    public static IReadOnlyList<double> CertificationFrameRates { get; } = [24, 30, 60, 120];
+    public static IReadOnlyList<double> CapabilityProbeFrameRates { get; } =
+        [24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120];
 
     public static int GetPerformanceFrameCount(VideoExportProfile profile)
     {
@@ -99,7 +100,7 @@ public static class VideoExportCapabilities
 
         foreach (var dimensions in VideoExportProfile.Resolutions)
         {
-            foreach (double frameRate in CertificationFrameRates)
+            foreach (double frameRate in CapabilityProbeFrameRates)
             {
                 VideoExportProfile profile = VideoExportProfile.Create(dimensions.Resolution, frameRate);
                 foreach (VideoExportCodec codec in Enum.GetValues<VideoExportCodec>())

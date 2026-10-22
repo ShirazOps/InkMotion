@@ -25,7 +25,7 @@ public sealed partial class MainWindow
         _checkingVideoEncoders = true;
         CheckVideoEncodersButton.IsEnabled = false;
         MeasureVideoPerformanceButton.IsEnabled = false;
-        VideoEncoderCapabilitiesText.Text = "Encoding one-frame probes for H.264/HEVC at 720p–4K and 24/30/60/120 fps. No user files are changed.";
+        VideoEncoderCapabilitiesText.Text = "Encoding one-frame software probes for H.264/HEVC at 720p–4K and common 24–120 fps rates. No user files are changed.";
         try
         {
             IReadOnlyList<VideoExportCapability> capabilities =

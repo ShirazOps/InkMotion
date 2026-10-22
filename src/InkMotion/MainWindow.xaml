@@ -473,7 +473,7 @@
                             <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button x:Name="StabiliseVideoButton" Content="Analyse and stabilise video" Click="StabiliseVideo_Click" />
-                                <TextBlock Text="Translation-only stabilisation estimates frame motion and smooths the path; it may crop by up to 25%. Existing transform keyframes are replaced." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Translation and small-angle rotational stabilisation estimates frame motion and smooths the path; it may crop by up to 25%. Existing transform keyframes are replaced." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button x:Name="SetMaskKeyframeButton" Content="Add/update mask tracking keyframe" Click="SetMaskKeyframe_Click" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetTransformKeyframeButton" Content="Add/update keyframe" Click="SetTransformKeyframe_Click" />
