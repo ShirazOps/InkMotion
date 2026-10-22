@@ -286,6 +286,26 @@
                             <ComboBoxItem Content="30 fps" Tag="30" />
                             <ComboBoxItem Content="60 fps" Tag="60" />
                         </ComboBox>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="SOURCE MONITOR" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button Content="Load source video..." Click="LoadSourceMonitor_Click" />
+                        <MediaPlayerElement x:Name="SourceMonitorPlayer" AreTransportControlsEnabled="True"
+                                            AutoPlay="False" Height="180" HorizontalAlignment="Stretch" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="SourceMonitorMarkInButton" Content="Mark In" Tag="in"
+                                    Click="SourceMonitorMark_Click" IsEnabled="False" />
+                            <Button x:Name="SourceMonitorMarkOutButton" Content="Mark Out" Tag="out"
+                                    Click="SourceMonitorMark_Click" IsEnabled="False" />
+                            <Button x:Name="ClearSourceMonitorMarksButton" Content="Clear marks"
+                                    Click="ClearSourceMonitorMarks_Click" IsEnabled="False" />
+                        </StackPanel>
+                        <TextBlock x:Name="SourceMonitorMarksText" Text="In: not set   Out: not set"
+                                   Style="{StaticResource LabelTextStyle}" />
+                        <Button x:Name="AddMarkedVideoClipButton" Content="Add marked range at playhead"
+                                Click="AddMarkedVideoClip_Click" IsEnabled="False" />
+                        <TextBlock x:Name="SourceMonitorStatus" Text="Load a video, preview it, then mark its source range."
+                                   TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Mark In and Out from the source player's current position; the marked range becomes a new video clip at the timeline playhead. Marks are not project data and remain available for another insert until cleared or a new source is loaded. The original source file is not changed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ADD AT PLAYHEAD" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>

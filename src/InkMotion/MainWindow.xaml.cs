@@ -1629,6 +1629,7 @@ public sealed partial class MainWindow : Window
             _timelineMarkers[index].Frame = markerFrames[index];
         }
         _frameRate = rate;
+        UpdateSourceMonitorControls();
         MarkEditChanged();
         CommitEdit();
         SeekToCurrentFrame();

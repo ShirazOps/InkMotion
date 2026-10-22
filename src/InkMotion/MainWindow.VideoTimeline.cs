@@ -60,6 +60,7 @@ public sealed partial class MainWindow
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
         _previewMediaPlayer.MediaOpened += PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed += PreviewMediaPlayer_MediaFailed;
+        InitialiseSourceMonitor();
         EnsureDefaultVideoTrack();
         RefreshVideoTimeline();
     }
@@ -483,6 +484,7 @@ public sealed partial class MainWindow
 
     private void DisposeVideoTimeline()
     {
+        DisposeSourceMonitor();
         ClearPreviewSource();
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
