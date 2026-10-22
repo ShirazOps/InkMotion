@@ -46,6 +46,10 @@ public sealed class TimelineClipProject
     public double WhiteBalanceTemperature { get; set; }
     public double WhiteBalanceTint { get; set; }
     public double Saturation { get; set; } = 1;
+    public List<VideoColorCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColorCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColorCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColorCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -57,6 +61,8 @@ public sealed class TimelineClipProject
     public double FontSize { get; set; } = 72;
     public uint Colour { get; set; } = 0xFFFFFFFF;
 }
+
+public sealed record VideoColorCurvePoint(double Input, double Output);
 
 public sealed record TimelineClipLocation(TimelineTrackProject Track, TimelineClipProject Clip);
 
@@ -696,6 +702,10 @@ public static class VideoTimelineEditing
         WhiteBalanceTemperature = clip.WhiteBalanceTemperature,
         WhiteBalanceTint = clip.WhiteBalanceTint,
         Saturation = clip.Saturation,
+        MasterCurve = clip.MasterCurve?.ToList() ?? [],
+        RedCurve = clip.RedCurve?.ToList() ?? [],
+        GreenCurve = clip.GreenCurve?.ToList() ?? [],
+        BlueCurve = clip.BlueCurve?.ToList() ?? [],
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,

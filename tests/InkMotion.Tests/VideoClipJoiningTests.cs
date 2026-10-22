@@ -147,6 +147,29 @@ public sealed class VideoClipJoiningTests
         }
     }
 
+    [Fact]
+    public void Join_RejectsClipsWithDifferentColorCurves()
+    {
+        TimelineClipProject left = new()
+        {
+            SourcePath = @"C:\Media\source.mp4",
+            SourceOutSeconds = 2,
+            SourceDurationSeconds = 4,
+        };
+        TimelineTrackProject track = new()
+        {
+            Kind = TimelineTrackKind.Video,
+            Clips = [left],
+        };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, left, 25, 24));
+        right.RedCurve = [new(0, 0), new(0.5, 0.3), new(1, 1)];
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => VideoClipJoining.Join(track, left, right, 24));
+        Assert.Contains("colour", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static float[] ReadMix(EditorProject project)
     {
         using var mixer = new ExportAudioMixer(project, 48000);

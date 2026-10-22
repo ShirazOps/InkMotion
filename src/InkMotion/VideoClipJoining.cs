@@ -67,6 +67,10 @@ public static class VideoClipJoining
             left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
             left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
             left.Saturation != right.Saturation ||
+            !left.MasterCurve.SequenceEqual(right.MasterCurve) ||
+            !left.RedCurve.SequenceEqual(right.RedCurve) ||
+            !left.GreenCurve.SequenceEqual(right.GreenCurve) ||
+            !left.BlueCurve.SequenceEqual(right.BlueCurve) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {

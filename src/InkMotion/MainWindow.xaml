@@ -485,6 +485,20 @@
                                     <NumberBox x:Name="ClipSaturationBox" Grid.Row="2" Header="Saturation" Minimum="0" Maximum="2" Value="1" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
                                 </Grid>
                                 <TextBlock Text="Colour changes apply to the video or image clip in live preview and export. Neutral values are Exposure 0 EV, Contrast 0, Temperature/Tint 0 and Saturation 1." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ComboBox x:Name="ClipCurveChannelSelector" Header="Curve channel" SelectedIndex="0" SelectionChanged="ClipCurveChannel_Changed">
+                                    <ComboBoxItem Content="Master" Tag="Master" />
+                                    <ComboBoxItem Content="Red" Tag="Red" />
+                                    <ComboBoxItem Content="Green" Tag="Green" />
+                                    <ComboBoxItem Content="Blue" Tag="Blue" />
+                                </ComboBox>
+                                <canvas:CanvasControl x:Name="ClipCurveCanvas" Height="180" MinHeight="180"
+                                                      Draw="ClipCurveCanvas_Draw"
+                                                      PointerPressed="ClipCurveCanvas_PointerPressed"
+                                                      PointerMoved="ClipCurveCanvas_PointerMoved"
+                                                      PointerReleased="ClipCurveCanvas_PointerReleased"
+                                                      PointerCaptureLost="ClipCurveCanvas_PointerCaptureLost" />
+                                <Button Content="Reset selected curve" Click="ResetClipCurve_Click" />
+                                <TextBlock Text="Click the graph to add a point, drag points to shape the curve, or right-click a point to remove it. Endpoints stay fixed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />

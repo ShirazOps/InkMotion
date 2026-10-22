@@ -47,6 +47,10 @@ public sealed partial class MainWindow
     private TimelineDrag? _timelineDrag;
     private bool _isScrubbingTimeline;
     private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
+    private TimelineClipProject? _draggedCurveClip;
+    private VideoColorCurveChannel _draggedCurveChannel;
+    private int _draggedCurvePointIndex = -1;
+    private uint? _curveDragPointerId;
     private CanvasTextFormat? _timelineLabelFormat;
     private CanvasTextFormat? _timelineRulerFormat;
 
@@ -1883,6 +1887,7 @@ public sealed partial class MainWindow
         ClipWhiteBalanceTemperatureBox.Value = clip.WhiteBalanceTemperature;
         ClipWhiteBalanceTintBox.Value = clip.WhiteBalanceTint;
         ClipSaturationBox.Value = clip.Saturation;
+        ClipCurveCanvas.Invalidate();
         ClipXSlider.Value = transform.X;
         ClipYSlider.Value = transform.Y;
         if (supportsTransform)
@@ -2145,6 +2150,275 @@ public sealed partial class MainWindow
         clip.WhiteBalanceTint = tint;
         clip.Saturation = saturation;
         ApplyClipPreview();
+    }
+
+    private void ClipCurveCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        CanvasDrawingSession session = args.DrawingSession;
+        session.Clear(Color.FromArgb(255, 24, 28, 35));
+        Rect plot = GetClipCurvePlotBounds(sender.ActualWidth, sender.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        Color grid = Color.FromArgb(100, 150, 160, 175);
+        for (int division = 0; division <= 4; division++)
+        {
+            float x = (float)(plot.X + (plot.Width * division / 4));
+            float y = (float)(plot.Y + (plot.Height * division / 4));
+            session.DrawLine(x, (float)plot.Y, x, (float)(plot.Y + plot.Height), grid);
+            session.DrawLine((float)plot.X, y, (float)(plot.X + plot.Width), y, grid);
+        }
+
+        session.DrawLine((float)plot.X, (float)(plot.Y + plot.Height),
+            (float)(plot.X + plot.Width), (float)plot.Y, Color.FromArgb(110, 190, 195, 205));
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            VideoColorGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { Count: >= 2 } curve)
+        {
+            return;
+        }
+
+        Color channelColor = GetSelectedCurveChannel() switch
+        {
+            VideoColorCurveChannel.Red => Color.FromArgb(255, 255, 100, 100),
+            VideoColorCurveChannel.Green => Color.FromArgb(255, 100, 230, 135),
+            VideoColorCurveChannel.Blue => Color.FromArgb(255, 115, 175, 255),
+            _ => Color.FromArgb(255, 245, 245, 250),
+        };
+        for (int index = 1; index < curve.Count; index++)
+        {
+            Point previous = CurvePointToCanvas(curve[index - 1], plot);
+            Point current = CurvePointToCanvas(curve[index], plot);
+            session.DrawLine((float)previous.X, (float)previous.Y, (float)current.X, (float)current.Y, channelColor, 2);
+        }
+
+        foreach (VideoColorCurvePoint point in curve)
+        {
+            Point position = CurvePointToCanvas(point, plot);
+            session.FillCircle((float)position.X, (float)position.Y, 5, channelColor);
+        }
+    }
+
+    private void ClipCurveChannel_Changed(object sender, SelectionChangedEventArgs e) =>
+        ClipCurveCanvas?.Invalidate();
+
+    private void ClipCurveCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not CanvasControl canvas ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        Microsoft.UI.Input.PointerPoint pointer = e.GetCurrentPoint(canvas);
+        bool isRightClick = pointer.Properties.IsRightButtonPressed;
+        if (!isRightClick && !pointer.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        VideoColorCurveChannel channel = GetSelectedCurveChannel();
+        List<VideoColorCurvePoint>? curve = VideoColorGrading.GetCurve(selected.Clip, channel);
+        if (curve is null)
+        {
+            StatusText.Text = "The selected clip has invalid curve data.";
+            return;
+        }
+
+        Rect plot = GetClipCurvePlotBounds(canvas.ActualWidth, canvas.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        Point position = pointer.Position;
+        int nearest = FindNearestCurvePoint(curve, position, plot);
+        if (isRightClick)
+        {
+            if (nearest <= 0 || nearest >= curve.Count - 1)
+            {
+                return;
+            }
+
+            if (TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                VideoColorGrading.GetCurve(location.Clip, channel)!.RemoveAt(nearest);
+                ApplyClipPreview();
+                CommitEdit();
+                canvas.Invalidate();
+                e.Handled = true;
+            }
+
+            return;
+        }
+
+        if (nearest >= 0)
+        {
+            if (nearest == 0 || nearest == curve.Count - 1 ||
+                !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                return;
+            }
+
+            _draggedCurveClip = location.Clip;
+            _draggedCurveChannel = channel;
+            _draggedCurvePointIndex = nearest;
+        }
+        else
+        {
+            if (curve.Count >= VideoColorGrading.MaximumCurvePoints ||
+                !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                StatusText.Text = curve.Count >= VideoColorGrading.MaximumCurvePoints
+                    ? $"A curve can contain at most {VideoColorGrading.MaximumCurvePoints} points."
+                    : StatusText.Text;
+                return;
+            }
+
+            curve = VideoColorGrading.GetCurve(location.Clip, channel)!;
+            (double input, double output) = CanvasToCurvePoint(position, plot);
+            int insertionIndex = curve.FindIndex(point => point.Input > input);
+            if (insertionIndex < 1)
+            {
+                insertionIndex = 1;
+            }
+
+            double minimumInput = curve[insertionIndex - 1].Input + 0.005;
+            double maximumInput = curve[insertionIndex].Input - 0.005;
+            if (minimumInput > maximumInput)
+            {
+                CommitEdit();
+                return;
+            }
+
+            curve.Insert(insertionIndex, new VideoColorCurvePoint(
+                Math.Clamp(input, minimumInput, maximumInput), output));
+            _draggedCurveClip = location.Clip;
+            _draggedCurveChannel = channel;
+            _draggedCurvePointIndex = insertionIndex;
+            ApplyClipPreview();
+        }
+
+        _curveDragPointerId = e.Pointer.PointerId;
+        canvas.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void ClipCurveCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not CanvasControl canvas ||
+            _draggedCurveClip is not TimelineClipProject clip ||
+            _draggedCurvePointIndex < 1 ||
+            _curveDragPointerId != e.Pointer.PointerId)
+        {
+            return;
+        }
+
+        List<VideoColorCurvePoint>? curve = VideoColorGrading.GetCurve(clip, _draggedCurveChannel);
+        if (curve is null || _draggedCurvePointIndex >= curve.Count - 1)
+        {
+            return;
+        }
+
+        Rect plot = GetClipCurvePlotBounds(canvas.ActualWidth, canvas.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        (double input, double output) = CanvasToCurvePoint(e.GetCurrentPoint(canvas).Position, plot);
+        double minimumInput = curve[_draggedCurvePointIndex - 1].Input + 0.005;
+        double maximumInput = curve[_draggedCurvePointIndex + 1].Input - 0.005;
+        if (minimumInput > maximumInput)
+        {
+            return;
+        }
+
+        curve[_draggedCurvePointIndex] = new VideoColorCurvePoint(
+            Math.Clamp(input, minimumInput, maximumInput), output);
+        ApplyClipPreview();
+        canvas.Invalidate();
+    }
+
+    private void ClipCurveCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is CanvasControl canvas && _draggedCurvePointIndex >= 0 &&
+            _curveDragPointerId == e.Pointer.PointerId)
+        {
+            _draggedCurveClip = null;
+            _draggedCurvePointIndex = -1;
+            _curveDragPointerId = null;
+            canvas.ReleasePointerCapture(e.Pointer);
+            CommitEdit();
+            canvas.Invalidate();
+        }
+    }
+
+    private void ClipCurveCanvas_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (_draggedCurvePointIndex >= 0 && _curveDragPointerId == e.Pointer.PointerId)
+        {
+            _draggedCurveClip = null;
+            _draggedCurvePointIndex = -1;
+            _curveDragPointerId = null;
+            CommitEdit();
+        }
+    }
+
+    private void ResetClipCurve_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            VideoColorGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { } curve ||
+            VideoColorGrading.IsNeutralCurve(curve) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        VideoColorGrading.SetCurve(location.Clip, GetSelectedCurveChannel(), [new(0, 0), new(1, 1)]);
+        ApplyClipPreview();
+        CommitEdit();
+        ClipCurveCanvas.Invalidate();
+    }
+
+    private VideoColorCurveChannel GetSelectedCurveChannel() =>
+        ClipCurveChannelSelector?.SelectedItem is ComboBoxItem { Tag: string tag } &&
+        Enum.TryParse(tag, ignoreCase: true, out VideoColorCurveChannel channel)
+            ? channel
+            : VideoColorCurveChannel.Master;
+
+    private static Rect GetClipCurvePlotBounds(double width, double height) =>
+        new(16, 12, Math.Max(0, width - 32), Math.Max(0, height - 24));
+
+    private static Point CurvePointToCanvas(VideoColorCurvePoint point, Rect plot) =>
+        new(plot.X + (point.Input * plot.Width), plot.Y + ((1 - point.Output) * plot.Height));
+
+    private static (double Input, double Output) CanvasToCurvePoint(Point position, Rect plot) =>
+        (Math.Clamp((position.X - plot.X) / plot.Width, 0, 1),
+            Math.Clamp(1 - ((position.Y - plot.Y) / plot.Height), 0, 1));
+
+    private static int FindNearestCurvePoint(
+        IReadOnlyList<VideoColorCurvePoint> curve,
+        Point position,
+        Rect plot)
+    {
+        int nearest = -1;
+        double distance = 14;
+        for (int index = 0; index < curve.Count; index++)
+        {
+            Point point = CurvePointToCanvas(curve[index], plot);
+            double candidate = Math.Sqrt(Math.Pow(position.X - point.X, 2) + Math.Pow(position.Y - point.Y, 2));
+            if (candidate < distance)
+            {
+                nearest = index;
+                distance = candidate;
+            }
+        }
+
+        return nearest;
     }
 
     private void SetTransformKeyframe_Click(object sender, RoutedEventArgs e)

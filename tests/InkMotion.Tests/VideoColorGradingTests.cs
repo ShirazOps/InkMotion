@@ -19,6 +19,8 @@ public sealed class VideoColorGradingTests
             WhiteBalanceTemperature = 0.4,
             WhiteBalanceTint = -0.2,
             Saturation = 1.5,
+            MasterCurve = [new(0, 0), new(0.5, 0.7), new(1, 1)],
+            RedCurve = [new(0, 0), new(0.4, 0.2), new(1, 1)],
         };
         TimelineClipProject clone = VideoTimelineEditing.Clone(video);
         Assert.Equal(video.Exposure, clone.Exposure);
@@ -26,6 +28,9 @@ public sealed class VideoColorGradingTests
         Assert.Equal(video.WhiteBalanceTemperature, clone.WhiteBalanceTemperature);
         Assert.Equal(video.WhiteBalanceTint, clone.WhiteBalanceTint);
         Assert.Equal(video.Saturation, clone.Saturation);
+        Assert.Equal(video.MasterCurve.ToArray(), clone.MasterCurve.ToArray());
+        Assert.Equal(video.RedCurve.ToArray(), clone.RedCurve.ToArray());
+        Assert.NotSame(video.MasterCurve, clone.MasterCurve);
 
         EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(
             new EditorProject
@@ -58,6 +63,8 @@ public sealed class VideoColorGradingTests
         Assert.Equal(0.4, restored.VideoTracks[0].Clips[0].WhiteBalanceTemperature);
         Assert.Equal(-0.2, restored.VideoTracks[0].Clips[0].WhiteBalanceTint);
         Assert.Equal(1.5, restored.VideoTracks[0].Clips[0].Saturation);
+        Assert.Equal(video.MasterCurve.ToArray(), restored.VideoTracks[0].Clips[0].MasterCurve.ToArray());
+        Assert.Equal(video.RedCurve.ToArray(), restored.VideoTracks[0].Clips[0].RedCurve.ToArray());
         Assert.Equal(0, restored.VideoTracks[1].Clips[0].Saturation);
     }
 
@@ -83,11 +90,47 @@ public sealed class VideoColorGradingTests
         clipJson.Remove("WhiteBalanceTemperature");
         clipJson.Remove("WhiteBalanceTint");
         clipJson.Remove("Saturation");
+        clipJson.Remove("MasterCurve");
+        clipJson.Remove("RedCurve");
+        clipJson.Remove("GreenCurve");
+        clipJson.Remove("BlueCurve");
 
         EditorProject restored = EditorProjectSerialiser.Deserialise(json.ToJsonString());
         TimelineClipProject clip = restored.VideoTracks[0].Clips[0];
         Assert.Equal(EditorProject.CurrentVersion, restored.Version);
         Assert.True(VideoColorGrading.IsNeutral(clip));
+    }
+
+    [Fact]
+    public void VersionTwentyFourProjectsMigrateWithIdentityCurves()
+    {
+        EditorProject project = new()
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips = [new TimelineClipProject { SourcePath = "video.mp4" }],
+                },
+            ],
+        };
+        JsonObject json = JsonNode.Parse(EditorProjectSerialiser.Serialise(project))!.AsObject();
+        json["Version"] = 24;
+        JsonObject clipJson = json["VideoTracks"]![0]!["Clips"]![0]!.AsObject();
+        clipJson.Remove("MasterCurve");
+        clipJson.Remove("RedCurve");
+        clipJson.Remove("GreenCurve");
+        clipJson.Remove("BlueCurve");
+
+        EditorProject restoredProject = EditorProjectSerialiser.Deserialise(json.ToJsonString());
+        TimelineClipProject restored = restoredProject.VideoTracks[0].Clips[0];
+
+        Assert.Equal(EditorProject.CurrentVersion, restoredProject.Version);
+        Assert.True(VideoColorGrading.IsNeutralCurve(restored.MasterCurve));
+        Assert.True(VideoColorGrading.IsNeutralCurve(restored.RedCurve));
+        Assert.True(VideoColorGrading.IsNeutralCurve(restored.GreenCurve));
+        Assert.True(VideoColorGrading.IsNeutralCurve(restored.BlueCurve));
     }
 
     [Fact]
@@ -105,6 +148,67 @@ public sealed class VideoColorGradingTests
         track.Clips[0].Text = "Title";
         track.Clips[0].Saturation = 0.5;
         Assert.NotNull(VideoTimelineEditing.Validate([track], 24));
+    }
+
+    [Fact]
+    public void Validate_RejectsInvalidCurvePoints()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "image.png",
+            MasterCurve = [new(0, 0), new(0.5, 0.6), new(0.5, 0.8), new(1, 1)],
+        };
+
+        Assert.NotNull(VideoTimelineEditing.Validate(
+            [new TimelineTrackProject { Kind = TimelineTrackKind.Image, Clips = [clip] }], 24));
+    }
+
+    [Fact]
+    public void MasterCurve_ChangesRenderedBrightness()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] sourcePixels = [64, 64, 64, 255];
+        using var source = CanvasBitmap.CreateFromBytes(
+            device,
+            sourcePixels,
+            1,
+            1,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "image.png",
+            MasterCurve = [new(0, 0), new(0.5, 1), new(1, 1)],
+        };
+
+        (byte blue, byte green, byte red) = RenderCenterPixel(device, source, clip);
+        Assert.InRange(blue, 115, 145);
+        Assert.Equal(blue, green);
+        Assert.Equal(green, red);
+    }
+
+    [Fact]
+    public void RedCurve_ChangesOnlyTheRedOutputChannel()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] sourcePixels = [20, 80, 220, 255];
+        using var source = CanvasBitmap.CreateFromBytes(
+            device,
+            sourcePixels,
+            1,
+            1,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "image.png",
+            RedCurve = [new(0, 0), new(0.9, 0), new(1, 1)],
+        };
+
+        (byte originalBlue, byte originalGreen, byte originalRed) = RenderCenterPixel(
+            device, source, new TimelineClipProject { SourcePath = "image.png" });
+        (byte blue, byte green, byte red) = RenderCenterPixel(device, source, clip);
+        Assert.InRange(Math.Abs(originalBlue - blue), 0, 4);
+        Assert.InRange(Math.Abs(originalGreen - green), 0, 4);
+        Assert.True(red < originalRed / 10, $"Expected red output {red} far below original red {originalRed}.");
     }
 
     [Fact]
