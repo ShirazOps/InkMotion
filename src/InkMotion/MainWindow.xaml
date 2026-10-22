@@ -260,6 +260,16 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
                         <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="VIDEO SCOPES" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <canvas:CanvasControl x:Name="VideoRgbHistogramSurface" Height="130" MinHeight="110"
+                            Draw="VideoRgbHistogram_Draw"
+                            AutomationProperties.Name="RGB histogram for the active video source after clip colour grading" />
+                        <TextBlock x:Name="VideoScopeStatus" Text="Switch to Modified preview to view the active clip's RGB distribution."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Horizontal: channel value (0-255) · vertical: square-root-scaled pixel frequency."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Active video source after clip colour grading; crop, transform, opacity, cross-dissolves and overlays are excluded."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="TIMELINE MARKERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Content="Add" Click="AddMarker_Click" />

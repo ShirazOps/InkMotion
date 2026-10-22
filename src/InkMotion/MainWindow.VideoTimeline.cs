@@ -34,6 +34,9 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, VideoColourGradingEffect> _previewColourGradingEffects = [];
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private readonly CompositeTransform _previewVideoTransform = new();
+    private CanvasRenderTarget? _videoScopeSampleTarget;
+    private VideoRgbHistogramData? _videoRgbHistogram;
+    private long _lastVideoScopeSampleMilliseconds;
     private TimelineVideoFrameSource? _previewVideoFrameSource;
     private string? _previewVideoFrameSourcePath;
     private TimelineVideoFrameSource? _transitionVideoFrameSource;
@@ -446,6 +449,7 @@ public sealed partial class MainWindow
     {
         DisposeOverlayBitmaps();
         DisposePreviewVideoFrameSources();
+        DisposeVideoScopeSampleTarget();
     }
 
     private void CompositionSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -482,12 +486,14 @@ public sealed partial class MainWindow
     {
         if (IsOriginalPreview)
         {
+            SetVideoScopeUnavailable("Switch to Modified preview to view the active clip's RGB distribution.");
             return;
         }
 
         if (VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate) is not TimelineClipLocation active)
         {
             DisposePreviewVideoFrameSources();
+            SetVideoScopeUnavailable("No active video clip at the playhead.");
             return;
         }
 
@@ -519,6 +525,12 @@ public sealed partial class MainWindow
     {
         if (opacity <= 0 || clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
         {
+            if (!secondary)
+            {
+                SetVideoScopeUnavailable(opacity <= 0
+                    ? "The active video clip is fully transparent."
+                    : "The active video clip has no available source.");
+            }
             return;
         }
 
@@ -527,6 +539,7 @@ public sealed partial class MainWindow
             if (!secondary)
             {
                 PreviewPlayer.Opacity = 1;
+                SetVideoScopeUnavailable("The active video frame is unavailable for scope analysis.");
             }
             return;
         }
@@ -556,11 +569,16 @@ public sealed partial class MainWindow
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
             if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
             {
+                if (!secondary)
+                {
+                    SetVideoScopeUnavailable("Waiting for an active video frame.");
+                }
                 return;
             }
 
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+            VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
             TimelineCompositor.DrawFitted(
                 session,
                 bitmap,
@@ -573,7 +591,11 @@ public sealed partial class MainWindow
                 opacity,
                 transform.RotationDegrees,
                 clip,
-                GetPreviewColourGradingEffect(clip));
+                colourGradingEffect);
+            if (!secondary)
+            {
+                UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
+            }
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -646,6 +668,71 @@ public sealed partial class MainWindow
         }
 
         return effect;
+    }
+
+    private void VideoRgbHistogram_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoRgbHistogramData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoRgbHistogram);
+
+    private void UpdateVideoRgbHistogram(
+        CanvasControl canvas,
+        CanvasBitmap source,
+        TimelineClipProject clip,
+        VideoColourGradingEffect? colourGradingEffect)
+    {
+        if (VideoInspectorPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        long now = Environment.TickCount64;
+        if (now - _lastVideoScopeSampleMilliseconds < 100)
+        {
+            return;
+        }
+
+        try
+        {
+            _videoScopeSampleTarget ??= new CanvasRenderTarget(canvas.Device, 128, 72, 96);
+            using (CanvasDrawingSession sample = _videoScopeSampleTarget.CreateDrawingSession())
+            {
+                sample.Clear(Color.FromArgb(0, 0, 0, 0));
+                ICanvasImage image = colourGradingEffect?.GetOutput(source, clip) ?? source;
+                sample.DrawImage(image, new Rect(0, 0, 128, 72), source.Bounds, 1);
+            }
+
+            _videoRgbHistogram = VideoRgbHistogramData.Analyse(_videoScopeSampleTarget.GetPixelBytes());
+            _lastVideoScopeSampleMilliseconds = now;
+            VideoRgbHistogramSurface.Invalidate();
+            VideoScopeStatus.Text = $"{_videoRgbHistogram.SampleCount:N0} sampled pixels · red, green and blue channels";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            SetVideoScopeUnavailable($"Could not update the video scope: {ex.Message}");
+            StatusText.Text = $"Could not update the video scope for {Path.GetFileName(clip.SourcePath)}: {ex.Message}";
+        }
+    }
+
+    private void SetVideoScopeUnavailable(string message)
+    {
+        if (_videoRgbHistogram is null && VideoScopeStatus.Text == message)
+        {
+            return;
+        }
+
+        _videoRgbHistogram = null;
+        VideoScopeStatus.Text = message;
+        VideoRgbHistogramSurface.Invalidate();
+    }
+
+    private void DisposeVideoScopeSampleTarget()
+    {
+        _videoScopeSampleTarget?.Dispose();
+        _videoScopeSampleTarget = null;
+        _lastVideoScopeSampleMilliseconds = 0;
     }
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
@@ -726,6 +813,7 @@ public sealed partial class MainWindow
         DisposeSourceMonitor();
         ClearPreviewSource();
         DisposePreviewVideoFrameSources();
+        DisposeVideoScopeSampleTarget();
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
         _previewMediaPlayer.Dispose();

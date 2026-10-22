@@ -402,6 +402,7 @@ public sealed partial class MainWindow : Window
         if (IsOriginalPreview)
         {
             DisposePreviewVideoFrameSources();
+            SetVideoScopeUnavailable("Switch to Modified preview to view the active clip's RGB distribution.");
         }
         InkSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
         InkSurface.IsHitTestVisible = _workspace == "Ink" && !IsOriginalPreview;
