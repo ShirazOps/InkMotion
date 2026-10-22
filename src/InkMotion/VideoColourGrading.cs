@@ -1,9 +1,10 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Effects;
+using Windows.Graphics.DirectX;
 
 namespace InkMotion;
 
-public enum VideoColorCurveChannel
+public enum VideoColourCurveChannel
 {
     Master,
     Red,
@@ -11,7 +12,7 @@ public enum VideoColorCurveChannel
     Blue,
 }
 
-public static class VideoColorGrading
+public static class VideoColourGrading
 {
     public const double MinimumExposure = -2;
     public const double MaximumExposure = 2;
@@ -32,35 +33,36 @@ public static class VideoColorGrading
         clip.WhiteBalanceTemperature == 0 &&
         clip.WhiteBalanceTint == 0 &&
         clip.Saturation == 1 &&
+        string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
         IsNeutralCurve(clip.MasterCurve) &&
         IsNeutralCurve(clip.RedCurve) &&
         IsNeutralCurve(clip.GreenCurve) &&
         IsNeutralCurve(clip.BlueCurve);
 
-    public static List<VideoColorCurvePoint>? GetCurve(TimelineClipProject clip, VideoColorCurveChannel channel) =>
+    public static List<VideoColourCurvePoint>? GetCurve(TimelineClipProject clip, VideoColourCurveChannel channel) =>
         channel switch
         {
-            VideoColorCurveChannel.Master => clip.MasterCurve,
-            VideoColorCurveChannel.Red => clip.RedCurve,
-            VideoColorCurveChannel.Green => clip.GreenCurve,
-            VideoColorCurveChannel.Blue => clip.BlueCurve,
+            VideoColourCurveChannel.Master => clip.MasterCurve,
+            VideoColourCurveChannel.Red => clip.RedCurve,
+            VideoColourCurveChannel.Green => clip.GreenCurve,
+            VideoColourCurveChannel.Blue => clip.BlueCurve,
             _ => throw new ArgumentOutOfRangeException(nameof(channel)),
         };
 
-    public static void SetCurve(TimelineClipProject clip, VideoColorCurveChannel channel, List<VideoColorCurvePoint> curve)
+    public static void SetCurve(TimelineClipProject clip, VideoColourCurveChannel channel, List<VideoColourCurvePoint> curve)
     {
         ArgumentNullException.ThrowIfNull(curve);
         switch (channel)
         {
-            case VideoColorCurveChannel.Master: clip.MasterCurve = curve; break;
-            case VideoColorCurveChannel.Red: clip.RedCurve = curve; break;
-            case VideoColorCurveChannel.Green: clip.GreenCurve = curve; break;
-            case VideoColorCurveChannel.Blue: clip.BlueCurve = curve; break;
+            case VideoColourCurveChannel.Master: clip.MasterCurve = curve; break;
+            case VideoColourCurveChannel.Red: clip.RedCurve = curve; break;
+            case VideoColourCurveChannel.Green: clip.GreenCurve = curve; break;
+            case VideoColourCurveChannel.Blue: clip.BlueCurve = curve; break;
             default: throw new ArgumentOutOfRangeException(nameof(channel));
         }
     }
 
-    public static float[] BuildTransferTable(IReadOnlyList<VideoColorCurvePoint> curve)
+    public static float[] BuildTransferTable(IReadOnlyList<VideoColourCurvePoint> curve)
     {
         ArgumentNullException.ThrowIfNull(curve);
         var table = new float[CurveTableSize];
@@ -73,7 +75,7 @@ public static class VideoColorGrading
         return table;
     }
 
-    internal static double Evaluate(IReadOnlyList<VideoColorCurvePoint> curve, double input)
+    internal static double Evaluate(IReadOnlyList<VideoColourCurvePoint> curve, double input)
     {
         int segment = 0;
         while (segment < curve.Count - 2 && input > curve[segment + 1].Input)
@@ -81,19 +83,19 @@ public static class VideoColorGrading
             segment++;
         }
 
-        VideoColorCurvePoint left = curve[segment];
-        VideoColorCurvePoint right = curve[segment + 1];
+        VideoColourCurvePoint left = curve[segment];
+        VideoColourCurvePoint right = curve[segment + 1];
         double amount = (input - left.Input) / (right.Input - left.Input);
         return Math.Clamp(left.Output + ((right.Output - left.Output) * amount), 0, 1);
     }
 
-    public static bool IsNeutralCurve(IReadOnlyList<VideoColorCurvePoint>? curve) =>
+    public static bool IsNeutralCurve(IReadOnlyList<VideoColourCurvePoint>? curve) =>
         curve is { Count: >= 2 } &&
         curve[0] is { Input: 0, Output: 0 } &&
         curve[^1] is { Input: 1, Output: 1 } &&
         curve.All(point => point is not null && point.Input == point.Output);
 
-    private static bool IsValidCurve(IReadOnlyList<VideoColorCurvePoint>? curve)
+    private static bool IsValidCurve(IReadOnlyList<VideoColourCurvePoint>? curve)
     {
         if (curve is not { Count: >= 2 and <= MaximumCurvePoints } ||
             curve[0] is null || curve[^1] is null ||
@@ -103,7 +105,7 @@ public static class VideoColorGrading
         }
 
         double previousInput = -1;
-        foreach (VideoColorCurvePoint? point in curve)
+        foreach (VideoColourCurvePoint? point in curve)
         {
             if (point is null ||
                 !double.IsFinite(point.Input) || point.Input is < 0 or > 1 ||
@@ -143,7 +145,7 @@ public static class VideoColorGrading
     }
 }
 
-public sealed class VideoColorGradingEffect : IDisposable
+public sealed class VideoColourGradingEffect : IDisposable
 {
     private readonly ExposureEffect _exposure = new();
     private readonly ContrastEffect _contrast = new();
@@ -153,10 +155,13 @@ public sealed class VideoColorGradingEffect : IDisposable
     {
         AlphaDisable = true,
     };
-    private VideoColorCurvePoint[]? _masterCurve;
-    private VideoColorCurvePoint[]? _redCurve;
-    private VideoColorCurvePoint[]? _greenCurve;
-    private VideoColorCurvePoint[]? _blueCurve;
+    private readonly TableTransfer3DEffect _lutEffect = new();
+    private EffectTransferTable3D? _lutTable;
+    private string? _lutPath;
+    private VideoColourCurvePoint[]? _masterCurve;
+    private VideoColourCurvePoint[]? _redCurve;
+    private VideoColourCurvePoint[]? _greenCurve;
+    private VideoColourCurvePoint[]? _blueCurve;
 
     public ICanvasImage GetOutput(CanvasBitmap source, TimelineClipProject clip)
     {
@@ -171,7 +176,22 @@ public sealed class VideoColorGradingEffect : IDisposable
         _saturation.Saturation = (float)clip.Saturation;
         _curves.Source = _saturation;
         UpdateCurveTables(clip);
-        return _curves;
+        if (string.IsNullOrWhiteSpace(clip.ColourLutPath))
+        {
+            return _curves;
+        }
+
+        if (!string.Equals(_lutPath, clip.ColourLutPath, StringComparison.OrdinalIgnoreCase))
+        {
+            _lutTable?.Dispose();
+            VideoColourLutData data = VideoColourLutData.Load(clip.ColourLutPath);
+            _lutTable = data.CreateTransferTable(source.Device);
+            _lutPath = clip.ColourLutPath;
+        }
+
+        _lutEffect.Source = _curves;
+        _lutEffect.Table = _lutTable;
+        return _lutEffect;
     }
 
     private void UpdateCurveTables(TimelineClipProject clip)
@@ -194,26 +214,28 @@ public sealed class VideoColorGradingEffect : IDisposable
     }
 
     private static float[] BuildChannelTable(
-        IReadOnlyList<VideoColorCurvePoint> master,
-        IReadOnlyList<VideoColorCurvePoint> channel)
+        IReadOnlyList<VideoColourCurvePoint> master,
+        IReadOnlyList<VideoColourCurvePoint> channel)
     {
-        float[] masterTable = VideoColorGrading.BuildTransferTable(master);
+        float[] masterTable = VideoColourGrading.BuildTransferTable(master);
         var table = new float[masterTable.Length];
         for (int index = 0; index < table.Length; index++)
         {
-            table[index] = (float)VideoColorGrading.Evaluate(channel, masterTable[index]);
+            table[index] = (float)VideoColourGrading.Evaluate(channel, masterTable[index]);
         }
 
         return table;
     }
 
     private static bool CurveMatches(
-        IReadOnlyList<VideoColorCurvePoint>? cached,
-        IReadOnlyList<VideoColorCurvePoint> current) =>
+        IReadOnlyList<VideoColourCurvePoint>? cached,
+        IReadOnlyList<VideoColourCurvePoint> current) =>
         cached is not null && cached.SequenceEqual(current);
 
     public void Dispose()
     {
+        _lutEffect.Dispose();
+        _lutTable?.Dispose();
         _curves.Dispose();
         _saturation.Dispose();
         _temperatureAndTint.Dispose();

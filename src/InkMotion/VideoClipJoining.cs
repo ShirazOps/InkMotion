@@ -71,6 +71,7 @@ public static class VideoClipJoining
             !left.RedCurve.SequenceEqual(right.RedCurve) ||
             !left.GreenCurve.SequenceEqual(right.GreenCurve) ||
             !left.BlueCurve.SequenceEqual(right.BlueCurve) ||
+            !string.Equals(left.ColourLutPath, right.ColourLutPath, StringComparison.OrdinalIgnoreCase) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {

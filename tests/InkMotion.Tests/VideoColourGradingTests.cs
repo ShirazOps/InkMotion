@@ -5,7 +5,7 @@ using Xunit;
 
 namespace InkMotion.Tests;
 
-public sealed class VideoColorGradingTests
+public sealed class VideoColourGradingTests
 {
     [Fact]
     public void Adjustments_CloneAndRoundTripWithVideoAndImageClips()
@@ -69,7 +69,7 @@ public sealed class VideoColorGradingTests
     }
 
     [Fact]
-    public void VersionTwentyThreeProjectsMigrateWithNeutralColorSettings()
+    public void VersionTwentyThreeProjectsMigrateWithNeutralColourSettings()
     {
         EditorProject project = new()
         {
@@ -98,7 +98,7 @@ public sealed class VideoColorGradingTests
         EditorProject restored = EditorProjectSerialiser.Deserialise(json.ToJsonString());
         TimelineClipProject clip = restored.VideoTracks[0].Clips[0];
         Assert.Equal(EditorProject.CurrentVersion, restored.Version);
-        Assert.True(VideoColorGrading.IsNeutral(clip));
+        Assert.True(VideoColourGrading.IsNeutral(clip));
     }
 
     [Fact]
@@ -127,14 +127,77 @@ public sealed class VideoColorGradingTests
         TimelineClipProject restored = restoredProject.VideoTracks[0].Clips[0];
 
         Assert.Equal(EditorProject.CurrentVersion, restoredProject.Version);
-        Assert.True(VideoColorGrading.IsNeutralCurve(restored.MasterCurve));
-        Assert.True(VideoColorGrading.IsNeutralCurve(restored.RedCurve));
-        Assert.True(VideoColorGrading.IsNeutralCurve(restored.GreenCurve));
-        Assert.True(VideoColorGrading.IsNeutralCurve(restored.BlueCurve));
+        Assert.True(VideoColourGrading.IsNeutralCurve(restored.MasterCurve));
+        Assert.True(VideoColourGrading.IsNeutralCurve(restored.RedCurve));
+        Assert.True(VideoColourGrading.IsNeutralCurve(restored.GreenCurve));
+        Assert.True(VideoColourGrading.IsNeutralCurve(restored.BlueCurve));
     }
 
     [Fact]
-    public void Validate_RejectsOutOfRangeColorSettingsAndTitlesWithVideoGrading()
+    public void VersionTwentyFiveProjectsMigrateWithoutLut()
+    {
+        EditorProject project = new()
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Image,
+                    Clips = [new TimelineClipProject { SourcePath = "image.png" }],
+                },
+            ],
+        };
+        JsonObject json = JsonNode.Parse(EditorProjectSerialiser.Serialise(project))!.AsObject();
+        json["Version"] = 25;
+        json["VideoTracks"]![0]!["Clips"]![0]!.AsObject().Remove("ColourLutPath");
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(json.ToJsonString());
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Null(restored.VideoTracks[0].Clips[0].ColourLutPath);
+    }
+
+    [Fact]
+    public void CubeParser_ConvertsRedFastestCubeOrderToWin2DLayout()
+    {
+        string cube = """
+            TITLE "Identity"
+            LUT_3D_SIZE 2
+            0 0 0
+            1 0 0
+            0 1 0
+            1 1 0
+            0 0 1
+            1 0 1
+            0 1 1
+            1 1 1
+            """;
+
+        VideoColourLutData parsed = VideoColourLutData.Parse(cube, "identity.cube");
+
+        Assert.Equal(2, parsed.Size);
+        byte[] table = parsed.RgbaBytes;
+        Assert.Equal([0, 0, 0, 255], table[..4]);
+        Assert.Equal([0, 0, 255, 255], table[4..8]);
+        Assert.Equal([0, 255, 0, 255], table[8..12]);
+        Assert.Equal([255, 0, 0, 255], table[16..20]);
+        Assert.Equal([255, 255, 255, 255], table[^4..]);
+    }
+
+    [Theory]
+    [InlineData("LUT_1D_SIZE 2\n0 0 0\n1 1 1", "1D LUTs are not supported")]
+    [InlineData("LUT_3D_SIZE 2\n0 0 0", "Expected 8 LUT entries")]
+    [InlineData("LUT_3D_SIZE 2\nDOMAIN_MIN -1 0 0\n0 0 0", "Only the default DOMAIN_MIN")]
+    public void CubeParser_RejectsUnsupportedOrIncompleteFiles(string cube, string message)
+    {
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => VideoColourLutData.Parse(cube, "invalid.cube"));
+
+        Assert.Contains(message, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_RejectsOutOfRangeColourSettingsAndTitlesWithVideoGrading()
     {
         TimelineTrackProject track = new()
         {
@@ -212,6 +275,54 @@ public sealed class VideoColorGradingTests
     }
 
     [Fact]
+    public void CubeLut_AppliesInSharedRendererAndPreservesSourceAlpha()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-lut-{Guid.NewGuid():N}.cube");
+        try
+        {
+            File.WriteAllText(path, """
+                LUT_3D_SIZE 2
+                1 1 1
+                0 1 1
+                1 0 1
+                0 0 1
+                1 1 0
+                0 1 0
+                1 0 0
+                0 0 0
+                """);
+            using var device = new CanvasDevice(true);
+            byte[] sourcePixels = [10, 40, 110, 128];
+            using var source = CanvasBitmap.CreateFromBytes(
+                device,
+                sourcePixels,
+                1,
+                1,
+                DirectXPixelFormat.B8G8R8A8UIntNormalized);
+            using var target = new CanvasRenderTarget(device, 16, 16, 96);
+            TimelineClipProject clip = new() { SourcePath = "image.png", ColourLutPath = path };
+
+            using (CanvasDrawingSession session = target.CreateDrawingSession())
+            {
+                session.Clear(Microsoft.UI.Colors.Transparent);
+                TimelineCompositor.DrawFitted(
+                    session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
+            }
+
+            byte[] rendered = target.GetPixelBytes();
+            int offset = (8 * 16 + 8) * 4;
+            Assert.InRange(rendered[offset + 3], 115, 135);
+            Assert.InRange(rendered[offset], 100, 135);
+            Assert.InRange(rendered[offset + 1], 70, 90);
+            Assert.InRange(rendered[offset + 2], 10, 25);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void SaturationZero_RendersNeutralChannelValues()
     {
         using var device = new CanvasDevice(true);
@@ -228,7 +339,7 @@ public sealed class VideoColorGradingTests
         using (CanvasDrawingSession session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
-            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colorGrade: clip);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
         }
 
         byte[] rendered = target.GetPixelBytes();
@@ -254,7 +365,7 @@ public sealed class VideoColorGradingTests
         using (CanvasDrawingSession session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
-            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colorGrade: clip);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
         }
 
         byte[] rendered = target.GetPixelBytes();
@@ -265,7 +376,7 @@ public sealed class VideoColorGradingTests
     [InlineData("contrast")]
     [InlineData("temperature")]
     [InlineData("tint")]
-    public void ContrastAndWhiteBalanceAdjustments_ChangeRenderedColor(string setting)
+    public void ContrastAndWhiteBalanceAdjustments_ChangeRenderedColour(string setting)
     {
         using var device = new CanvasDevice(true);
         byte[] sourcePixels = [20, 80, 220, 255];
@@ -296,7 +407,7 @@ public sealed class VideoColorGradingTests
         using (CanvasDrawingSession session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
-            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colorGrade: clip);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
         }
 
         byte[] pixels = target.GetPixelBytes();

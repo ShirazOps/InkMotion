@@ -278,7 +278,7 @@ public static class VideoExporter
         private readonly bool _hasInk;
         private readonly Dictionary<string, CanvasBitmap?> _images = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TimelineVideoFrameSource?> _videos = [];
-        private readonly Dictionary<string, VideoColorGradingEffect> _colorGradingEffects = [];
+        private readonly Dictionary<string, VideoColourGradingEffect> _colourGradingEffects = [];
 
         public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings)
         {
@@ -323,7 +323,7 @@ public static class VideoExporter
                                 layer.Clip, seconds, _project.FrameRate);
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, layer.Clip), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
-                                imageTransform.RotationDegrees, layer.Clip, GetColorGradingEffect(layer.Clip));
+                                imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
@@ -358,7 +358,7 @@ public static class VideoExporter
                 image?.Dispose();
             }
 
-            foreach (VideoColorGradingEffect effect in _colorGradingEffects.Values)
+            foreach (VideoColourGradingEffect effect in _colourGradingEffects.Values)
             {
                 effect.Dispose();
             }
@@ -385,21 +385,21 @@ public static class VideoExporter
                 (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), clip), width, height,
-                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip, GetColorGradingEffect(clip));
+                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip, GetColourGradingEffect(clip));
             }
         }
 
-        private VideoColorGradingEffect? GetColorGradingEffect(TimelineClipProject clip)
+        private VideoColourGradingEffect? GetColourGradingEffect(TimelineClipProject clip)
         {
-            if (VideoColorGrading.IsNeutral(clip))
+            if (VideoColourGrading.IsNeutral(clip))
             {
                 return null;
             }
 
-            if (!_colorGradingEffects.TryGetValue(clip.Id, out VideoColorGradingEffect? effect))
+            if (!_colourGradingEffects.TryGetValue(clip.Id, out VideoColourGradingEffect? effect))
             {
-                effect = new VideoColorGradingEffect();
-                _colorGradingEffects.Add(clip.Id, effect);
+                effect = new VideoColourGradingEffect();
+                _colourGradingEffects.Add(clip.Id, effect);
             }
 
             return effect;

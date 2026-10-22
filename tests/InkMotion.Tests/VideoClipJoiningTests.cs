@@ -148,7 +148,7 @@ public sealed class VideoClipJoiningTests
     }
 
     [Fact]
-    public void Join_RejectsClipsWithDifferentColorCurves()
+    public void Join_RejectsClipsWithDifferentColourCurves()
     {
         TimelineClipProject left = new()
         {
@@ -246,7 +246,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("volume")]
     [InlineData("opacity")]
     [InlineData("transform")]
-    [InlineData("color")]
+    [InlineData("colour")]
     [InlineData("style")]
     [InlineData("locked")]
     [InlineData("image")]
@@ -276,7 +276,7 @@ public sealed class VideoClipJoiningTests
             case "volume": right.Volume = 0.5; break;
             case "opacity": right.Opacity = 0.5; break;
             case "transform": right.X = 0.6; break;
-            case "color": right.Exposure = 1; break;
+            case "colour": right.Exposure = 1; break;
             case "style": right.Colour = 0xFF123456; break;
             case "locked": track.IsLocked = true; break;
             case "image": track.Kind = TimelineTrackKind.Image; break;

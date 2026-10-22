@@ -46,10 +46,11 @@ public sealed class TimelineClipProject
     public double WhiteBalanceTemperature { get; set; }
     public double WhiteBalanceTint { get; set; }
     public double Saturation { get; set; } = 1;
-    public List<VideoColorCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
-    public List<VideoColorCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
-    public List<VideoColorCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
-    public List<VideoColorCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColourCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColourCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColourCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public List<VideoColourCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
+    public string? ColourLutPath { get; set; }
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -62,7 +63,7 @@ public sealed class TimelineClipProject
     public uint Colour { get; set; } = 0xFFFFFFFF;
 }
 
-public sealed record VideoColorCurvePoint(double Input, double Output);
+public sealed record VideoColourCurvePoint(double Input, double Output);
 
 public sealed record TimelineClipLocation(TimelineTrackProject Track, TimelineClipProject Clip);
 
@@ -706,6 +707,7 @@ public static class VideoTimelineEditing
         RedCurve = clip.RedCurve?.ToList() ?? [],
         GreenCurve = clip.GreenCurve?.ToList() ?? [],
         BlueCurve = clip.BlueCurve?.ToList() ?? [],
+        ColourLutPath = clip.ColourLutPath,
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
@@ -764,9 +766,9 @@ public static class VideoTimelineEditing
                     return cropError;
                 }
 
-                if (VideoColorGrading.Validate(clip, track.Kind) is string colorError)
+                if (VideoColourGrading.Validate(clip, track.Kind) is string colourError)
                 {
-                    return colorError;
+                    return colourError;
                 }
             }
 

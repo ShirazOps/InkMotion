@@ -181,15 +181,15 @@ public sealed class VideoExportTests
     }
 
     [Fact]
-    public void Export_AppliesClipColorGradingToVideoFrames()
+    public void Export_AppliesClipColourGradingToVideoFrames()
     {
         if (!HasH264Encoder)
         {
             return;
         }
 
-        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-color-source-{Guid.NewGuid():N}.mp4");
-        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-color-output-{Guid.NewGuid():N}.mp4");
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-colour-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-colour-output-{Guid.NewGuid():N}.mp4");
         try
         {
             WriteInkColourVideo(source, 0xFFFF0000);

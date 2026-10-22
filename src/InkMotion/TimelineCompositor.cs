@@ -52,32 +52,32 @@ public static class TimelineCompositor
         double y,
         float opacity,
         double rotationDegrees = 0,
-        TimelineClipProject? colorGrade = null,
-        VideoColorGradingEffect? colorGradeEffect = null)
+        TimelineClipProject? colourGrade = null,
+        VideoColourGradingEffect? colourGradeEffect = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
         {
             Matrix3x2 previous = session.Transform;
-            VideoColorGradingEffect? temporaryColorGradeEffect = null;
+            VideoColourGradingEffect? temporaryColourGradeEffect = null;
             try
             {
                 session.Transform = Matrix3x2.CreateRotation((float)(rotationDegrees * Math.PI / 180),
                     new Vector2((float)(x * width), (float)(y * height))) * previous;
-                if (colorGrade is null || VideoColorGrading.IsNeutral(colorGrade))
+                if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade))
                 {
                     session.DrawImage(bitmap, destination, sourceRect, opacity);
                 }
                 else
                 {
-                    VideoColorGradingEffect effect = colorGradeEffect ??
-                        (temporaryColorGradeEffect = new VideoColorGradingEffect());
-                    session.DrawImage(effect.GetOutput(bitmap, colorGrade), destination, sourceRect, opacity);
+                    VideoColourGradingEffect effect = colourGradeEffect ??
+                        (temporaryColourGradeEffect = new VideoColourGradingEffect());
+                    session.DrawImage(effect.GetOutput(bitmap, colourGrade), destination, sourceRect, opacity);
                 }
             }
             finally
             {
-                temporaryColorGradeEffect?.Dispose();
+                temporaryColourGradeEffect?.Dispose();
                 session.Transform = previous;
             }
         }

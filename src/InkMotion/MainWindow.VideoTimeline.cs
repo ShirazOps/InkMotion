@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, CanvasBitmap> _overlayBitmaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _overlayBitmapRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unavailablePreviewVideoSources = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, VideoColorGradingEffect> _previewColorGradingEffects = [];
+    private readonly Dictionary<string, VideoColourGradingEffect> _previewColourGradingEffects = [];
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private readonly CompositeTransform _previewVideoTransform = new();
     private TimelineVideoFrameSource? _previewVideoFrameSource;
@@ -48,7 +48,7 @@ public sealed partial class MainWindow
     private bool _isScrubbingTimeline;
     private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
     private TimelineClipProject? _draggedCurveClip;
-    private VideoColorCurveChannel _draggedCurveChannel;
+    private VideoColourCurveChannel _draggedCurveChannel;
     private int _draggedCurvePointIndex = -1;
     private uint? _curveDragPointerId;
     private CanvasTextFormat? _timelineLabelFormat;
@@ -573,7 +573,7 @@ public sealed partial class MainWindow
                 opacity,
                 transform.RotationDegrees,
                 clip,
-                GetPreviewColorGradingEffect(clip));
+                GetPreviewColourGradingEffect(clip));
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -619,21 +619,30 @@ public sealed partial class MainWindow
         }
 
         VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
-        TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height, transform.Scale, transform.X, transform.Y,
-            opacity, transform.RotationDegrees, clip, GetPreviewColorGradingEffect(clip));
+        try
+        {
+            TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height,
+                transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
+                GetPreviewColourGradingEffect(clip));
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            StatusText.Text = $"Could not render image {Path.GetFileName(path)} with its colour settings: {ex.Message}";
+        }
     }
 
-    private VideoColorGradingEffect? GetPreviewColorGradingEffect(TimelineClipProject clip)
+    private VideoColourGradingEffect? GetPreviewColourGradingEffect(TimelineClipProject clip)
     {
-        if (VideoColorGrading.IsNeutral(clip))
+        if (VideoColourGrading.IsNeutral(clip))
         {
             return null;
         }
 
-        if (!_previewColorGradingEffects.TryGetValue(clip.Id, out VideoColorGradingEffect? effect))
+        if (!_previewColourGradingEffects.TryGetValue(clip.Id, out VideoColourGradingEffect? effect))
         {
-            effect = new VideoColorGradingEffect();
-            _previewColorGradingEffects.Add(clip.Id, effect);
+            effect = new VideoColourGradingEffect();
+            _previewColourGradingEffects.Add(clip.Id, effect);
         }
 
         return effect;
@@ -705,11 +714,11 @@ public sealed partial class MainWindow
         _transitionVideoFrameSource?.Dispose();
         _transitionVideoFrameSource = null;
         _transitionVideoFrameSourcePath = null;
-        foreach (VideoColorGradingEffect effect in _previewColorGradingEffects.Values)
+        foreach (VideoColourGradingEffect effect in _previewColourGradingEffects.Values)
         {
             effect.Dispose();
         }
-        _previewColorGradingEffects.Clear();
+        _previewColourGradingEffects.Clear();
     }
 
     private void DisposeVideoTimeline()
@@ -1829,7 +1838,7 @@ public sealed partial class MainWindow
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
-        ClipColorGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipColourGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
@@ -1887,6 +1896,12 @@ public sealed partial class MainWindow
         ClipWhiteBalanceTemperatureBox.Value = clip.WhiteBalanceTemperature;
         ClipWhiteBalanceTintBox.Value = clip.WhiteBalanceTint;
         ClipSaturationBox.Value = clip.Saturation;
+        ClipColourLutLabel.Text = string.IsNullOrWhiteSpace(clip.ColourLutPath)
+            ? "No 3D LUT selected"
+            : $"3D LUT: {Path.GetFileName(clip.ColourLutPath)}";
+        ToolTipService.SetToolTip(ClipColourLutLabel, clip.ColourLutPath);
+        RemoveClipColourLutButton.IsEnabled = !location.Track.IsLocked &&
+            !string.IsNullOrWhiteSpace(clip.ColourLutPath);
         ClipCurveCanvas.Invalidate();
         ClipXSlider.Value = transform.X;
         ClipYSlider.Value = transform.Y;
@@ -2077,7 +2092,7 @@ public sealed partial class MainWindow
         ApplyClipPreview();
     }
 
-    private void ClipColorGrading_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    private void ClipColourGrading_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
         if (_isInitialising || _isRestoringProject || !double.IsFinite(args.NewValue) ||
             SelectedTimelineClip is not TimelineClipLocation selected ||
@@ -2125,7 +2140,7 @@ public sealed partial class MainWindow
         candidate.WhiteBalanceTemperature = temperature;
         candidate.WhiteBalanceTint = tint;
         candidate.Saturation = saturation;
-        if (VideoColorGrading.Validate(candidate, location.Track.Kind) is string error)
+        if (VideoColourGrading.Validate(candidate, location.Track.Kind) is string error)
         {
             CommitEdit();
             StatusText.Text = error;
@@ -2133,7 +2148,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (VideoColorGrading.IsNeutral(candidate) == VideoColorGrading.IsNeutral(clip) &&
+        if (VideoColourGrading.IsNeutral(candidate) == VideoColourGrading.IsNeutral(clip) &&
             exposure == clip.Exposure &&
             contrast == clip.Contrast &&
             temperature == clip.WhiteBalanceTemperature &&
@@ -2150,6 +2165,70 @@ public sealed partial class MainWindow
         clip.WhiteBalanceTint = tint;
         clip.Saturation = saturation;
         ApplyClipPreview();
+    }
+
+    private async void LoadClipColourLut_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        string clipId = selected.Clip.Id;
+        StorageFile? file = await PickTimelineFileAsync([".cube"]);
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string content = await FileIO.ReadTextAsync(file);
+            _ = VideoColourLutData.Parse(content, file.Name);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            StatusText.Text = $"Could not load LUT {file.Name}: {ex.Message}";
+            return;
+        }
+
+        TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
+        if (current is null || current.Track.IsLocked)
+        {
+            StatusText.Text = "The selected clip is no longer available; no LUT was applied.";
+            return;
+        }
+
+        FinishActiveEdit();
+        if (!TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        location.Clip.ColourLutPath = file.Path;
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = $"Applied 3D LUT {file.Name} to the selected clip.";
+    }
+
+    private void RemoveClipColourLut_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            string.IsNullOrWhiteSpace(selected.Clip.ColourLutPath) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        location.Clip.ColourLutPath = null;
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = "Removed the selected clip's 3D LUT.";
     }
 
     private void ClipCurveCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -2174,29 +2253,29 @@ public sealed partial class MainWindow
         session.DrawLine((float)plot.X, (float)(plot.Y + plot.Height),
             (float)(plot.X + plot.Width), (float)plot.Y, Color.FromArgb(110, 190, 195, 205));
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            VideoColorGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { Count: >= 2 } curve)
+            VideoColourGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { Count: >= 2 } curve)
         {
             return;
         }
 
-        Color channelColor = GetSelectedCurveChannel() switch
+        Color channelColour = GetSelectedCurveChannel() switch
         {
-            VideoColorCurveChannel.Red => Color.FromArgb(255, 255, 100, 100),
-            VideoColorCurveChannel.Green => Color.FromArgb(255, 100, 230, 135),
-            VideoColorCurveChannel.Blue => Color.FromArgb(255, 115, 175, 255),
+            VideoColourCurveChannel.Red => Color.FromArgb(255, 255, 100, 100),
+            VideoColourCurveChannel.Green => Color.FromArgb(255, 100, 230, 135),
+            VideoColourCurveChannel.Blue => Color.FromArgb(255, 115, 175, 255),
             _ => Color.FromArgb(255, 245, 245, 250),
         };
         for (int index = 1; index < curve.Count; index++)
         {
             Point previous = CurvePointToCanvas(curve[index - 1], plot);
             Point current = CurvePointToCanvas(curve[index], plot);
-            session.DrawLine((float)previous.X, (float)previous.Y, (float)current.X, (float)current.Y, channelColor, 2);
+            session.DrawLine((float)previous.X, (float)previous.Y, (float)current.X, (float)current.Y, channelColour, 2);
         }
 
-        foreach (VideoColorCurvePoint point in curve)
+        foreach (VideoColourCurvePoint point in curve)
         {
             Point position = CurvePointToCanvas(point, plot);
-            session.FillCircle((float)position.X, (float)position.Y, 5, channelColor);
+            session.FillCircle((float)position.X, (float)position.Y, 5, channelColour);
         }
     }
 
@@ -2219,8 +2298,8 @@ public sealed partial class MainWindow
             return;
         }
 
-        VideoColorCurveChannel channel = GetSelectedCurveChannel();
-        List<VideoColorCurvePoint>? curve = VideoColorGrading.GetCurve(selected.Clip, channel);
+        VideoColourCurveChannel channel = GetSelectedCurveChannel();
+        List<VideoColourCurvePoint>? curve = VideoColourGrading.GetCurve(selected.Clip, channel);
         if (curve is null)
         {
             StatusText.Text = "The selected clip has invalid curve data.";
@@ -2244,7 +2323,7 @@ public sealed partial class MainWindow
 
             if (TryBeginClipPropertyEdit(out TimelineClipLocation location))
             {
-                VideoColorGrading.GetCurve(location.Clip, channel)!.RemoveAt(nearest);
+                VideoColourGrading.GetCurve(location.Clip, channel)!.RemoveAt(nearest);
                 ApplyClipPreview();
                 CommitEdit();
                 canvas.Invalidate();
@@ -2268,16 +2347,16 @@ public sealed partial class MainWindow
         }
         else
         {
-            if (curve.Count >= VideoColorGrading.MaximumCurvePoints ||
+            if (curve.Count >= VideoColourGrading.MaximumCurvePoints ||
                 !TryBeginClipPropertyEdit(out TimelineClipLocation location))
             {
-                StatusText.Text = curve.Count >= VideoColorGrading.MaximumCurvePoints
-                    ? $"A curve can contain at most {VideoColorGrading.MaximumCurvePoints} points."
+                StatusText.Text = curve.Count >= VideoColourGrading.MaximumCurvePoints
+                    ? $"A curve can contain at most {VideoColourGrading.MaximumCurvePoints} points."
                     : StatusText.Text;
                 return;
             }
 
-            curve = VideoColorGrading.GetCurve(location.Clip, channel)!;
+            curve = VideoColourGrading.GetCurve(location.Clip, channel)!;
             (double input, double output) = CanvasToCurvePoint(position, plot);
             int insertionIndex = curve.FindIndex(point => point.Input > input);
             if (insertionIndex < 1)
@@ -2293,7 +2372,7 @@ public sealed partial class MainWindow
                 return;
             }
 
-            curve.Insert(insertionIndex, new VideoColorCurvePoint(
+            curve.Insert(insertionIndex, new VideoColourCurvePoint(
                 Math.Clamp(input, minimumInput, maximumInput), output));
             _draggedCurveClip = location.Clip;
             _draggedCurveChannel = channel;
@@ -2316,7 +2395,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        List<VideoColorCurvePoint>? curve = VideoColorGrading.GetCurve(clip, _draggedCurveChannel);
+        List<VideoColourCurvePoint>? curve = VideoColourGrading.GetCurve(clip, _draggedCurveChannel);
         if (curve is null || _draggedCurvePointIndex >= curve.Count - 1)
         {
             return;
@@ -2336,7 +2415,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        curve[_draggedCurvePointIndex] = new VideoColorCurvePoint(
+        curve[_draggedCurvePointIndex] = new VideoColourCurvePoint(
             Math.Clamp(input, minimumInput, maximumInput), output);
         ApplyClipPreview();
         canvas.Invalidate();
@@ -2371,29 +2450,29 @@ public sealed partial class MainWindow
     {
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
             selected.Track.IsLocked ||
-            VideoColorGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { } curve ||
-            VideoColorGrading.IsNeutralCurve(curve) ||
+            VideoColourGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { } curve ||
+            VideoColourGrading.IsNeutralCurve(curve) ||
             !TryBeginClipPropertyEdit(out TimelineClipLocation location))
         {
             return;
         }
 
-        VideoColorGrading.SetCurve(location.Clip, GetSelectedCurveChannel(), [new(0, 0), new(1, 1)]);
+        VideoColourGrading.SetCurve(location.Clip, GetSelectedCurveChannel(), [new(0, 0), new(1, 1)]);
         ApplyClipPreview();
         CommitEdit();
         ClipCurveCanvas.Invalidate();
     }
 
-    private VideoColorCurveChannel GetSelectedCurveChannel() =>
+    private VideoColourCurveChannel GetSelectedCurveChannel() =>
         ClipCurveChannelSelector?.SelectedItem is ComboBoxItem { Tag: string tag } &&
-        Enum.TryParse(tag, ignoreCase: true, out VideoColorCurveChannel channel)
+        Enum.TryParse(tag, ignoreCase: true, out VideoColourCurveChannel channel)
             ? channel
-            : VideoColorCurveChannel.Master;
+            : VideoColourCurveChannel.Master;
 
     private static Rect GetClipCurvePlotBounds(double width, double height) =>
         new(16, 12, Math.Max(0, width - 32), Math.Max(0, height - 24));
 
-    private static Point CurvePointToCanvas(VideoColorCurvePoint point, Rect plot) =>
+    private static Point CurvePointToCanvas(VideoColourCurvePoint point, Rect plot) =>
         new(plot.X + (point.Input * plot.Width), plot.Y + ((1 - point.Output) * plot.Height));
 
     private static (double Input, double Output) CanvasToCurvePoint(Point position, Rect plot) =>
@@ -2401,7 +2480,7 @@ public sealed partial class MainWindow
             Math.Clamp(1 - ((position.Y - plot.Y) / plot.Height), 0, 1));
 
     private static int FindNearestCurvePoint(
-        IReadOnlyList<VideoColorCurvePoint> curve,
+        IReadOnlyList<VideoColourCurvePoint> curve,
         Point position,
         Rect plot)
     {

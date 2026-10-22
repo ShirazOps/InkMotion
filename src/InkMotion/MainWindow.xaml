@@ -466,7 +466,7 @@
                                 <NumberBox x:Name="ClipCropTopBox" Grid.Row="1" Header="Crop top (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
                                 <NumberBox x:Name="ClipCropBottomBox" Grid.Row="1" Grid.Column="1" Header="Crop bottom (%)" Minimum="0" Maximum="49" SmallChange="1" ValueChanged="ClipCrop_Changed" />
                             </Grid>
-                            <StackPanel x:Name="ClipColorGradingControls" Spacing="6">
+                            <StackPanel x:Name="ClipColourGradingControls" Spacing="6">
                                 <TextBlock Text="COLOUR" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <Grid ColumnSpacing="6" RowSpacing="4">
                                     <Grid.ColumnDefinitions>
@@ -478,11 +478,11 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <NumberBox x:Name="ClipExposureBox" Header="Exposure (EV)" Minimum="-2" Maximum="2" Value="0" SmallChange="0.1" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
-                                    <NumberBox x:Name="ClipContrastBox" Grid.Column="1" Header="Contrast (-1 to +1)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
-                                    <NumberBox x:Name="ClipWhiteBalanceTemperatureBox" Grid.Row="1" Header="Temperature (-1 cool, +1 warm)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
-                                    <NumberBox x:Name="ClipWhiteBalanceTintBox" Grid.Row="1" Grid.Column="1" Header="Tint (-1 green, +1 magenta)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
-                                    <NumberBox x:Name="ClipSaturationBox" Grid.Row="2" Header="Saturation" Minimum="0" Maximum="2" Value="1" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColorGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipExposureBox" Header="Exposure (EV)" Minimum="-2" Maximum="2" Value="0" SmallChange="0.1" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipContrastBox" Grid.Column="1" Header="Contrast (-1 to +1)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipWhiteBalanceTemperatureBox" Grid.Row="1" Header="Temperature (-1 cool, +1 warm)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipWhiteBalanceTintBox" Grid.Row="1" Grid.Column="1" Header="Tint (-1 green, +1 magenta)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipSaturationBox" Grid.Row="2" Header="Saturation" Minimum="0" Maximum="2" Value="1" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
                                 </Grid>
                                 <TextBlock Text="Colour changes apply to the video or image clip in live preview and export. Neutral values are Exposure 0 EV, Contrast 0, Temperature/Tint 0 and Saturation 1." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ComboBox x:Name="ClipCurveChannelSelector" Header="Curve channel" SelectedIndex="0" SelectionChanged="ClipCurveChannel_Changed">
@@ -499,6 +499,11 @@
                                                       PointerCaptureLost="ClipCurveCanvas_PointerCaptureLost" />
                                 <Button Content="Reset selected curve" Click="ResetClipCurve_Click" />
                                 <TextBlock Text="Click the graph to add a point, drag points to shape the curve, or right-click a point to remove it. Endpoints stay fixed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock x:Name="ClipColourLutLabel" Text="No 3D LUT selected" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Load 3D LUT (.cube)..." Click="LoadClipColourLut_Click" />
+                                    <Button x:Name="RemoveClipColourLutButton" Content="Remove LUT" Click="RemoveClipColourLut_Click" />
+                                </StackPanel>
                             </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
