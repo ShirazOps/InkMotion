@@ -128,6 +128,65 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_InterpolatesVideoTransformKeyframes()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-transform-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-transform-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(source, 0xFFFF0000);
+            var clip = new TimelineClipProject
+            {
+                SourcePath = source,
+                SourceOutSeconds = 1,
+                SourceDurationSeconds = 1,
+                TransformKeyframes =
+                [
+                    new() { FrameOffset = 0, X = 0.25, Y = 0.5, Scale = 1 },
+                    new() { FrameOffset = 23, X = 0.75, Y = 0.5, Scale = 1 },
+                ],
+            };
+            var project = new EditorProject
+            {
+                VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+            };
+
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+            Assert.Empty(result.Warnings);
+
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            (byte B, byte G, byte R) firstLeft = GetPixel(video, 320, 504);
+            (byte B, byte G, byte R) firstCentre = GetPixel(video, 640, 504);
+            (byte B, byte G, byte R) firstRight = GetPixel(video, 960, 504);
+            Assert.True(firstLeft.R > 80 && firstRight.R < 30,
+                $"Expected the early frame to be translated left, got left {firstLeft}, centre {firstCentre}, and right {firstRight}.");
+
+            Assert.True(video.TryGetFrame(0.9));
+            (byte B, byte G, byte R) lastLeft = GetPixel(video, 320, 504);
+            (byte B, byte G, byte R) lastRight = GetPixel(video, 960, 504);
+            Assert.True(lastRight.R > 80 && lastLeft.R < 30,
+                $"Expected the last frame to be translated right, got left {lastLeft.R} and right {lastRight.R} red.");
+        }
+        finally
+        {
+            foreach (string path in new[] { source, output })
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void Quality_ChangesTheTargetBitRate()
     {
         var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);

@@ -319,8 +319,11 @@ public static class VideoExporter
                             DrawVideo(session, layer.Clip, seconds, width, height, opacity);
                             break;
                         case TimelineTrackKind.Image when GetImage(layer.Clip.SourcePath) is CanvasBitmap image:
-                            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height, layer.Clip.Scale, layer.Clip.X, layer.Clip.Y, opacity,
-                                layer.Clip.RotationDegrees);
+                            VideoTransformValue imageTransform = VideoTransformKeyframes.GetValueAtTime(
+                                layer.Clip, seconds, _project.FrameRate);
+                            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height,
+                                imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
+                                imageTransform.RotationDegrees);
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
@@ -375,7 +378,9 @@ public static class VideoExporter
             if (video.Update(_device, sourceSeconds) is CanvasBitmap bitmap)
             {
                 (int x, int y, int w, int h) = video.Reader.Aperture;
-                TimelineCompositor.DrawFitted(session, bitmap, new Rect(x, y, w, h), width, height, 1, 0.5, 0.5, opacity);
+                VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
+                TimelineCompositor.DrawFitted(session, bitmap, new Rect(x, y, w, h), width, height,
+                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees);
             }
         }
 

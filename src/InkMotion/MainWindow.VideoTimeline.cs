@@ -32,6 +32,8 @@ public sealed partial class MainWindow
     private readonly HashSet<string> _overlayBitmapRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private readonly MediaPlayer _transitionPreviewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
+    private readonly CompositeTransform _previewVideoTransform = new();
+    private readonly CompositeTransform _transitionVideoTransform = new();
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
@@ -64,6 +66,12 @@ public sealed partial class MainWindow
     {
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
         TransitionPreviewPlayer.SetMediaPlayer(_transitionPreviewMediaPlayer);
+        _previewVideoTransform.ScaleX = _previewVideoTransform.ScaleY = 1;
+        _transitionVideoTransform.ScaleX = _transitionVideoTransform.ScaleY = 1;
+        PreviewPlayer.RenderTransformOrigin = new Point(0.5, 0.5);
+        TransitionPreviewPlayer.RenderTransformOrigin = new Point(0.5, 0.5);
+        PreviewPlayer.RenderTransform = _previewVideoTransform;
+        TransitionPreviewPlayer.RenderTransform = _transitionVideoTransform;
         _previewMediaPlayer.MediaOpened += PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed += PreviewMediaPlayer_MediaFailed;
         _transitionPreviewMediaPlayer.MediaOpened += TransitionPreviewMediaPlayer_MediaOpened;
@@ -312,6 +320,11 @@ public sealed partial class MainWindow
         bool forceSeek,
         bool transitionActive)
     {
+        ApplyVideoPreviewTransform(
+            _previewVideoTransform,
+            PreviewPlayer,
+            IsOriginalPreview ? null : active?.Clip,
+            seconds);
         StorageFile? file = null;
         if (active?.Clip.SourcePath is string path && !_unavailableTimelineSources.Contains(path))
         {
@@ -380,6 +393,7 @@ public sealed partial class MainWindow
         double weight)
     {
         TransitionPreviewPlayer.Opacity = 0;
+        ApplyVideoPreviewTransform(_transitionVideoTransform, TransitionPreviewPlayer, clip, seconds);
         if (clip.SourcePath is not string path ||
             _unavailableTimelineSources.Contains(path) ||
             !_timelineSourceFiles.TryGetValue(path, out StorageFile? file))
@@ -428,6 +442,21 @@ public sealed partial class MainWindow
         }
 
         return true;
+    }
+
+    private void ApplyVideoPreviewTransform(
+        CompositeTransform transform,
+        MediaPlayerElement element,
+        TimelineClipProject? clip,
+        double seconds)
+    {
+        VideoTransformValue value = clip is null
+            ? new VideoTransformValue(0.5, 0.5, 1, 0)
+            : VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+        transform.ScaleX = transform.ScaleY = value.Scale;
+        transform.Rotation = value.RotationDegrees;
+        transform.TranslateX = (value.X - 0.5) * element.ActualWidth;
+        transform.TranslateY = (value.Y - 0.5) * element.ActualHeight;
     }
 
     private void HideTransitionPreview()
@@ -573,8 +602,9 @@ public sealed partial class MainWindow
             return;
         }
 
-        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, clip.Scale, clip.X, clip.Y, opacity,
-            clip.RotationDegrees);
+        VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
+        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, transform.Scale, transform.X, transform.Y,
+            opacity, transform.RotationDegrees);
     }
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
@@ -875,6 +905,7 @@ public sealed partial class MainWindow
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
+        destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
 
     private static float LaneTop(int index) => TimelineRulerHeight + (index * (TimelineLaneHeight + TimelineLaneSpacing));
@@ -1739,8 +1770,10 @@ public sealed partial class MainWindow
         bool isVideo = kind == TimelineTrackKind.Video;
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
+        bool supportsTransform = isVideo || isImage;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
@@ -1755,10 +1788,10 @@ public sealed partial class MainWindow
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)ClipFontSizeBox.Parent).Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
-        ClipScaleSlider.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
-        ClipRotationBox.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
-        ClipXSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
-        ClipYSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
+        ClipScaleSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipRotationBox.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipXSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipYSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
 
         ClipOpacitySlider.Value = clip.Opacity;
         ClipVolumeSlider.Value = clip.Volume;
@@ -1777,10 +1810,28 @@ public sealed partial class MainWindow
             .FirstOrDefault(item => item.Tag is string tag &&
                 uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint argb) &&
                 argb == clip.Colour);
-        ClipScaleSlider.Value = clip.Scale;
-        ClipRotationBox.Value = clip.RotationDegrees;
-        ClipXSlider.Value = clip.X;
-        ClipYSlider.Value = clip.Y;
+        VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        ClipScaleSlider.Value = transform.Scale;
+        ClipRotationBox.Value = transform.RotationDegrees;
+        ClipXSlider.Value = transform.X;
+        ClipYSlider.Value = transform.Y;
+        if (supportsTransform)
+        {
+            int frameOffset = VideoTransformKeyframes.GetFrameOffset(
+                clip, _playheadFramePosition / _frameRate, _frameRate);
+            bool playheadInside = VideoTransformKeyframes.CanSetAtFrame(clip, kind, frameOffset, _frameRate);
+            SetTransformKeyframeButton.IsEnabled = playheadInside;
+            RemoveTransformKeyframeButton.IsEnabled =
+                playheadInside && VideoTransformKeyframes.IsKeyframeAt(clip, frameOffset);
+            PreviousTransformKeyframeButton.IsEnabled =
+                VideoTransformKeyframes.FindAdjacentFrame(clip, frameOffset, next: false) is not null;
+            NextTransformKeyframeButton.IsEnabled =
+                VideoTransformKeyframes.FindAdjacentFrame(clip, frameOffset, next: true) is not null;
+            TransformKeyframeStateText.Text = clip.TransformKeyframes.Count == 0
+                ? "No transform keyframes. Add one to animate this clip."
+                : $"{clip.TransformKeyframes.Count} transform keyframe(s); playhead frame {frameOffset + 1}.";
+        }
         _isRestoringProject = wasRestoring;
     }
 
@@ -1820,25 +1871,31 @@ public sealed partial class MainWindow
         }
 
         TimelineClipProject clip = location.Clip;
-        if (sender == ClipOpacitySlider)
+        if (ReferenceEquals(sender, ClipOpacitySlider))
         {
             clip.Opacity = Math.Clamp(e.NewValue, 0, 1);
         }
-        else if (sender == ClipVolumeSlider)
+        else if (ReferenceEquals(sender, ClipVolumeSlider))
         {
             clip.Volume = Math.Clamp(e.NewValue, 0, 1);
         }
-        else if (sender == ClipScaleSlider)
+        else if (ReferenceEquals(sender, ClipScaleSlider) ||
+            ReferenceEquals(sender, ClipXSlider) ||
+            ReferenceEquals(sender, ClipYSlider))
         {
-            clip.Scale = Math.Clamp(e.NewValue, VideoTimelineEditing.MinimumScale, VideoTimelineEditing.MaximumScale);
-        }
-        else if (sender == ClipXSlider)
-        {
-            clip.X = Math.Clamp(e.NewValue, 0, 1);
-        }
-        else if (sender == ClipYSlider)
-        {
-            clip.Y = Math.Clamp(e.NewValue, 0, 1);
+            VideoTransformValue current = VideoTransformKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate);
+            VideoTransformValue updated = ReferenceEquals(sender, ClipScaleSlider)
+                ? current with { Scale = Math.Clamp(e.NewValue, VideoTimelineEditing.MinimumScale, VideoTimelineEditing.MaximumScale) }
+                : ReferenceEquals(sender, ClipXSlider)
+                    ? current with { X = Math.Clamp(e.NewValue, 0, 1) }
+                    : current with { Y = Math.Clamp(e.NewValue, 0, 1) };
+            if (!VideoTransformKeyframes.SetValueAtTime(clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, updated))
+            {
+                CommitEdit();
+                StatusText.Text = "Move the playhead inside the selected clip to edit its transform keyframes.";
+                UpdateVideoInspector();
+                return;
+            }
         }
 
         ApplyClipPreview();
@@ -1858,17 +1915,104 @@ public sealed partial class MainWindow
         }
         if (!double.IsFinite(args.NewValue) || args.NewValue is < -180 or > 180)
         {
-            StatusText.Text = "Image rotation must be a finite angle from -180 to 180 degrees.";
+            StatusText.Text = "Clip rotation must be a finite angle from -180 to 180 degrees.";
             UpdateVideoInspector();
             return;
         }
-        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Image } selected ||
-            selected.Clip.RotationDegrees == args.NewValue || !TryBeginClipPropertyEdit(out var location))
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            VideoTransformKeyframes.GetValueAtTime(selected.Clip, CurrentPlaybackSeconds, _frameRate).RotationDegrees == args.NewValue ||
+            !TryBeginClipPropertyEdit(out var location))
         {
             return;
         }
-        location.Clip.RotationDegrees = args.NewValue;
+        VideoTransformValue current = VideoTransformKeyframes.GetValueAtTime(location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (!VideoTransformKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate,
+            current with { RotationDegrees = args.NewValue }))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected clip to edit its transform keyframes.";
+            UpdateVideoInspector();
+            return;
+        }
         ApplyClipPreview();
+    }
+
+    private void SetTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoTransformKeyframes.TrySetAtFrame(selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Transform keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected clip to add a transform keyframe.";
+    }
+
+    private void RemoveTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoTransformKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Transform keyframe removed." : "There is no keyframe at the playhead.";
+    }
+
+    private void NavigateTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            sender is not Button { Tag: string direction })
+        {
+            return;
+        }
+
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int? target = VideoTransformKeyframes.FindAdjacentFrame(selected.Clip, frameOffset, next: direction == "next");
+        if (target is null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)

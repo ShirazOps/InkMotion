@@ -38,6 +38,7 @@ public sealed class TimelineClipProject
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
     public double RotationDegrees { get; set; }
+    public List<VideoTransformKeyframe> TransformKeyframes { get; set; } = [];
     public string Text { get; set; } = string.Empty;
     public string FontFamily { get; set; } = "Segoe UI";
     /// <summary>Font size in pixels relative to a 1080-pixel-high frame.</summary>
@@ -233,6 +234,7 @@ public static class VideoTimelineEditing
             clip.DurationSeconds -= offset;
         }
 
+        VideoTransformKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         clip.StartFrame = playheadFrame;
         ClampFades(clip, track.Kind);
         return true;
@@ -254,6 +256,7 @@ public static class VideoTimelineEditing
             clip.DurationSeconds = offset;
         }
 
+        VideoTransformKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -270,6 +273,7 @@ public static class VideoTimelineEditing
         right.Id = NewClipId();
         right.StartFrame = playheadFrame;
         right.TransitionInSeconds = 0;
+        VideoTransformKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = clip.SourceInSeconds + offset;
@@ -502,6 +506,7 @@ public static class VideoTimelineEditing
         }
 
         clip.DurationSeconds = seconds;
+        VideoTransformKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -528,6 +533,15 @@ public static class VideoTimelineEditing
                 int rounded = (int)Math.Round(start * newFrameRate, MidpointRounding.AwayFromZero);
                 int earliest = (int)Math.Ceiling(previousEnd * newFrameRate - Tolerance);
                 clip.StartFrame = Math.Max(rounded, earliest) + 1;
+                foreach (VideoTransformKeyframe keyframe in clip.TransformKeyframes)
+                {
+                    keyframe.FrameOffset = (int)Math.Round(keyframe.FrameOffset * newFrameRate / oldFrameRate);
+                }
+                clip.TransformKeyframes = clip.TransformKeyframes
+                    .OrderBy(keyframe => keyframe.FrameOffset)
+                    .GroupBy(keyframe => keyframe.FrameOffset)
+                    .Select(group => group.Last())
+                    .ToList();
                 previousEnd = GetEndSeconds(clip, track.Kind, newFrameRate);
             }
         }
@@ -583,6 +597,7 @@ public static class VideoTimelineEditing
         Y = clip.Y,
         Scale = clip.Scale,
         RotationDegrees = clip.RotationDegrees,
+        TransformKeyframes = VideoTransformKeyframes.CloneKeys(clip.TransformKeyframes),
         Text = clip.Text,
         FontFamily = clip.FontFamily,
         FontSize = clip.FontSize,
@@ -619,6 +634,11 @@ public static class VideoTimelineEditing
                 {
                     return $"A clip on {track.Name} has invalid timing, source, or styling.";
                 }
+
+                if (VideoTransformKeyframes.Validate(clip, track.Kind, frameRate) is string keyframeError)
+                {
+                    return keyframeError;
+                }
             }
 
             TimelineClipProject[] ordered = track.Clips.OrderBy(clip => clip.StartFrame).ToArray();
@@ -649,7 +669,7 @@ public static class VideoTimelineEditing
             IsUnit(clip.Y) &&
             double.IsFinite(clip.RotationDegrees) &&
             clip.RotationDegrees is >= -180 and <= 180 &&
-            (kind == TimelineTrackKind.Image || clip.RotationDegrees == 0);
+            (kind is TimelineTrackKind.Image or TimelineTrackKind.Video || clip.RotationDegrees == 0);
         if (!common)
         {
             return false;
@@ -667,7 +687,8 @@ public static class VideoTimelineEditing
                     // An unprobed source with no out point is allowed; its length is resolved when the media opens.
                     ((clip.SourceOutSeconds is null && clip.SourceDurationSeconds == 0) || sourceEnd > clip.SourceInSeconds) &&
                     (clip.SourceDurationSeconds == 0 || sourceEnd <= clip.SourceDurationSeconds + Tolerance) &&
-                    double.IsFinite(clip.TransitionInSeconds) && clip.TransitionInSeconds >= 0;
+                    double.IsFinite(clip.TransitionInSeconds) && clip.TransitionInSeconds >= 0 &&
+                    double.IsFinite(clip.Scale) && clip.Scale is >= MinimumScale and <= MaximumScale;
             case TimelineTrackKind.Image:
                 return !string.IsNullOrWhiteSpace(clip.SourcePath) &&
                     clip.TransitionInSeconds == 0 &&

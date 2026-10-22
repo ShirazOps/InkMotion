@@ -53,6 +53,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove transitions or fades at the join boundary and keep outer fades within their original clips before joining.");
         }
 
+        if (left.TransformKeyframes.Count != 0 || right.TransformKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove transform keyframes before joining; keyframed motion cannot be combined without changing its timing.");
+        }
+
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||

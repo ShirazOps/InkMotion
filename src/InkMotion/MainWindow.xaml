@@ -436,6 +436,18 @@
                                 </StackPanel>
                                 <TextBlock Text="Transitions span the cut without moving either clip. Both sources need unused footage before/after their selected ranges; transition opacity requires both clip opacities at 100%. This is a video-only dissolve; audio timing and volume are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
+                            <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
+                                <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetTransformKeyframeButton" Content="Add/update keyframe" Click="SetTransformKeyframe_Click" />
+                                    <Button x:Name="RemoveTransformKeyframeButton" Content="Remove keyframe" Click="RemoveTransformKeyframe_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="PreviousTransformKeyframeButton" Content="Previous keyframe" Click="NavigateTransformKeyframe_Click" Tag="previous" />
+                                    <Button x:Name="NextTransformKeyframeButton" Content="Next keyframe" Click="NavigateTransformKeyframe_Click" Tag="next" />
+                                </StackPanel>
+                                <TextBlock Text="Transform keyframes interpolate linearly. Once enabled, changing position, scale or rotation creates or updates a keyframe at the playhead." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
                             <ComboBox x:Name="ClipFontSelector" Header="Font" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">
