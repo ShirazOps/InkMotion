@@ -1911,6 +1911,7 @@ public sealed partial class MainWindow : Window
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
+            BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
@@ -2090,6 +2091,10 @@ public sealed partial class MainWindow : Window
             Math.Clamp(_shapeStartPoint.Y / InkSurface.ActualHeight, 0, 1),
             Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
             Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour);
+        foreach (InkPoint shapePoint in points)
+        {
+            shapePoint.BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex;
+        }
         _activeStroke.Clear();
         _activeStroke.AddRange(points);
         MarkEditChanged();
@@ -2536,6 +2541,7 @@ public sealed partial class MainWindow : Window
                     Pressure = point.Pressure,
                     BrushWidth = point.BrushWidth,
                     BrushColour = point.BrushColour,
+                    BrushTexture = point.BrushTexture,
                 }).ToList())
                 .ToList());
         }

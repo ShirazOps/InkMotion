@@ -1017,6 +1017,11 @@
                             <TextBlock Text="Pen size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
                         </StackPanel>
+                        <ComboBox x:Name="InkBrushTextureSelector" Header="Brush texture for new strokes" SelectedIndex="0">
+                            <ComboBoxItem Content="Round (solid)" />
+                            <ComboBoxItem Content="Grain (procedural)" />
+                        </ComboBox>
+                        <TextBlock Text="Grain pencil/chalk use deterministic pressure-sensitive stippling, not imported brush images. Texture is saved with strokes and shared by preview, colour sampling and export. Existing strokes keep their texture; editing a path can regenerate its grain pattern." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="STROKE SELECTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLassoModeSelector" Header="Lasso mode" SelectedIndex="0">
                             <ComboBoxItem Content="Whole strokes" />

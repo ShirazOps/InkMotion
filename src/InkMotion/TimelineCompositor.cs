@@ -216,6 +216,12 @@ public static class TimelineCompositor
         float height,
         float widthScale)
     {
+        if (stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Grain)
+        {
+            InkGrainBrush.Draw(session, stroke, colour, width, height, widthScale);
+            return;
+        }
+
         for (int i = 0; i < stroke.Count; i++)
         {
             InkPoint point = stroke[i];

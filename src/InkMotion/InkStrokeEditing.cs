@@ -147,6 +147,7 @@ public static class InkStrokeEditing
         Pressure = a.Pressure + (b.Pressure - a.Pressure) * t,
         BrushWidth = a.BrushWidth + (b.BrushWidth - a.BrushWidth) * t,
         BrushColour = t < 1 ? a.BrushColour : b.BrushColour,
+        BrushTexture = t < 1 ? a.BrushTexture : b.BrushTexture,
     };
 
     public static InkPoint Stabilise(InkPoint input, InkPoint? previous, double amount)
@@ -163,6 +164,7 @@ public static class InkStrokeEditing
             Pressure = input.Pressure,
             BrushWidth = input.BrushWidth,
             BrushColour = input.BrushColour,
+            BrushTexture = input.BrushTexture,
         };
     }
 }

@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 36;
+    public const int CurrentVersion = 37;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -206,12 +206,19 @@ public static class InkTimeline
     }
 }
 
+public enum InkBrushTexture
+{
+    Round,
+    Grain,
+}
+
 public sealed class InkPoint
 {
     public double X { get; set; }
     public double Y { get; set; }
     public double Pressure { get; set; } = 0.5;
     public double BrushWidth { get; set; } = 4;
+    public InkBrushTexture BrushTexture { get; set; }
     [JsonPropertyName("BrushColor")]
     public uint BrushColour { get; set; } = 0xFFFFA500;
 }
@@ -380,6 +387,10 @@ public static class EditorProjectSerialiser
             project.Version = 35;
         }
         if (project.Version == 35)
+        {
+            project.Version = 36;
+        }
+        if (project.Version == 36)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -610,6 +621,7 @@ public static class InkAnimation
                     Pressure = Lerp(first[pointIndex].Pressure, second[pointIndex].Pressure, progress),
                     BrushWidth = Lerp(first[pointIndex].BrushWidth, second[pointIndex].BrushWidth, progress),
                     BrushColour = first[pointIndex].BrushColour,
+                    BrushTexture = first[pointIndex].BrushTexture,
                 });
             }
 
@@ -732,6 +744,7 @@ public static class InkAnimation
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
+                    BrushTexture = stroke[0].BrushTexture,
                 })
                 .ToList();
         }
@@ -755,6 +768,7 @@ public static class InkAnimation
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
+                    BrushTexture = stroke[0].BrushTexture,
                 })
                 .ToList();
         }
@@ -778,6 +792,7 @@ public static class InkAnimation
                 Pressure = Lerp(stroke[segment - 1].Pressure, stroke[segment].Pressure, progress),
                 BrushWidth = Lerp(stroke[segment - 1].BrushWidth, stroke[segment].BrushWidth, progress),
                 BrushColour = stroke[segment - 1].BrushColour,
+                BrushTexture = stroke[segment - 1].BrushTexture,
             });
         }
 
@@ -978,7 +993,8 @@ internal static class EditorProjectValidation
                     !double.IsFinite(point.Pressure) ||
                     point.Pressure is < 0 or > 1 ||
                     !double.IsFinite(point.BrushWidth) ||
-                    point.BrushWidth is < 0.5 or > 64))
+                    point.BrushWidth is < 0.5 or > 64 ||
+                    !Enum.IsDefined(point.BrushTexture)))
                 {
             throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
         }
