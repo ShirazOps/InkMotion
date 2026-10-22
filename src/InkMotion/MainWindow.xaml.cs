@@ -1035,6 +1035,7 @@ public sealed partial class MainWindow : Window
             AudioTrackNamesPanel.Children.Add(CreateAudioTrackName("A1  Audio"));
             AudioTracksPanel.Children.Add(CreateAudioTrackLane("Add an audio clip with File > Add audio clip…"));
             UpdateAudioLaneHeights();
+            UpdateProjectMediaBin();
             return;
         }
 
@@ -1045,6 +1046,7 @@ public sealed partial class MainWindow : Window
             AudioTracksPanel.Children.Add(CreateAudioTrackLane(track, i));
         }
         UpdateAudioLaneHeights();
+        UpdateProjectMediaBin();
     }
 
     private Button CreateAudioTrackLane(AudioTrackRuntime track, int index)
@@ -1627,6 +1629,7 @@ public sealed partial class MainWindow : Window
             _timelineMarkers[index].Frame = markerFrames[index];
         }
         _frameRate = rate;
+        UpdateSourceMonitorControls();
         MarkEditChanged();
         CommitEdit();
         SeekToCurrentFrame();
@@ -2571,6 +2574,9 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _mediaBinClosed = true;
+        _mediaDiscoveryCancellation?.Cancel();
+        _mediaDiscoveryCancellation = null;
         _sampleWaveformClosed = true;
         ClearSampleWaveform();
         _audioMasterClosed = true;

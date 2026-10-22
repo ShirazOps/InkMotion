@@ -286,6 +286,34 @@
                             <ComboBoxItem Content="30 fps" Tag="30" />
                             <ComboBoxItem Content="60 fps" Tag="60" />
                         </ComboBox>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="SOURCE MONITOR" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button Content="Load source video..." Click="LoadSourceMonitor_Click" />
+                        <MediaPlayerElement x:Name="SourceMonitorPlayer" AreTransportControlsEnabled="True"
+                                            AutoPlay="False" Height="180" HorizontalAlignment="Stretch" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="SourceMonitorMarkInButton" Content="Mark In" Tag="in"
+                                    Click="SourceMonitorMark_Click" IsEnabled="False" />
+                            <Button x:Name="SourceMonitorMarkOutButton" Content="Mark Out" Tag="out"
+                                    Click="SourceMonitorMark_Click" IsEnabled="False" />
+                            <Button x:Name="ClearSourceMonitorMarksButton" Content="Clear marks"
+                                    Click="ClearSourceMonitorMarks_Click" IsEnabled="False" />
+                        </StackPanel>
+                        <TextBlock x:Name="SourceMonitorMarksText" Text="In: not set   Out: not set"
+                                   Style="{StaticResource LabelTextStyle}" />
+                        <Button x:Name="AddMarkedVideoClipButton" Content="Add marked range on a free track"
+                                Click="AddMarkedVideoClip_Click" IsEnabled="False" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="InsertMarkedVideoClipButton" Content="Insert on selected video track"
+                                    Click="InsertMarkedVideoClip_Click" IsEnabled="False"
+                                    ToolTipService.ToolTip="Insert the marked source range and shift later clips on the selected video track" />
+                            <Button x:Name="OverwriteMarkedVideoClipButton" Content="Overwrite on selected video track"
+                                    Click="OverwriteMarkedVideoClip_Click" IsEnabled="False"
+                                    ToolTipService.ToolTip="Replace the marked-duration interval on the selected video track without shifting downstream clips" />
+                        </StackPanel>
+                        <TextBlock x:Name="SourceMonitorStatus" Text="Load a video, preview it, then mark its source range."
+                                   TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Mark In and Out from the source player's current position; the marked range becomes a new video clip at the timeline playhead. Marks are not project data and remain available for another insert until cleared or a new source is loaded. The original source file is not changed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ADD AT PLAYHEAD" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>
@@ -427,6 +455,16 @@
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipYSlider" Header="Vertical position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                         </StackPanel>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="PROJECT MEDIA BIN" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="Project-linked video, images and audio, grouped by source path. Missing links are highlighted. Search a folder recursively by exact filename; ambiguous duplicate names are never auto-selected." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ComboBox x:Name="ProjectMediaBinList" Header="Project media" HorizontalAlignment="Stretch" SelectionChanged="ProjectMediaBin_SelectionChanged" />
+                        <Button x:Name="FindMediaMatchesButton" Content="Find missing media in folder..." Click="FindMediaMatches_Click" IsEnabled="False" />
+                        <ComboBox x:Name="MediaBinMatchesList" Header="Unique exact filename matches" HorizontalAlignment="Stretch" SelectionChanged="MediaBinMatch_SelectionChanged" />
+                        <CheckBox x:Name="MediaBinUseReplacementEnd" Content="Use replacement end for unresolved audio clips" />
+                        <Button x:Name="RelinkMediaMatchButton" Content="Relink selected missing source" Click="RelinkMediaMatch_Click" IsEnabled="False" />
+                        <TextBlock x:Name="ProjectMediaBinStatus" Text="Open a project or add media to populate the bin." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Relinking applies to all same-kind uses of that exact project path and is atomic/undoable. Video source ranges must fit; audio end points and fade duration must fit. For missing audio clips with no saved source end, enable the checkbox only if extending/shortening them to the replacement end is intended. Media is never changed on disk." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -871,9 +909,27 @@
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
                     <TextBlock Text="VIDEO TIMELINE" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
+                    <ToggleButton x:Name="SelectTimelineToolButton" Content="Select" Tag="Select"
+                                  IsChecked="True" Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Select and move clips" />
+                    <ToggleButton x:Name="BladeTimelineToolButton" Content="Blade" Tag="Blade"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Click inside a clip to split it" />
+                    <ToggleButton x:Name="TrimTimelineToolButton" Content="Trim" Tag="Trim"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a selected clip's start or end handle" />
+                    <ToggleButton x:Name="RippleTimelineToolButton" Content="Ripple" Tag="Ripple"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a clip edge and ripple later clips on the same track" />
+                    <ToggleButton x:Name="RollTimelineToolButton" Content="Roll" Tag="Roll"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag the cut between adjacent clips" />
+                    <ToggleButton x:Name="SlideTimelineToolButton" Content="Slide" Tag="Slide"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a clip between adjacent clips" />
                     <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
-                    <TextBlock x:Name="VideoTimelineHint" Text="Click a clip to select it, drag to move it, click the ruler to move the playhead." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="VideoTimelineHint" Text="Select: move. Blade: split. Trim/Ripple: drag an edge. Roll: drag a cut. Slide: drag between adjacent clips." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
