@@ -503,6 +503,7 @@ public sealed partial class MainWindow
         RefreshMarkers();
         UpdateVideoInspector();
         UpdatePreviewEmptyState();
+        UpdateProjectMediaBin();
         CompositionSurface.Invalidate();
         InvalidateVideoTimeline();
     }

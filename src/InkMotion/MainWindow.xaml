@@ -427,6 +427,16 @@
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipYSlider" Header="Vertical position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                         </StackPanel>
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="PROJECT MEDIA BIN" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="Project-linked video, images and audio, grouped by source path. Missing links are highlighted. Search a folder recursively by exact filename; ambiguous duplicate names are never auto-selected." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ComboBox x:Name="ProjectMediaBinList" Header="Project media" HorizontalAlignment="Stretch" SelectionChanged="ProjectMediaBin_SelectionChanged" />
+                        <Button x:Name="FindMediaMatchesButton" Content="Find missing media in folder..." Click="FindMediaMatches_Click" IsEnabled="False" />
+                        <ComboBox x:Name="MediaBinMatchesList" Header="Unique exact filename matches" HorizontalAlignment="Stretch" SelectionChanged="MediaBinMatch_SelectionChanged" />
+                        <CheckBox x:Name="MediaBinUseReplacementEnd" Content="Use replacement end for unresolved audio clips" />
+                        <Button x:Name="RelinkMediaMatchButton" Content="Relink selected missing source" Click="RelinkMediaMatch_Click" IsEnabled="False" />
+                        <TextBlock x:Name="ProjectMediaBinStatus" Text="Open a project or add media to populate the bin." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Relinking applies to all same-kind uses of that exact project path and is atomic/undoable. Video source ranges must fit; audio end points and fade duration must fit. For missing audio clips with no saved source end, enable the checkbox only if extending/shortening them to the replacement end is intended. Media is never changed on disk." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
