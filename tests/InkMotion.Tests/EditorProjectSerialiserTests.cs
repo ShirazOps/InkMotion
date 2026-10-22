@@ -80,6 +80,53 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionTwentyTwoProject_DefaultsToNormalPlayback()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":22,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(1, clip.PlaybackSpeed);
+        Assert.False(clip.IsReversed);
+        Assert.True(clip.ReverseEmbeddedAudio);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsVideoPlaybackSettings()
+    {
+        var project = new EditorProject
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips =
+                    [
+                        new TimelineClipProject
+                        {
+                            SourcePath = @"C:\Media\scene.mp4",
+                            SourceDurationSeconds = 10,
+                            SourceOutSeconds = 4,
+                            PlaybackSpeed = 2.5,
+                            IsReversed = true,
+                            ReverseEmbeddedAudio = false,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        TimelineClipProject restored = Assert.Single(
+            Assert.Single(EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project)).VideoTracks).Clips);
+
+        Assert.Equal(2.5, restored.PlaybackSpeed);
+        Assert.True(restored.IsReversed);
+        Assert.False(restored.ReverseEmbeddedAudio);
+    }
+
+    [Fact]
     public void Serialise_RoundTripsCrossDissolveTransition()
     {
         TimelineTrackProject track = new()

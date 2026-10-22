@@ -65,6 +65,27 @@ public sealed class VideoTransitionsTests
     }
 
     [Fact]
+    public void ReverseAndSpeedTransitions_ValidateHandlesInPlaybackDirection()
+    {
+        TimelineTrackProject track = CreateAdjacentTrack();
+        TimelineClipProject outgoing = track.Clips[0];
+        TimelineClipProject incoming = track.Clips[1];
+        outgoing.PlaybackSpeed = 2;
+        outgoing.IsReversed = true;
+        outgoing.SourceInSeconds = 1;
+        outgoing.SourceOutSeconds = 6;
+        incoming.StartFrame = 61;
+        incoming.PlaybackSpeed = 2;
+        incoming.IsReversed = true;
+        incoming.SourceOutSeconds = 5;
+
+        Assert.True(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));
+
+        incoming.SourceOutSeconds = 5.9;
+        Assert.False(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));
+    }
+
+    [Fact]
     public void SplitAndCopy_KeepTransitionsOnlyWithTheOriginalIncomingClip()
     {
         TimelineTrackProject track = CreateAdjacentTrack();

@@ -27,6 +27,9 @@ public sealed class TimelineClipProject
     public double? SourceOutSeconds { get; set; }
     /// <summary>Length of the source video, or 0 while it has not been probed.</summary>
     public double SourceDurationSeconds { get; set; }
+    public double PlaybackSpeed { get; set; } = 1;
+    public bool IsReversed { get; set; }
+    public bool ReverseEmbeddedAudio { get; set; } = true;
     /// <summary>Timeline length of image and text clips.</summary>
     public double DurationSeconds { get; set; } = VideoTimelineEditing.DefaultStillDurationSeconds;
     public double Opacity { get; set; } = 1;
@@ -60,6 +63,8 @@ public static class VideoTimelineEditing
     public const double MaximumScale = 4;
     public const double MinimumFontSize = 8;
     public const double MaximumFontSize = 400;
+    public const double MinimumPlaybackSpeed = 0.25;
+    public const double MaximumPlaybackSpeed = 4;
     private const double Tolerance = 1e-6;
 
     public static IReadOnlyList<string> ImageExtensions { get; } =
@@ -88,7 +93,7 @@ public static class VideoTimelineEditing
         }
 
         double end = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
-        return Math.Max(0, end - clip.SourceInSeconds);
+        return Math.Max(0, end - clip.SourceInSeconds) / clip.PlaybackSpeed;
     }
 
     public static double GetEndSeconds(TimelineClipProject clip, TimelineTrackKind kind, double frameRate) =>
@@ -231,7 +236,15 @@ public static class VideoTimelineEditing
 
         if (track.Kind == TimelineTrackKind.Video)
         {
-            clip.SourceInSeconds += offset;
+            double sourceOffset = offset * clip.PlaybackSpeed;
+            if (clip.IsReversed)
+            {
+                clip.SourceOutSeconds = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceOffset;
+            }
+            else
+            {
+                clip.SourceInSeconds += sourceOffset;
+            }
         }
         else
         {
@@ -253,7 +266,14 @@ public static class VideoTimelineEditing
 
         if (track.Kind == TimelineTrackKind.Video)
         {
-            clip.SourceOutSeconds = clip.SourceInSeconds + offset;
+            double sourceOffset = offset * clip.PlaybackSpeed;
+            clip.SourceOutSeconds = clip.IsReversed
+                ? clip.SourceOutSeconds ?? clip.SourceDurationSeconds
+                : clip.SourceInSeconds + sourceOffset;
+            if (clip.IsReversed)
+            {
+                clip.SourceInSeconds = clip.SourceOutSeconds.Value - sourceOffset;
+            }
         }
         else
         {
@@ -280,9 +300,17 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
-            double sourceSplit = clip.SourceInSeconds + offset;
-            right.SourceInSeconds = sourceSplit;
-            clip.SourceOutSeconds = sourceSplit;
+            double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
+            if (clip.IsReversed)
+            {
+                right.SourceOutSeconds = sourceSplit;
+                clip.SourceInSeconds = sourceSplit;
+            }
+            else
+            {
+                right.SourceInSeconds = sourceSplit;
+                clip.SourceOutSeconds = sourceSplit;
+            }
         }
         else
         {
@@ -440,7 +468,61 @@ public static class VideoTimelineEditing
     }
 
     public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate) =>
-        clip.SourceInSeconds + timelineSeconds - GetStartSeconds(clip, frameRate);
+        GetSourceBoundarySeconds(clip, timelineSeconds, frameRate) -
+            (clip.IsReversed ? clip.PlaybackSpeed / frameRate : 0);
+
+    public static double GetSourceBoundarySeconds(TimelineClipProject clip, double timelineSeconds, double frameRate)
+    {
+        double elapsed = timelineSeconds - GetStartSeconds(clip, frameRate);
+        return clip.IsReversed
+            ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - elapsed * clip.PlaybackSpeed
+            : clip.SourceInSeconds + elapsed * clip.PlaybackSpeed;
+    }
+
+    public static bool TrySetPlaybackSpeed(
+        TimelineTrackProject track,
+        TimelineClipProject clip,
+        double speed,
+        double frameRate)
+    {
+        if (track.IsLocked || track.Kind != TimelineTrackKind.Video || !track.Clips.Contains(clip) ||
+            !double.IsFinite(speed) || speed is < MinimumPlaybackSpeed or > MaximumPlaybackSpeed ||
+            !double.IsFinite(frameRate) || frameRate <= 0 ||
+            !IsValidPlaybackDuration(clip, speed, frameRate) ||
+            !IsRangeFree(track, GetStartSeconds(clip, frameRate), GetPlaybackDuration(clip, speed), frameRate, clip))
+        {
+            return false;
+        }
+
+        double previousDuration = GetDurationSeconds(clip, track.Kind);
+        clip.PlaybackSpeed = speed;
+        double newDuration = GetDurationSeconds(clip, track.Kind);
+        ClampFades(clip, track.Kind);
+        if (newDuration < previousDuration - Tolerance)
+        {
+            int retainedFrames = (int)Math.Clamp(Math.Ceiling(newDuration * frameRate - Tolerance), 1, int.MaxValue);
+            VideoTransformKeyframes.TrimEnd(clip, retainedFrames);
+        }
+        VideoTransitions.ClearInvalid([track], frameRate);
+        return true;
+    }
+
+    public static bool TrySetReversed(
+        TimelineTrackProject track,
+        TimelineClipProject clip,
+        bool reversed,
+        double frameRate)
+    {
+        if (track.IsLocked || track.Kind != TimelineTrackKind.Video || !track.Clips.Contains(clip) ||
+            !double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            return false;
+        }
+
+        clip.IsReversed = reversed;
+        VideoTransitions.ClearInvalid([track], frameRate);
+        return true;
+    }
 
     /// <summary>Clip opacity at a timeline time, including fade-in and fade-out ramps.</summary>
     public static double GetOpacity(TimelineClipProject clip, TimelineTrackKind kind, double timelineSeconds, double frameRate)
@@ -591,6 +673,9 @@ public static class VideoTimelineEditing
         SourceInSeconds = clip.SourceInSeconds,
         SourceOutSeconds = clip.SourceOutSeconds,
         SourceDurationSeconds = clip.SourceDurationSeconds,
+        PlaybackSpeed = clip.PlaybackSpeed,
+        IsReversed = clip.IsReversed,
+        ReverseEmbeddedAudio = clip.ReverseEmbeddedAudio,
         DurationSeconds = clip.DurationSeconds,
         Opacity = clip.Opacity,
         Volume = clip.Volume,
@@ -641,6 +726,12 @@ public static class VideoTimelineEditing
                 if (!IsValidClip(clip, track.Kind))
                 {
                     return $"A clip on {track.Name} has invalid timing, source, or styling.";
+                }
+
+                if (track.Kind == TimelineTrackKind.Video && clip.SourceDurationSeconds > 0 &&
+                    GetDurationSeconds(clip, track.Kind) < (1 / frameRate) - Tolerance)
+                {
+                    return $"A video clip on {track.Name} must span at least one project frame.";
                 }
 
                 if (VideoTransformKeyframes.Validate(clip, track.Kind, frameRate) is string keyframeError)
@@ -696,6 +787,8 @@ public static class VideoTimelineEditing
                     IsUnit(clip.Volume) &&
                     IsFiniteNonNegative(clip.SourceInSeconds) &&
                     IsFiniteNonNegative(clip.SourceDurationSeconds) &&
+                    double.IsFinite(clip.PlaybackSpeed) &&
+                    clip.PlaybackSpeed is >= MinimumPlaybackSpeed and <= MaximumPlaybackSpeed &&
                     double.IsFinite(sourceEnd) &&
                     // An unprobed source with no out point is allowed; its length is resolved when the media opens.
                     ((clip.SourceOutSeconds is null && clip.SourceDurationSeconds == 0) || sourceEnd > clip.SourceInSeconds) &&
@@ -740,6 +833,15 @@ public static class VideoTimelineEditing
 
     private static bool IsValidStillDuration(double seconds) =>
         double.IsFinite(seconds) && seconds > 0 && seconds <= MaximumStillDurationSeconds;
+
+    private static bool IsValidPlaybackDuration(TimelineClipProject clip, double speed, double frameRate)
+    {
+        double sourceDuration = Math.Max(0, (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - clip.SourceInSeconds);
+        return sourceDuration == 0 || sourceDuration / speed >= (1 / frameRate) - Tolerance;
+    }
+
+    private static double GetPlaybackDuration(TimelineClipProject clip, double speed) =>
+        Math.Max(0, (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - clip.SourceInSeconds) / speed;
 
     private static bool IsUnit(double value) => double.IsFinite(value) && value is >= 0 and <= 1;
 

@@ -128,6 +128,59 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_ReversedVideoAtDoubleSpeedUsesTheRetimedClipDuration()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-reverse-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-reverse-output-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(source, 0xFFFF0000);
+            var project = new EditorProject
+            {
+                VideoTracks =
+                [
+                    new TimelineTrackProject
+                    {
+                        Kind = TimelineTrackKind.Video,
+                        Clips =
+                        [
+                            new TimelineClipProject
+                            {
+                                SourcePath = source,
+                                SourceOutSeconds = 1,
+                                SourceDurationSeconds = 1,
+                                PlaybackSpeed = 2,
+                                IsReversed = true,
+                            },
+                        ],
+                    },
+                ],
+            };
+
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720),
+                null,
+                CancellationToken.None);
+
+            Assert.Equal(12, result.FrameCount);
+            using var reader = new MediaFoundationVideoReader(output);
+            Assert.True(reader.TryGetFrame(0.25));
+            (byte b, byte g, byte r) = GetPixel(reader, 640, 504);
+            Assert.True(r > 150 && g < 100 && b < 100, $"Expected red video, got {r},{g},{b}.");
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Export_InterpolatesVideoTransformKeyframes()
     {
         if (!HasH264Encoder)

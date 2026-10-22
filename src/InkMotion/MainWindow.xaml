@@ -420,6 +420,10 @@
                             </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <NumberBox x:Name="ClipPlaybackSpeedBox" Header="Playback speed (0.25x–4x)" Minimum="0.25" Maximum="4" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipPlaybackSpeed_Changed" />
+                            <CheckBox x:Name="ClipReverseVideoCheck" Content="Reverse video" Click="ClipPlaybackOption_Click" />
+                            <CheckBox x:Name="ClipReverseAudioCheck" Content="Reverse embedded audio (when reversed)" Click="ClipPlaybackOption_Click" />
+                            <TextBlock x:Name="ClipPlaybackHintText" Text="Reverse audio is included in exports when enabled; embedded audio is muted during reverse preview." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />

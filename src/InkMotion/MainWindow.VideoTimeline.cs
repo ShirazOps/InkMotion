@@ -358,19 +358,23 @@ public sealed partial class MainWindow
 
         TimelineClipProject clip = active.Clip;
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
-        _previewMediaPlayer.IsMuted = !IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio);
+        _previewMediaPlayer.IsMuted = clip.IsReversed ||
+            (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
+        _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
         PreviewPlayer.Opacity = IsOriginalPreview || transitionActive
             ? 1
             : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
-        double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
+        double tolerance = forceSeek || !_isPlaying
+            ? 0.001
+            : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
         if (Math.Abs(session.Position.TotalSeconds - sourceSeconds) > tolerance)
         {
             session.Position = TimeSpan.FromSeconds(sourceSeconds);
         }
 
-        if (_isPlaying)
+        if (_isPlaying && !clip.IsReversed)
         {
             if (session.PlaybackState is MediaPlaybackState.Paused or MediaPlaybackState.None)
             {
@@ -420,16 +424,19 @@ public sealed partial class MainWindow
 
         _transitionPreviewMediaPlayer.Volume = 0;
         _transitionPreviewMediaPlayer.IsMuted = true;
+        _transitionPreviewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
         TransitionPreviewPlayer.Opacity = Math.Clamp(weight, 0, 1);
         MediaPlaybackSession session = _transitionPreviewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
-        double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
+        double tolerance = forceSeek || !_isPlaying
+            ? 0.001
+            : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
         if (Math.Abs(session.Position.TotalSeconds - sourceSeconds) > tolerance)
         {
             session.Position = TimeSpan.FromSeconds(sourceSeconds);
         }
 
-        if (_isPlaying)
+        if (_isPlaying && !clip.IsReversed)
         {
             if (session.PlaybackState is MediaPlaybackState.Paused or MediaPlaybackState.None)
             {
@@ -911,6 +918,9 @@ public sealed partial class MainWindow
         destination.StartFrame = source.StartFrame;
         destination.SourceInSeconds = source.SourceInSeconds;
         destination.SourceOutSeconds = source.SourceOutSeconds;
+        destination.PlaybackSpeed = source.PlaybackSpeed;
+        destination.IsReversed = source.IsReversed;
+        destination.ReverseEmbeddedAudio = source.ReverseEmbeddedAudio;
         destination.DurationSeconds = source.DurationSeconds;
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
@@ -1800,6 +1810,10 @@ public sealed partial class MainWindow
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
             : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipReverseAudioCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipPlaybackHintText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipDurationBox.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
@@ -1811,6 +1825,10 @@ public sealed partial class MainWindow
 
         ClipOpacitySlider.Value = clip.Opacity;
         ClipVolumeSlider.Value = clip.Volume;
+        ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
+        ClipReverseVideoCheck.IsChecked = clip.IsReversed;
+        ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
+        ClipReverseAudioCheck.IsEnabled = isVideo && clip.IsReversed && !location.Track.IsLocked;
         ClipFadeInBox.Value = clip.FadeInSeconds;
         ClipFadeOutBox.Value = clip.FadeOutSeconds;
         ClipDurationBox.Value = clip.DurationSeconds;
@@ -2142,6 +2160,65 @@ public sealed partial class MainWindow
         else if (sender == ClipFontSizeBox)
         {
             clip.FontSize = Math.Clamp(value, VideoTimelineEditing.MinimumFontSize, VideoTimelineEditing.MaximumFontSize);
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
+    private void ClipPlaybackSpeed_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            !double.IsFinite(args.NewValue) || Math.Abs(args.NewValue - selected.Clip.PlaybackSpeed) < 1e-9 ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (!VideoTimelineEditing.TrySetPlaybackSpeed(location.Track, location.Clip, args.NewValue, _frameRate))
+        {
+            CommitEdit();
+            UpdateVideoInspector();
+            StatusText.Text = "That playback speed would overlap another clip on this track.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
+    private void ClipPlaybackOption_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(sender, ClipReverseVideoCheck))
+        {
+            bool reversed = ClipReverseVideoCheck.IsChecked == true;
+            if (!VideoTimelineEditing.TrySetReversed(location.Track, location.Clip, reversed, _frameRate))
+            {
+                CommitEdit();
+                UpdateVideoInspector();
+                return;
+            }
+        }
+        else if (ReferenceEquals(sender, ClipReverseAudioCheck))
+        {
+            location.Clip.ReverseEmbeddedAudio = ClipReverseAudioCheck.IsChecked == true;
+        }
+        else
+        {
+            CommitEdit();
+            return;
         }
 
         ApplyClipPreview();

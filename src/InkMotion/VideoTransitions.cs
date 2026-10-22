@@ -182,9 +182,16 @@ public static class VideoTransitions
             return false;
         }
 
+        double incomingEnd = incoming.SourceOutSeconds ?? incoming.SourceDurationSeconds;
         double outgoingEnd = outgoing.SourceOutSeconds ?? outgoing.SourceDurationSeconds;
-        return incoming.SourceInSeconds + Tolerance >= durationSeconds / 2 &&
-            outgoing.SourceDurationSeconds - outgoingEnd + Tolerance >= durationSeconds / 2 &&
+        double incomingHandle = incoming.IsReversed
+            ? incoming.SourceDurationSeconds - incomingEnd
+            : incoming.SourceInSeconds;
+        double outgoingHandle = outgoing.IsReversed
+            ? outgoing.SourceInSeconds
+            : outgoing.SourceDurationSeconds - outgoingEnd;
+        return incomingHandle + Tolerance >= durationSeconds / 2 * incoming.PlaybackSpeed &&
+            outgoingHandle + Tolerance >= durationSeconds / 2 * outgoing.PlaybackSpeed &&
             Math.Abs(
                 VideoTimelineEditing.GetEndSeconds(outgoing, TimelineTrackKind.Video, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(incoming, frameRate)) <= Tolerance;

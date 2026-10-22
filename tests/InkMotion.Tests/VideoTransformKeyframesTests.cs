@@ -66,6 +66,24 @@ public sealed class VideoTransformKeyframesTests
     }
 
     [Fact]
+    public void FasterPlayback_TrimsTransformKeysToTheNewClipEnd()
+    {
+        TimelineClipProject clip = CreateVideoClip();
+        clip.SourceOutSeconds = 4;
+        clip.TransformKeyframes =
+        [
+            new() { FrameOffset = 0, X = 0.2, Y = 0.5, Scale = 1 },
+            new() { FrameOffset = 95, X = 0.8, Y = 0.5, Scale = 2 },
+        ];
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.True(VideoTimelineEditing.TrySetPlaybackSpeed(track, clip, 2, 24));
+
+        Assert.Equal(new[] { 0, 47 }, clip.TransformKeyframes.Select(key => key.FrameOffset));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+    }
+
+    [Fact]
     public void Validate_RejectsDuplicateOutOfRangeAndInvalidTransformKeys()
     {
         TimelineTrackProject track = new()

@@ -39,7 +39,11 @@ public static class VideoClipJoining
         double rightDuration = VideoTimelineEditing.GetDurationSeconds(right, track.Kind);
         if (left.SourceDurationSeconds <= 0 || right.SourceDurationSeconds <= 0 ||
             left.SourceDurationSeconds != right.SourceDurationSeconds ||
-            Math.Abs(leftEnd - right.SourceInSeconds) > 1e-7 ||
+            left.PlaybackSpeed != right.PlaybackSpeed || left.IsReversed != right.IsReversed ||
+            left.ReverseEmbeddedAudio != right.ReverseEmbeddedAudio ||
+            (left.IsReversed
+                ? Math.Abs(left.SourceInSeconds - rightEnd) > 1e-7
+                : Math.Abs(leftEnd - right.SourceInSeconds) > 1e-7) ||
             Math.Abs(VideoTimelineEditing.GetEndSeconds(left, track.Kind, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(right, frameRate)) > 1e-7)
         {
@@ -67,7 +71,14 @@ public static class VideoClipJoining
         }
 
         TimelineClipProject joined = VideoTimelineEditing.Clone(left);
-        joined.SourceOutSeconds = rightEnd;
+        if (left.IsReversed)
+        {
+            joined.SourceInSeconds = right.SourceInSeconds;
+        }
+        else
+        {
+            joined.SourceOutSeconds = rightEnd;
+        }
         joined.FadeOutSeconds = right.FadeOutSeconds;
         return joined;
     }

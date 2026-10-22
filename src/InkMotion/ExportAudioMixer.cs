@@ -135,7 +135,8 @@ public sealed class ExportAudioMixer : IDisposable
 
     private void AddVideoClipAudio(TimelineClipProject clip)
     {
-        if (string.IsNullOrWhiteSpace(clip.SourcePath) || clip.Volume <= 0)
+        if (string.IsNullOrWhiteSpace(clip.SourcePath) || clip.Volume <= 0 ||
+            (clip.IsReversed && !clip.ReverseEmbeddedAudio))
         {
             return;
         }
@@ -162,9 +163,25 @@ public sealed class ExportAudioMixer : IDisposable
         }
 
         _readers.Add(reader);
-        reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(clip.SourceInSeconds, reader.TotalTime.TotalSeconds));
+        ISampleProvider source = reader.ToSampleProvider();
+        if (clip.IsReversed)
+        {
+            double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+            source = new ReverseSampleProvider(
+                source,
+                seconds => reader.CurrentTime = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, reader.TotalTime.TotalSeconds)),
+                clip.SourceInSeconds,
+                Math.Min(sourceEnd, reader.TotalTime.TotalSeconds));
+        }
+        else
+        {
+            reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(clip.SourceInSeconds, reader.TotalTime.TotalSeconds));
+        }
+
+        source = new PlaybackSpeedSampleProvider(source, clip.PlaybackSpeed);
+
         var envelope = new GainEnvelopeSampleProvider(
-            reader.ToSampleProvider(),
+            source,
             elapsed => ExportPlanning.GetVideoClipAudioGain(clip, elapsed));
         AddSource(envelope, VideoTimelineEditing.GetStartSeconds(clip, _frameRate), duration);
     }

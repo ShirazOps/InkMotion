@@ -20,6 +20,89 @@ public sealed class VideoTimelineEditingTests
     }
 
     [Fact]
+    public void PlaybackSpeedAndReverse_MapSourceTimeAndTimelineDuration()
+    {
+        var clip = new TimelineClipProject
+        {
+            SourcePath = "a.mp4",
+            SourceInSeconds = 2,
+            SourceOutSeconds = 10,
+            SourceDurationSeconds = 12,
+            StartFrame = 25,
+            PlaybackSpeed = 2,
+        };
+
+        Assert.Equal(4, VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video));
+        Assert.Equal(3, VideoTimelineEditing.GetSourceSeconds(clip, 1.5, Fps), 6);
+
+        clip.IsReversed = true;
+
+        Assert.Equal(8.916667, VideoTimelineEditing.GetSourceSeconds(clip, 1.5, Fps), 5);
+        Assert.Equal(4, VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video));
+    }
+
+    [Fact]
+    public void ReverseSplitAndTrims_KeepSourceRangesInTimelineOrder()
+    {
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Name = "Video 1" };
+        var clip = new TimelineClipProject
+        {
+            SourcePath = "a.mp4",
+            SourceInSeconds = 2,
+            SourceOutSeconds = 10,
+            SourceDurationSeconds = 12,
+            PlaybackSpeed = 2,
+            IsReversed = true,
+        };
+        track.Clips.Add(clip);
+
+        TimelineClipProject? right = VideoTimelineEditing.Split(track, clip, 49, Fps);
+
+        Assert.NotNull(right);
+        Assert.Equal((6d, 10d), (clip.SourceInSeconds, clip.SourceOutSeconds));
+        Assert.Equal((2d, 6d), (right.SourceInSeconds, right.SourceOutSeconds));
+        Assert.Equal(2, VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video));
+        Assert.Equal(2, VideoTimelineEditing.GetDurationSeconds(right, TimelineTrackKind.Video));
+
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 73, Fps));
+        Assert.Equal(4d, right.SourceOutSeconds);
+        Assert.True(VideoTimelineEditing.TryTrimEnd(track, clip, 25, Fps));
+        Assert.Equal(8d, clip.SourceInSeconds);
+    }
+
+    [Fact]
+    public void SetPlaybackSpeed_RejectsOverlapWithoutChangingClip()
+    {
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Name = "Video 1" };
+        var first = new TimelineClipProject { SourcePath = "a.mp4", SourceDurationSeconds = 8 };
+        var second = new TimelineClipProject { SourcePath = "b.mp4", SourceDurationSeconds = 3, StartFrame = 121 };
+        track.Clips.AddRange([first, second]);
+
+        Assert.False(VideoTimelineEditing.TrySetPlaybackSpeed(track, first, 0.5, Fps));
+        Assert.Equal(1, first.PlaybackSpeed);
+        Assert.True(VideoTimelineEditing.TrySetPlaybackSpeed(track, first, 2, Fps));
+        Assert.Equal(2, first.PlaybackSpeed);
+    }
+
+    [Fact]
+    public void SetPlaybackSpeed_RejectsDurationsShorterThanOneFrame()
+    {
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Name = "Video 1" };
+        var clip = new TimelineClipProject
+        {
+            SourcePath = "a.mp4",
+            SourceOutSeconds = 0.1,
+            SourceDurationSeconds = 1,
+        };
+        track.Clips.Add(clip);
+
+        Assert.False(VideoTimelineEditing.TrySetPlaybackSpeed(track, clip, 4, Fps));
+        Assert.Equal(1, clip.PlaybackSpeed);
+        clip.PlaybackSpeed = 4;
+        Assert.NotNull(VideoTimelineEditing.Validate([track], Fps));
+    }
+
+    [Fact]
     public void TrimStart_AdvancesSourceInAndStartFrame()
     {
         (TimelineTrackProject track, TimelineClipProject clip) = VideoTrack(sourceIn: 1, duration: 10);

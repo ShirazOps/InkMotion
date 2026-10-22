@@ -44,6 +44,109 @@ public sealed class VideoClipJoiningTests
         }
     }
 
+    [Fact]
+    public void EmbeddedVideoAudio_UsesClipSpeedAndReverseAudioChoice()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-video-speed-{Guid.NewGuid():N}.wav");
+        try
+        {
+            using (var writer = new WaveFileWriter(path, new WaveFormat(48000, 16, 1)))
+            {
+                for (int sample = 0; sample < 48000; sample++)
+                {
+                    writer.WriteSample((float)(0.2 * sample / 48000));
+                }
+            }
+
+            var clip = new TimelineClipProject
+            {
+                SourcePath = path,
+                SourceOutSeconds = 1,
+                SourceDurationSeconds = 1,
+                PlaybackSpeed = 2,
+                IsReversed = true,
+            };
+            var project = new EditorProject
+            {
+                VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+            };
+            using (var reader = new MediaFoundationReader(path))
+            {
+                var reverse = new ReverseSampleProvider(
+                    reader.ToSampleProvider(),
+                    seconds => reader.CurrentTime = TimeSpan.FromSeconds(seconds),
+                    0,
+                    1);
+                float[] initial = new float[8192];
+                int read = reverse.Read(initial, 0, initial.Length);
+                Assert.True(initial[0] > initial[read - 1], $"Expected reader-backed reversal, got {initial[0]} then {initial[read - 1]}.");
+            }
+
+            using (var mixer = new ExportAudioMixer(project, 48000))
+            {
+                Assert.Equal(0.5, mixer.DurationSeconds, 6);
+                float[] samples = new float[24000 * mixer.Channels];
+                int read = mixer.Read(samples, 0, samples.Length);
+                Assert.Equal(samples.Length, read);
+                Assert.True(samples[0] > samples[^1], $"Expected reversed audio to descend, got {samples[0]} then {samples[^1]}.");
+            }
+
+            clip.IsReversed = false;
+            using (var spedMixer = new ExportAudioMixer(project, 48000))
+            {
+                Assert.Equal(0.5, spedMixer.DurationSeconds, 6);
+                float[] samples = new float[24000 * spedMixer.Channels];
+                int read = spedMixer.Read(samples, 0, samples.Length);
+                Assert.Equal(samples.Length, read);
+                Assert.True(samples[0] < samples[^1], $"Expected forward audio to ascend, got {samples[0]} then {samples[^1]}.");
+            }
+
+            clip.IsReversed = true;
+            clip.ReverseEmbeddedAudio = false;
+            using var mutedMixer = new ExportAudioMixer(project, 48000);
+            Assert.Equal(0, mutedMixer.SourceCount);
+            Assert.Equal(0, mutedMixer.DurationSeconds);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Join_ReversedSplitPreservesSpeedAndSourceMapping()
+    {
+        var original = new TimelineClipProject
+        {
+            SourcePath = @"C:\Media\source.mp4",
+            StartFrame = 25,
+            SourceInSeconds = 2,
+            SourceOutSeconds = 6,
+            SourceDurationSeconds = 10,
+            PlaybackSpeed = 2,
+            IsReversed = true,
+        };
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [original] };
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, original, 49, 24));
+        TimelineClipProject joined = VideoClipJoining.Join(track, original, right, 24);
+
+        Assert.Equal(2, joined.PlaybackSpeed);
+        Assert.True(joined.IsReversed);
+        Assert.Equal(2, joined.SourceInSeconds);
+        Assert.Equal(6, joined.SourceOutSeconds);
+        for (int frame = 25; frame < 121; frame++)
+        {
+            double seconds = VideoTimelineEditing.FrameToSeconds(frame, 24);
+            TimelineClipProject part = seconds < VideoTimelineEditing.GetStartSeconds(right, 24) ? original : right;
+            Assert.Equal(
+                VideoTimelineEditing.GetSourceSeconds(part, seconds, 24),
+                VideoTimelineEditing.GetSourceSeconds(joined, seconds, 24),
+                8);
+        }
+    }
+
     private static float[] ReadMix(EditorProject project)
     {
         using var mixer = new ExportAudioMixer(project, 48000);
