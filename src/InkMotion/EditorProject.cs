@@ -5,7 +5,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 18;
+    public const int CurrentVersion = 19;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -36,6 +36,7 @@ public sealed class InkLayerProject
 public sealed class AudioTrackProject
 {
     public string? AudioPath { get; set; }
+    public string? LinkedVideoClipId { get; set; }
     public int StartFrame { get; set; } = 1;
     public double Volume { get; set; } = 1;
     public bool Muted { get; set; }
@@ -302,6 +303,10 @@ public static class EditorProjectSerialiser
             project.Version = 17;
         }
         if (project.Version == 17)
+        {
+            project.Version = 18;
+        }
+        if (project.Version == 18)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -711,6 +716,11 @@ internal static class EditorProjectValidation
         if (VideoTimelineEditing.Validate(project.VideoTracks, project.FrameRate) is string timelineError)
         {
             throw new InvalidDataException(timelineError);
+        }
+
+        if (LinkedAudioVideoEditing.Validate(project.VideoTracks, project.AudioTracks) is string linkError)
+        {
+            throw new InvalidDataException(linkError);
         }
 
         if (project.InkLayers is null || project.InkLayers.Count == 0 ||

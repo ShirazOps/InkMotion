@@ -38,6 +38,16 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionEighteenProject_MigratesWithoutAudioVideoLinks()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":18,"AudioTracks":[{"AudioPath":"C:\\Media\\music.wav"}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Null(Assert.Single(restored.AudioTracks).LinkedVideoClipId);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesVideoFramesInkAndKeyframes()
     {
         var original = new EditorProject
@@ -478,6 +488,45 @@ public sealed class EditorProjectSerialiserTests
         Assert.Equal(125, track.TempoPercent);
         Assert.Equal(-3.5, track.PitchSemitones);
         Assert.Equal(AudioChannelLayout.Surround121, restored.AudioMixLayout);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsLinkedAudioVideoClip()
+    {
+        var project = new EditorProject
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips =
+                    [
+                        new TimelineClipProject
+                        {
+                            Id = "video-clip",
+                            SourcePath = @"C:\Media\scene.mp4",
+                            SourceDurationSeconds = 10,
+                            SourceOutSeconds = 4,
+                        },
+                    ],
+                },
+            ],
+            AudioTracks =
+            [
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\dialog.wav",
+                    LinkedVideoClipId = "video-clip",
+                    StartFrame = 12,
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+
+        Assert.Equal("video-clip", Assert.Single(restored.AudioTracks).LinkedVideoClipId);
+        Assert.Equal(12, Assert.Single(restored.AudioTracks).StartFrame);
     }
 
     [Fact]

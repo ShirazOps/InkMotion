@@ -207,6 +207,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         BeginEdit();
         AudioTrackProject copy = AudioClipEditing.Clone(source);
+        copy.LinkedVideoClipId = null;
         copy.StartFrame = startFrame;
         var runtime = new AudioTrackRuntime(copy) { WaveformPeaks = peaks };
         OpenAudioPlayer(runtime);
@@ -220,6 +221,71 @@ public sealed partial class MainWindow
         StatusText.Text = runtime.LoadError is null
             ? "Audio clip copy placed on a new track."
             : $"Audio clip copy placed, but its source could not be loaded: {runtime.LoadError}";
+    }
+
+    private void UpdateAudioVideoLinkControls()
+    {
+        bool hasAudio = TryGetSelectedAudioClip(out AudioTrackRuntime? audio);
+        TimelineClipLocation? video = SelectedTimelineClip;
+        bool canLink = hasAudio &&
+            video is { Track.Kind: TimelineTrackKind.Video } &&
+            audio!.Project.LinkedVideoClipId is null &&
+            !_audioTracks.Any(track => track.Project.LinkedVideoClipId == video.Clip.Id);
+        LinkAudioVideoButton.IsEnabled = canLink;
+        UnlinkAudioVideoButton.IsEnabled = hasAudio && audio!.Project.LinkedVideoClipId is not null;
+    }
+
+    private void LinkSelectedAudioVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } video ||
+            !TryGetSelectedAudioClip(out AudioTrackRuntime? audio))
+        {
+            StatusText.Text = "Select one video clip and one available audio clip to link.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        bool linked = LinkedAudioVideoEditing.TryLink(
+            video.Track,
+            video.Clip,
+            audio.Project,
+            _audioTracks.Select(track => track.Project));
+        if (linked)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        UpdateSelectedAudioTrack();
+        UpdateVideoInspector();
+        StatusText.Text = linked
+            ? "Audio and video linked. Moving either clip moves both; their current timing offset is preserved."
+            : "Could not link these clips. Each video clip can have one linked audio clip.";
+    }
+
+    private void UnlinkSelectedAudioVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedAudioClip(out AudioTrackRuntime? audio))
+        {
+            StatusText.Text = "Select a linked audio clip to unlink.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        bool unlinked = LinkedAudioVideoEditing.TryUnlink(audio.Project);
+        if (unlinked)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        UpdateSelectedAudioTrack();
+        UpdateVideoInspector();
+        StatusText.Text = unlinked ? "Audio and video unlinked." : "The selected audio clip is not linked.";
     }
 
     private void DeleteAudioClip_Click(object sender, RoutedEventArgs e)

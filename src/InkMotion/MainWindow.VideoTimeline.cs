@@ -998,24 +998,29 @@ public sealed partial class MainWindow
         bool moved = false;
         if (!ReferenceEquals(target, drag.Track))
         {
-            int previousStart = drag.Clip.StartFrame;
-            drag.Clip.StartFrame = startFrame;
-            moved = VideoTimelineEditing.TryMoveToTrack(drag.Track, target, drag.Clip, _frameRate);
+            moved = LinkedAudioVideoEditing.TryMoveVideoToTrack(
+                drag.Track,
+                target,
+                drag.Clip,
+                startFrame,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate);
             if (moved)
             {
                 drag.Track = target;
                 _selectedTimelineTrackId = target.Id;
                 RefreshVideoTrackHeaders();
             }
-            else
-            {
-                drag.Clip.StartFrame = previousStart;
-            }
         }
 
         if (!moved)
         {
-            moved = VideoTimelineEditing.TryMove(drag.Track, drag.Clip, startFrame, _frameRate);
+            moved = LinkedAudioVideoEditing.TryMoveVideo(
+                drag.Track,
+                drag.Clip,
+                startFrame,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate);
         }
 
         drag.Blocked = !moved;
@@ -1057,6 +1062,12 @@ public sealed partial class MainWindow
         if (drag.Moved)
         {
             SeekToCurrentFrame();
+            if (_audioTracks.Any(audio => audio.Project.LinkedVideoClipId == drag.Clip.Id))
+            {
+                RefreshAudioTracks();
+                UpdateSelectedAudioTrack();
+            }
+
             CompositionSurface.Invalidate();
             UpdateVideoInspector();
         }
@@ -1486,10 +1497,20 @@ public sealed partial class MainWindow
             : "The replacement source is unavailable or shorter than the clip's source range.";
     }
 
-    private void MoveClipToPlayhead_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.TryMove(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
-        "Moved the clip to the playhead.",
-        "The clip would overlap another clip at the playhead.");
+    private void MoveClipToPlayhead_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyClipAction(
+            location => LinkedAudioVideoEditing.TryMoveVideo(
+                location.Track,
+                location.Clip,
+                PlayheadFrameNumber,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate),
+            "Moved the clip and any linked audio to the playhead.",
+            "The clip would overlap another clip at the playhead.");
+        RefreshAudioTracks();
+        UpdateSelectedAudioTrack();
+    }
 
     private void CloseGapBeforeClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoEditTools.CloseGapBefore(location.Track, location.Clip, _frameRate),
@@ -1517,6 +1538,7 @@ public sealed partial class MainWindow
         _isRestoringProject = true;
         TimelineTrackProject? track = SelectedTimelineTrack;
         int trackIndex = track is null ? -1 : _videoTracks.IndexOf(track);
+        UpdateAudioVideoLinkControls();
         if (TimelineTrackNameBox.FocusState == FocusState.Unfocused)
         {
             TimelineTrackNameBox.Text = track?.Name ?? string.Empty;

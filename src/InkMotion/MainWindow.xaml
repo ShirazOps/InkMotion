@@ -120,6 +120,8 @@
                     </UserControl>
                     <Button Content="Copy clip" Click="CopyVideoClip_Click" />
                     <Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" />
+                    <Button x:Name="LinkAudioVideoButton" Content="Link selected audio" Click="LinkSelectedAudioVideo_Click" IsEnabled="False" />
+                    <Button x:Name="UnlinkAudioVideoButton" Content="Unlink selected audio" Click="UnlinkSelectedAudioVideo_Click" IsEnabled="False" />
                     <TextBlock Text="Clip and track tools in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
                 </StackPanel>
                 <StackPanel x:Name="AudioActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">

@@ -13,6 +13,7 @@ public sealed class AudioClipEditingTests
         var track = new AudioTrackProject
         {
             AudioPath = @"C:\Media\voice.wav",
+            LinkedVideoClipId = "clip-1",
             StartFrame = 1,
             FadeInSeconds = 0.5,
             FadeOutSeconds = 1,
@@ -35,6 +36,8 @@ public sealed class AudioClipEditingTests
         Assert.Equal(2, right.GainDecibels);
         Assert.Equal("Voice", right.Title);
         Assert.Equal(track.AudioPath, right.AudioPath);
+        Assert.Equal("clip-1", track.LinkedVideoClipId);
+        Assert.Null(right.LinkedVideoClipId);
     }
 
     [Theory]
