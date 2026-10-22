@@ -301,8 +301,16 @@
                         </StackPanel>
                         <TextBlock x:Name="SourceMonitorMarksText" Text="In: not set   Out: not set"
                                    Style="{StaticResource LabelTextStyle}" />
-                        <Button x:Name="AddMarkedVideoClipButton" Content="Add marked range at playhead"
+                        <Button x:Name="AddMarkedVideoClipButton" Content="Add marked range on a free track"
                                 Click="AddMarkedVideoClip_Click" IsEnabled="False" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="InsertMarkedVideoClipButton" Content="Insert on selected video track"
+                                    Click="InsertMarkedVideoClip_Click" IsEnabled="False"
+                                    ToolTipService.ToolTip="Insert the marked source range and shift later clips on the selected video track" />
+                            <Button x:Name="OverwriteMarkedVideoClipButton" Content="Overwrite on selected video track"
+                                    Click="OverwriteMarkedVideoClip_Click" IsEnabled="False"
+                                    ToolTipService.ToolTip="Replace the marked-duration interval on the selected video track without shifting downstream clips" />
+                        </StackPanel>
                         <TextBlock x:Name="SourceMonitorStatus" Text="Load a video, preview it, then mark its source range."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Mark In and Out from the source player's current position; the marked range becomes a new video clip at the timeline playhead. Marks are not project data and remain available for another insert until cleared or a new source is loaded. The original source file is not changed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

@@ -95,31 +95,94 @@ public sealed partial class MainWindow
 
     private void AddMarkedVideoClip_Click(object sender, RoutedEventArgs e)
     {
-        if (_sourceMonitorFile is null ||
-            !VideoSourceRangeMarks.TryCreateClip(
-                _sourceMonitorFile.Path, _sourceMonitorDurationSeconds, PlayheadFrameNumber, _frameRate,
-                _sourceMonitorInSeconds ?? double.NaN, _sourceMonitorOutSeconds ?? double.NaN, out TimelineClipProject? clip) ||
-            clip is null)
+        if (!TryGetMarkedVideoClip(out TimelineClipProject? clip) || clip is null ||
+            _sourceMonitorFile is not StorageFile sourceFile)
         {
-            SourceMonitorStatus.Text = "Set valid In and Out marks at least one project frame apart and within the source duration.";
             return;
         }
 
-        RegisterTimelineSource(_sourceMonitorFile);
+        RegisterTimelineSource(sourceFile);
         AddTimelineClip(TimelineTrackKind.Video, clip,
             $"Added marked range · {Path.GetFileName(_sourceMonitorFile.Path)} · " +
             $"{FormatSeconds(clip.SourceInSeconds)}–{FormatSeconds(clip.SourceOutSeconds!.Value)}");
     }
 
+    private void InsertMarkedVideoClip_Click(object sender, RoutedEventArgs e) =>
+        PlaceMarkedVideoClip(VideoClipPlacementMode.Insert);
+
+    private void OverwriteMarkedVideoClip_Click(object sender, RoutedEventArgs e) =>
+        PlaceMarkedVideoClip(VideoClipPlacementMode.Overwrite);
+
+    private void PlaceMarkedVideoClip(VideoClipPlacementMode mode)
+    {
+        if (!TryGetMarkedVideoClip(out TimelineClipProject? clip) || clip is null ||
+            _sourceMonitorFile is not StorageFile sourceFile)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        TimelineTrackProject? target = SelectedTimelineTrack is { Kind: TimelineTrackKind.Video } selectedVideo
+            ? selectedVideo
+            : _videoTracks.FirstOrDefault(track => track.Kind == TimelineTrackKind.Video && !track.IsLocked);
+        if (target is null)
+        {
+            SourceMonitorStatus.Text = "Add an unlocked video track before inserting or overwriting.";
+            return;
+        }
+
+        BeginEdit();
+        bool placed = VideoTimelinePlacement.TryPlace(target, clip, PlayheadFrameNumber, _frameRate, mode);
+        if (!placed)
+        {
+            CommitEdit();
+            SourceMonitorStatus.Text =
+                $"Could not {mode.ToString().ToLowerInvariant()} this marked range. Check the selected video track, source ranges and clip boundaries.";
+            return;
+        }
+
+        RegisterTimelineSource(sourceFile);
+        MarkEditChanged();
+        CommitEdit();
+        _selectedTimelineTrackId = target.Id;
+        _selectedTimelineClipId = clip.Id;
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        SourceMonitorStatus.Text = mode == VideoClipPlacementMode.Insert
+            ? $"Inserted marked range at frame {PlayheadFrameNumber}; later clips on {target.Name} were shifted. Undo restores the previous edit."
+            : $"Overwrote the marked range at frame {PlayheadFrameNumber} on {target.Name}. Unaffected source portions and downstream positions were preserved.";
+    }
+
+    private bool TryGetMarkedVideoClip(out TimelineClipProject? clip)
+    {
+        clip = null;
+        if (_sourceMonitorFile is not null &&
+            VideoSourceRangeMarks.TryCreateClip(
+                _sourceMonitorFile.Path, _sourceMonitorDurationSeconds, PlayheadFrameNumber, _frameRate,
+                _sourceMonitorInSeconds ?? double.NaN, _sourceMonitorOutSeconds ?? double.NaN, out clip) &&
+            clip is not null)
+        {
+            return true;
+        }
+
+        clip = null;
+        SourceMonitorStatus.Text = "Set valid In and Out marks at least one project frame apart and within the source duration.";
+        return false;
+    }
+
     private void UpdateSourceMonitorControls()
     {
         bool loaded = _sourceMonitorFile is not null;
+        bool validRange = loaded && VideoSourceRangeMarks.TryCreateClip(
+            _sourceMonitorFile!.Path, _sourceMonitorDurationSeconds, PlayheadFrameNumber, _frameRate,
+            _sourceMonitorInSeconds ?? double.NaN, _sourceMonitorOutSeconds ?? double.NaN, out _);
         SourceMonitorMarkInButton.IsEnabled = loaded;
         SourceMonitorMarkOutButton.IsEnabled = loaded;
         ClearSourceMonitorMarksButton.IsEnabled = _sourceMonitorInSeconds is not null || _sourceMonitorOutSeconds is not null;
-        AddMarkedVideoClipButton.IsEnabled = loaded && VideoSourceRangeMarks.TryCreateClip(
-            _sourceMonitorFile!.Path, _sourceMonitorDurationSeconds, PlayheadFrameNumber, _frameRate,
-            _sourceMonitorInSeconds ?? double.NaN, _sourceMonitorOutSeconds ?? double.NaN, out _);
+        AddMarkedVideoClipButton.IsEnabled = validRange;
+        InsertMarkedVideoClipButton.IsEnabled = validRange;
+        OverwriteMarkedVideoClipButton.IsEnabled = validRange;
         SourceMonitorMarksText.Text =
             $"In: {FormatMark(_sourceMonitorInSeconds)}   Out: {FormatMark(_sourceMonitorOutSeconds)}";
     }
