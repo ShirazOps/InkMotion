@@ -1114,6 +1114,12 @@
                         <NumberBox x:Name="ExposureFramesBox" Minimum="1" Maximum="999" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExposureFrames_Changed" LostFocus="ExposureFrames_LostFocus" />
                         <TextBlock Text="Output frames to hold this cel." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
                         <TextBlock Text="CEL RANGE / CYCLE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="InkCelGroupSelector" Header="Named cel groups" />
+                        <Button Content="Use selected group's range" Click="SelectInkCelGroup_Click" />
+                        <TextBox x:Name="InkCelGroupNameBox" Header="Group name for first/last cel range" MaxLength="80" />
+                        <Button Content="Group / rename cel range" Click="AssignInkCelGroup_Click" />
+                        <Button Content="Ungroup cel range" Tag="clear" Click="AssignInkCelGroup_Click" />
+                        <TextBlock Text="Groups label adjacent cels with the same name; separated runs appear independently. Use a group to load the first/last range and jump to its start. Grouping is saved and undoable without changing drawings, timing or keyframes. Copies retain labels but remain independent drawings; adjacent same-name copies join one labelled run. Range editing still needs keyframe boundaries. No nested/collapsed groups or shared linked drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <NumberBox x:Name="InkCycleFirstBox" Header="First cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <NumberBox x:Name="InkCycleLastBox" Header="Last cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <Button Content="Copy cel range" Tag="copy" Click="InkCelRangeAction_Click" />

@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 39;
+    public const int CurrentVersion = 40;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -67,6 +67,7 @@ public sealed class AudioTrackProject
 public sealed class EditorFrame
 {
     public int Number { get; set; } = 1;
+    public string GroupName { get; set; } = "";
     public int ExposureFrames { get; set; } = 1;
     public bool IsKeyframe { get; set; }
     public InkInterpolationMode InterpolationMode { get; set; } = InkInterpolationMode.Linear;
@@ -413,6 +414,10 @@ public static class EditorProjectSerialiser
             project.Version = 38;
         }
         if (project.Version == 38)
+        {
+            project.Version = 39;
+        }
+        if (project.Version == 39)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -961,6 +966,8 @@ internal static class EditorProjectValidation
         foreach (EditorFrame? frame in project.Frames)
         {
             if (frame is null ||
+                frame.GroupName is null || frame.GroupName.Length > 80 ||
+                frame.GroupName != frame.GroupName.Trim() || frame.GroupName.Any(char.IsControl) ||
                 frame.Number != expectedFrameNumber++ ||
                 frame.ExposureFrames is < 1 or > 999 ||
                 !Enum.IsDefined(frame.InterpolationMode) ||

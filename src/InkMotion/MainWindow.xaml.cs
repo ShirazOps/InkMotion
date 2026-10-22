@@ -2566,6 +2566,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshTimeline()
     {
+        RefreshInkCelGroups();
         _interpolatedFrameIndices.Clear();
         _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(
             _frames,
@@ -2616,7 +2617,10 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(
             button,
             $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
-            $"exposed for {frame.ExposureFrames} output frame(s)");
+            $"exposed for {frame.ExposureFrames} output frame(s)" +
+            (frame.GroupName.Length == 0 ? "" : $"; group: {frame.GroupName}"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,
+            $"Cel {frame.Number}" + (frame.GroupName.Length == 0 ? "" : $", group {frame.GroupName}"));
         bool isSelected = index == _selectedFrameIndex;
         button.Background = (Brush)Application.Current.Resources[isSelected ? "AccentFillColorDefaultBrush" : "PanelRaisedBrush"];
         button.Foreground = (Brush)Application.Current.Resources[isSelected ? "TextOnAccentFillColorPrimaryBrush" : "TextPrimaryBrush"];

@@ -269,6 +269,7 @@ public static class InkEditing
     public static EditorFrame Clone(EditorFrame frame) => new()
     {
         Number = frame.Number,
+        GroupName = frame.GroupName,
         ExposureFrames = frame.ExposureFrames,
         IsKeyframe = frame.IsKeyframe,
         InterpolationMode = frame.InterpolationMode,
