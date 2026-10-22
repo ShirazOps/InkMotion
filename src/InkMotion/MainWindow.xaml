@@ -989,10 +989,13 @@
                         <TextBlock Text="Eraser radius (preview pixels)" Style="{StaticResource LabelTextStyle}" />
                         <Slider x:Name="InkEraserRadiusSlider" Minimum="2" Maximum="60" Value="18" StepFrequency="1" AutomationProperties.Name="Eraser radius" />
                         <Button Content="Sample drawing colour..." Click="SelectInkColourSampler_Click" />
+                        <Button Content="Sample full preview colour..." Tag="Preview" Click="SelectInkColourSampler_Click" />
                         <NumberBox x:Name="InkSampleXBox" Header="Sample X (% across drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <NumberBox x:Name="InkSampleYBox" Header="Sample Y (% down drawing)" Minimum="0" Maximum="100" Value="50" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <Button Content="Sample drawing at X/Y" Click="SampleInkColourAtCoordinates_Click" />
+                        <Button Content="Sample full preview at X/Y" Tag="Preview" Click="SampleInkColourAtCoordinates_Click" />
                         <TextBlock Text="Samples visible ink layers and cel text with their combined opacity, not video, images, timeline titles, background, onion skin or guides. Click once after choosing the sampler, or use X/Y for keyboard access. Empty pixels retain the current colour. Changes the brush only, not the drawing; locked layers can be sampled." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Full preview samples Modified video, images, timeline titles, ink and the canvas background using the preview effects and transforms. Onion skin, guides, selection outlines and empty-state labels are excluded. Unavailable media reports an error instead of sampling an incomplete composite. Both samplers change only the brush colour." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ComboBox x:Name="InkColourSelector" SelectedIndex="0" SelectionChanged="InkColour_SelectionChanged">
                             <ComboBoxItem Content="Orange" Tag="FFFFA500" />
                             <ComboBoxItem Content="White" Tag="FFFFFFFF" />

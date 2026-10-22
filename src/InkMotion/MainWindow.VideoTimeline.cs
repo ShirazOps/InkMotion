@@ -750,7 +750,8 @@ public sealed partial class MainWindow
         DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
     }
 
-    private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height)
+    private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height,
+        bool requireComplete = false)
     {
         if (IsOriginalPreview)
         {
@@ -766,7 +767,6 @@ public sealed partial class MainWindow
         {
             DisposePreviewVideoFrameSources();
             SetVideoScopeUnavailable("No active video clip at the playhead.");
-            return;
         }
 
         var activeIds = videoLayers.Select(location => location.Clip.Id).ToHashSet(StringComparer.Ordinal);
@@ -779,7 +779,7 @@ public sealed partial class MainWindow
         string? scopeClipId = videoLayers.LastOrDefault()?.Clip.Id;
         foreach (TimelineClipLocation layer in layers)
         {
-            float opacity = (float)VideoTimelineEditing.GetOpacity(layer.Clip, layer.Track.Kind, seconds, _frameRate);
+            float opacity = (float)VideoTimelineEditing.GetOpacity(layer, seconds, _frameRate);
             if (opacity <= 0)
             {
                 continue;
@@ -790,10 +790,11 @@ public sealed partial class MainWindow
                 case TimelineTrackKind.Video:
                     DrawComposedVideoClip(
                         canvas, session, layer.Clip, seconds, width, height, opacity,
-                        updateScopes: layer.Clip.Id == scopeClipId);
+                        updateScopes: !requireComplete && layer.Clip.Id == scopeClipId,
+                        requireComplete: requireComplete);
                     break;
                 case TimelineTrackKind.Image:
-                    DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity);
+                    DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
                     break;
                 case TimelineTrackKind.Text:
                     TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
@@ -810,12 +811,18 @@ public sealed partial class MainWindow
         float width,
         float height,
         float opacity,
-        bool updateScopes)
+        bool updateScopes,
+        bool requireComplete = false)
     {
         string path = VideoProxy.GetRenderPath(clip);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
             (_unavailableTimelineSources.Contains(clip.SourcePath ?? path) && !clip.UseProxy))
         {
+            if (requireComplete)
+            {
+                throw new InvalidOperationException($"Video source unavailable: {Path.GetFileName(path)}.");
+            }
+
             if (updateScopes)
             {
                 SetVideoScopeUnavailable("The active video clip has no available source.");
@@ -829,6 +836,11 @@ public sealed partial class MainWindow
 
         if (_unavailablePreviewVideoSources.Contains(path))
         {
+            if (requireComplete)
+            {
+                throw new InvalidOperationException($"The modified video frame is unavailable: {Path.GetFileName(path)}.");
+            }
+
             if (updateScopes)
             {
                 PreviewPlayer.Opacity = 1;
@@ -862,6 +874,11 @@ public sealed partial class MainWindow
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
             if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
             {
+                if (requireComplete)
+                {
+                    throw new InvalidOperationException($"No video frame is available from {Path.GetFileName(path)}.");
+                }
+
                 if (updateScopes)
                 {
                     SetVideoScopeUnavailable("Waiting for an active video frame.");
@@ -898,8 +915,8 @@ public sealed partial class MainWindow
                 UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
             }
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
-            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException))
         {
             source?.Dispose();
             _previewVideoFrameSources.Remove(clip.Id);
@@ -921,16 +938,27 @@ public sealed partial class MainWindow
         TimelineClipProject clip,
         float width,
         float height,
-        float opacity)
+        float opacity,
+        bool requireComplete = false)
     {
         if (clip.SourcePath is not string path)
         {
+            if (requireComplete)
+            {
+                throw new InvalidOperationException("The visible image has no source path.");
+            }
+
             return;
         }
 
         if (!_overlayBitmaps.TryGetValue(path, out CanvasBitmap? bitmap))
         {
             RequestOverlayBitmap(canvas, path);
+            if (requireComplete)
+            {
+                throw new InvalidOperationException($"Image {Path.GetFileName(path)} is not loaded. Wait for its preview, then sample again.");
+            }
+
             return;
         }
 
@@ -944,8 +972,8 @@ public sealed partial class MainWindow
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
                 GetPreviewSharpenEffect(clip));
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
-            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException))
         {
             StatusText.Text = $"Could not render image {Path.GetFileName(path)} with its colour settings: {ex.Message}";
         }

@@ -1718,7 +1718,7 @@ public sealed partial class MainWindow : Window
         if (_isInkColourSampler)
         {
             var point = e.GetCurrentPoint(InkSurface).Position;
-            SampleInkColour(point.X, point.Y);
+            SampleInkColour(point.X, point.Y, _samplePreviewColour);
             e.Handled = true;
             return;
         }

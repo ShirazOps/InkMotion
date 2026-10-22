@@ -1,10 +1,81 @@
 using Xunit;
 using Microsoft.Graphics.Canvas;
+using Windows.Foundation;
 
 namespace InkMotion.Tests;
 
 public sealed class InkColourSamplingTests
 {
+    [Fact]
+    public void CompositeSamplesMediaThenInkOverThePreviewBackgroundWithoutChangingProject()
+    {
+        using var device = new CanvasDevice(true);
+        using var image = CanvasBitmap.CreateFromColors(device, [Microsoft.UI.Colors.Blue], 1, 1);
+        var project = new EditorProject
+        {
+            InkLayers = [new() { Id = "ink-1", Opacity = 0.5, IsLocked = true }],
+            Frames = [new()
+            {
+                Strokes = [[new() { X = 0.5, Y = 0.5, BrushWidth = 30, Pressure = 1, BrushColour = 0xFFFF0000 }]],
+            }],
+        };
+        string before = EditorProjectSerialiser.Serialise(project);
+        void DrawMedia(CanvasDrawingSession session, float width, float height) =>
+            session.DrawImage(image, new Rect(25, 25, 50, 50), image.Bounds);
+
+        uint mixed = InkColourSampling.SampleComposite(device, project, 0, 100, 100, 50, 50,
+            0xFF07080A, DrawMedia);
+
+        Assert.Equal(0xFF7F0080u, mixed);
+        Assert.Equal(0xFF0000FFu, InkColourSampling.SampleComposite(device, project, 0,
+            100, 100, 30, 30, 0xFF07080A, DrawMedia));
+        Assert.Equal(0xFF07080Au, InkColourSampling.SampleComposite(device, project, 0,
+            100, 100, 1, 1, 0xFF07080A, DrawMedia));
+        Assert.Equal(before, EditorProjectSerialiser.Serialise(project));
+    }
+
+    [Theory]
+    [InlineData(10, 10)]
+    [InlineData(50, 50)]
+    [InlineData(70, 30)]
+    [InlineData(99, 99)]
+    public void CompositePixelMatchesFullFrameWithTransformedMediaAndText(int x, int y)
+    {
+        using var device = new CanvasDevice(true);
+        using var image = CanvasBitmap.CreateFromColors(device, [Microsoft.UI.Colors.Green], 1, 1);
+        var project = new EditorProject();
+        var clip = new TimelineClipProject { Text = "Preview", Colour = 0xFF00FFFF, FontSize = 300 };
+        void DrawMedia(CanvasDrawingSession session, float width, float height)
+        {
+            TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height,
+                0.5, 0.6, 0.4, 0.5f, rotationDegrees: 25);
+            TimelineCompositor.DrawTitle(session, clip, width, height, 1);
+        }
+
+        using var target = new CanvasRenderTarget(device, 100, 100, 96);
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(TimelineCompositor.ToColour(0xFF07080A));
+            DrawMedia(session, 100, 100);
+            TimelineCompositor.DrawInkFrame(session, project, 0, 100, 100, 1);
+        }
+
+        byte[] expected = target.GetPixelBytes(x, y, 1, 1);
+        uint actual = InkColourSampling.SampleComposite(device, project, 0, 100, 100,
+            x, y, 0xFF07080A, DrawMedia);
+
+        Assert.Equal(InkColourSampling.FromPremultipliedBgra(expected[0], expected[1], expected[2], expected[3]), actual);
+    }
+
+    [Fact]
+    public void CompositeDoesNotReturnAColourWhenMediaRenderingFails()
+    {
+        using var device = new CanvasDevice(true);
+        Assert.Throws<InvalidOperationException>(() => InkColourSampling.SampleComposite(
+            device, new EditorProject(), 0, 100, 100, 50, 50, 0xFF07080A,
+            (_, _, _) => throw new InvalidOperationException("Media unavailable.")));
+    }
+
     [Fact]
     public void SamplesRenderedInkWithOpacityAndExcludesHiddenLayersWithoutChangingTheProject()
     {
