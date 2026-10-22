@@ -271,7 +271,7 @@ public static class TimelineCompositor
             return;
         }
 
-        using CanvasTextLayout layout = CreateInkTextLayout(session, overlay, fontSize);
+        using CanvasTextLayout layout = CreateInkTextLayout(session, overlay, fontSize, opacity);
         session.DrawTextLayout(layout,
             new Vector2((float)(overlay.X * width), (float)(overlay.Y * height)),
             WithOpacity(ToColour(overlay.Colour), opacity));
@@ -290,7 +290,8 @@ public static class TimelineCompositor
         return new Rect(bounds.X + overlay.X * width, bounds.Y + overlay.Y * height, bounds.Width, bounds.Height);
     }
 
-    private static CanvasTextLayout CreateInkTextLayout(ICanvasResourceCreator device, InkTextOverlay overlay, float fontSize)
+    public static CanvasTextLayout CreateInkTextLayout(ICanvasResourceCreator device, InkTextOverlay overlay,
+        float fontSize, double opacity = 1)
     {
         using var format = new CanvasTextFormat
         {
@@ -300,7 +301,27 @@ public static class TimelineCompositor
             VerticalAlignment = CanvasVerticalAlignment.Center,
             WordWrapping = CanvasWordWrapping.NoWrap,
         };
-        return new CanvasTextLayout(device, overlay.Text, format, 0, 0);
+        var layout = new CanvasTextLayout(device, overlay.Text, format, 0, 0);
+        try
+        {
+            foreach (InkTextStyleRange range in overlay.StyleRanges)
+            {
+                layout.SetFontFamily(range.Start, range.Length, range.FontFamily);
+                layout.SetFontSize(range.Start, range.Length, (float)(range.FontSize * fontSize / overlay.FontSize));
+                layout.SetFontWeight(range.Start, range.Length,
+                    new Windows.UI.Text.FontWeight { Weight = (ushort)(range.Bold ? 700 : 400) });
+                layout.SetFontStyle(range.Start, range.Length,
+                    range.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal);
+                layout.SetUnderline(range.Start, range.Length, range.Underline);
+                layout.SetColor(range.Start, range.Length, WithOpacity(ToColour(range.Colour), opacity));
+            }
+            return layout;
+        }
+        catch
+        {
+            layout.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Draws every visible ink layer and the frame's text overlays for one animation drawing.</summary>

@@ -1049,6 +1049,7 @@
                         <Button Content="Apply selection transform" Tag="transform" Click="InkSelectionAction_Click" />
                         <TextBlock Text="TEXT OVERLAY" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Button Content="Select text on canvas..." Click="SelectInkTextOnCanvas_Click" />
+                        <Button Content="Select character range on canvas..." Tag="range" Click="SelectInkTextOnCanvas_Click" />
                         <ComboBox x:Name="InkTextOverlaySelector" Header="Existing text on this cel" HorizontalAlignment="Stretch" SelectionChanged="InkTextOverlay_SelectionChanged" />
                         <TextBox x:Name="InkTextBox" PlaceholderText="Type a text overlay" MaxLength="2048" AcceptsReturn="False" />
                         <TextBlock Text="Font" Style="{StaticResource LabelTextStyle}" />
@@ -1078,11 +1079,19 @@
                                         </Flyout>
                                     </Button.Flyout>
                                 </Button>
+                                <TextBlock Text="CHARACTER RANGE" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <NumberBox x:Name="InkTextFirstCharacterBox" Header="First character (inclusive)" Minimum="1" Maximum="2048" Value="1" SpinButtonPlacementMode="Compact" ValueChanged="InkTextRange_Changed" />
+                                <NumberBox x:Name="InkTextLastCharacterBox" Header="Last character (inclusive)" Minimum="1" Maximum="2048" Value="1" SpinButtonPlacementMode="Compact" ValueChanged="InkTextRange_Changed" />
+                                <CheckBox x:Name="InkTextRangeBoldCheckBox" Content="Bold" />
+                                <CheckBox x:Name="InkTextRangeItalicCheckBox" Content="Italic" />
+                                <CheckBox x:Name="InkTextRangeUnderlineCheckBox" Content="Underline" />
+                                <Button Content="Style character range" Click="StyleInkTextRange_Click" />
+                                <Button Content="Reset character range to base style" Tag="clear" Click="StyleInkTextRange_Click" />
                             </StackPanel>
                         </UserControl>
                         <Button x:Name="ApplySelectedInkTextButton" Content="Apply to selected text" Click="SelectedInkTextAction_Click" IsEnabled="False" />
                         <Button x:Name="RemoveSelectedInkTextButton" Content="Remove selected text" Tag="remove" Click="SelectedInkTextAction_Click" IsEnabled="False" />
-                        <TextBlock Text="Select an existing overlay from the list or choose Select text on canvas and click its text bounds. The topmost visible cel text wins; transparent text, timeline titles, ink and onion guides are excluded. Selection loads text, font, size, position and colour; edit characters in the text box. Apply is explicit and undoable; switching cels or overlays discards unapplied edits. Add text still creates a centred overlay using the brush colour. Text is cel-wide, not owned by drawing layers; drawing locks do not prevent text edits. Canvas selection is by overlay, not by individual characters." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Select an overlay or choose character-range selection and click the first then last character on that same overlay (reverse order is allowed). Numeric inclusive character numbers also work; complete Unicode text elements stay together. Style character range applies the inspector font, size, selected-text colour and bold/italic/underline without changing content or position. Reset returns the range to the overlay's base style. Range highlights are preview-only; styles are saved/exported and undoable. Apply to selected text changes base properties; changing content resets its range styles to avoid stale indices. Existing range styles override base properties. No on-canvas typing/caret. Text remains cel-wide and outside drawing-layer locks; other overlays, timeline titles and guides are excluded." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="ANIMATION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ToggleButton x:Name="OnionSkinToggle" Content="Onion skin" ToolTipService.ToolTip="Show neighbouring animation cels as translucent guides while paused in Ink Editor." Click="OnionSkin_Click" />
                         <NumberBox x:Name="OnionPreviousCountBox" Header="Previous onion cels" Minimum="0" Maximum="8" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="OnionCount_Changed" />

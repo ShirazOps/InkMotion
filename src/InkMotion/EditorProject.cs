@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 38;
+    public const int CurrentVersion = 39;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -83,6 +83,19 @@ public sealed class InkTextOverlay
     public string FontFamily { get; set; } = "Segoe UI";
     public double FontSize { get; set; } = 48;
     public uint Colour { get; set; } = 0xFFFFFFFF;
+    public List<InkTextStyleRange> StyleRanges { get; set; } = [];
+}
+
+public sealed class InkTextStyleRange
+{
+    public int Start { get; set; }
+    public int Length { get; set; }
+    public string FontFamily { get; set; } = "Segoe UI";
+    public double FontSize { get; set; } = 48;
+    public uint Colour { get; set; } = 0xFFFFFFFF;
+    public bool Bold { get; set; }
+    public bool Italic { get; set; }
+    public bool Underline { get; set; }
 }
 
 public enum InkInterpolationMode
@@ -396,6 +409,10 @@ public static class EditorProjectSerialiser
             project.Version = 37;
         }
         if (project.Version == 37)
+        {
+            project.Version = 38;
+        }
+        if (project.Version == 38)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -988,6 +1005,10 @@ internal static class EditorProjectValidation
                     text.FontSize is < 6 or > 512))
             {
                 throw new InvalidDataException("A text overlay contains invalid content or styling.");
+            }
+            foreach (InkTextOverlay text in frame.TextOverlays)
+            {
+                InkTextEditing.ValidateStyles(text);
             }
         }
     }

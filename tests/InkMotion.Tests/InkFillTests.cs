@@ -135,7 +135,7 @@ public sealed class InkFillTests
     {
         EditorProject project = EditorProjectSerialiser.Deserialise(
             """{"Version":37,"Frames":[{"Number":1,"Strokes":[[{"X":0.5,"Y":0.5}]]}],"SelectedFrameIndex":0}""");
-        Assert.Equal(38, project.Version);
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
         Assert.False(project.Frames[0].Strokes[0][0].IsFilled);
         project.Frames[0].Strokes[0][0].IsFilled = true;
         Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Serialise(project));

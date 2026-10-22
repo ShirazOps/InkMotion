@@ -280,6 +280,7 @@ public static class InkEditing
             FontFamily = text.FontFamily,
             FontSize = text.FontSize,
             Colour = text.Colour,
+            StyleRanges = text.StyleRanges.Select(range => InkTextEditing.CopyStyle(range, range.Start, range.Length)).ToList(),
         }).ToList(),
         Strokes = CloneStrokes(frame.Strokes),
         LayerStrokes = frame.LayerStrokes.ToDictionary(pair => pair.Key, pair => CloneStrokes(pair.Value), StringComparer.Ordinal),
