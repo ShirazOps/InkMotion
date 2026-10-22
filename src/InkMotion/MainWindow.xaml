@@ -918,9 +918,18 @@
                     <ToggleButton x:Name="TrimTimelineToolButton" Content="Trim" Tag="Trim"
                                   Click="TimelineToolMode_Click"
                                   ToolTipService.ToolTip="Drag a selected clip's start or end handle" />
+                    <ToggleButton x:Name="RippleTimelineToolButton" Content="Ripple" Tag="Ripple"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a clip edge and ripple later clips on the same track" />
+                    <ToggleButton x:Name="RollTimelineToolButton" Content="Roll" Tag="Roll"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag the cut between adjacent clips" />
+                    <ToggleButton x:Name="SlideTimelineToolButton" Content="Slide" Tag="Slide"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a clip between adjacent clips" />
                     <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
-                    <TextBlock x:Name="VideoTimelineHint" Text="Select: drag clips to move. Blade: click inside to split. Trim: drag a selected clip's highlighted edge." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="VideoTimelineHint" Text="Select: move. Blade: split. Trim/Ripple: drag an edge. Roll: drag a cut. Slide: drag between adjacent clips." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
