@@ -23,6 +23,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         ClearInkSelection();
         _isInkTextPicker = true;
+        _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkLasso = false;
         _isEraser = false;

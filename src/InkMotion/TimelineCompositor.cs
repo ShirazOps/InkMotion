@@ -219,6 +219,7 @@ public static class TimelineCompositor
         if (stroke.Count >= 3 && stroke[0].IsFilled)
         {
             using var path = new CanvasPathBuilder(session);
+            path.SetFilledRegionDetermination(CanvasFilledRegionDetermination.Alternate);
             path.BeginFigure((float)(stroke[0].X * width), (float)(stroke[0].Y * height));
             foreach (InkPoint point in stroke.Skip(1))
             {

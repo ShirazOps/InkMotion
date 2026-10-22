@@ -63,10 +63,12 @@ public static class InkStrokeEditing
             if (stroke.Count >= 3 && stroke[0].IsFilled)
             {
                 bool filledHit = InkSelectionEditing.ContainsPoint(stroke, x / width, y / height);
-                for (int index = 0; !filledHit && index < stroke.Count; index++)
+                foreach ((InkPoint a, InkPoint b) in InkSelectionEditing.BoundarySegments(stroke))
                 {
-                    InkPoint a = stroke[index];
-                    InkPoint b = stroke[(index + 1) % stroke.Count];
+                    if (filledHit)
+                    {
+                        break;
+                    }
                     double dx = (b.X - a.X) * width;
                     double dy = (b.Y - a.Y) * height;
                     double ax = a.X * width - x;

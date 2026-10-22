@@ -38,6 +38,7 @@ public sealed partial class MainWindow
 
     private void ClearEditingClipboard()
     {
+        _isInkBucketFill = false;
         ClearInkSelection();
         _copiedInkSelection.Clear();
         _copiedCel = null;

@@ -158,6 +158,7 @@
                     <AppBarElementContainer><Button Content="Line" Tag="Line" Click="SelectInkShape_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Rectangle" Tag="Rectangle" Click="SelectInkShape_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Ellipse" Tag="Ellipse" Click="SelectInkShape_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Bucket fill" Click="SelectInkBucketFill_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Lasso" Click="SelectInkLasso_Click" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><Button Content="Add cel" Click="AddFrame_Click" /></AppBarElementContainer>
@@ -1023,6 +1024,11 @@
                         </ComboBox>
                         <TextBlock Text="Grain pencil/chalk use deterministic pressure-sensitive stippling, not imported brush images. Texture is saved with strokes and shared by preview, colour sampling and export. Existing strokes keep their texture; editing a path can regenerate its grain pattern." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <CheckBox x:Name="InkSolidFillCheckBox" Content="Solid fill for new rectangles / ellipses" />
+                        <Button Content="Bucket fill on canvas..." Click="SelectInkBucketFill_Click" />
+                        <NumberBox x:Name="InkFillXBox" Header="Bucket X (% of canvas)" Minimum="0" Maximum="100" Value="50" SpinButtonPlacementMode="Compact" />
+                        <NumberBox x:Name="InkFillYBox" Header="Bucket Y (% of canvas)" Minimum="0" Maximum="100" Value="50" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Fill at X/Y" Click="FillInkAtCoordinates_Click" />
+                        <TextBlock Text="Bucket fills empty enclosed areas using only the active layer's displayed strokes, not other layers, text, media or guides. Uses current colour/alpha, inserts beneath existing strokes and rejects areas reaching the canvas edge. Boundaries are sampled at up to 1024 pixels on the longest side; tiny gaps or grain can leak. Sampled alpha above 8/255 blocks filling, before layer opacity; fainter pixels count as empty. Saved as a solid polygon, including holes; erase/lasso treat it as one object. No colour replacement or automatic gap closing." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Filled shapes use the current colour and alpha, without an outline or grain texture. Pen and line tools are unchanged. Eraser and both lasso modes treat each filled shape as one object, including hits inside it. This is shape fill, not a bucket flood fill between existing strokes." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="STROKE SELECTION" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLassoModeSelector" Header="Lasso mode" SelectedIndex="0">

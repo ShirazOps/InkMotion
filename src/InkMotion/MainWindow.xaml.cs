@@ -1611,6 +1611,7 @@ public sealed partial class MainWindow : Window
     private void SelectPen_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkTextPicker = false;
         _isEraser = false;
@@ -1622,6 +1623,7 @@ public sealed partial class MainWindow : Window
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkTextPicker = false;
         _isEraser = true;
@@ -1716,6 +1718,13 @@ public sealed partial class MainWindow : Window
     {
         if (_activePointerId is not null)
         {
+            return;
+        }
+
+        if (_isInkBucketFill)
+        {
+            FillInkAtPoint(e.GetCurrentPoint(InkSurface).Position);
+            e.Handled = true;
             return;
         }
 
@@ -2072,6 +2081,7 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         _isEraser = false;
         _inkShape = shape;
+        _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkTextPicker = false;
         _isInkLasso = false;

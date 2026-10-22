@@ -21,6 +21,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         ClearInkSelection();
         _isInkColourSampler = true;
+        _isInkBucketFill = false;
         _isInkTextPicker = false;
         _samplePreviewColour = preview;
         _isInkLasso = false;
@@ -43,6 +44,7 @@ public sealed partial class MainWindow
     {
         PausePlayback();
         FinishActiveEdit();
+        _isInkBucketFill = false;
         _isInkTextPicker = false;
         _isInkLasso = false;
         _isEraser = false;
