@@ -27,9 +27,9 @@ public sealed record VideoRgbHistogramData(int[] Red, int[] Green, int[] Blue, i
                 continue;
             }
 
-            blue[Unpremultiply(bgraPixels[offset], alpha)]++;
-            green[Unpremultiply(bgraPixels[offset + 1], alpha)]++;
-            red[Unpremultiply(bgraPixels[offset + 2], alpha)]++;
+            blue[UnpremultiplyChannel(bgraPixels[offset], alpha)]++;
+            green[UnpremultiplyChannel(bgraPixels[offset + 1], alpha)]++;
+            red[UnpremultiplyChannel(bgraPixels[offset + 2], alpha)]++;
             sampleCount++;
         }
 
@@ -84,6 +84,89 @@ public sealed record VideoRgbHistogramData(int[] Red, int[] Green, int[] Blue, i
         }
     }
 
-    private static int Unpremultiply(byte channel, int alpha) =>
+    internal static int UnpremultiplyChannel(byte channel, int alpha) =>
         Math.Min(byte.MaxValue, (channel * byte.MaxValue + (alpha / 2)) / alpha);
+}
+
+public sealed record VideoLumaWaveformData(byte[] BgraPixels, int SampleCount)
+{
+    public const int Width = 128;
+    public const int Height = 128;
+
+    public static VideoLumaWaveformData Analyse(ReadOnlySpan<byte> bgraPixels, int sourceWidth, int sourceHeight)
+    {
+        if (sourceWidth <= 0 || sourceHeight <= 0 ||
+            bgraPixels.Length != checked(sourceWidth * sourceHeight * 4))
+        {
+            throw new ArgumentException("BGRA pixel data must match the supplied source dimensions.", nameof(bgraPixels));
+        }
+
+        int[] density = new int[Width * Height];
+        int sampleCount = 0;
+        for (int y = 0; y < sourceHeight; y++)
+        {
+            for (int x = 0; x < sourceWidth; x++)
+            {
+                int offset = ((y * sourceWidth) + x) * 4;
+                int alpha = bgraPixels[offset + 3];
+                if (alpha == 0)
+                {
+                    continue;
+                }
+
+                int blue = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset], alpha);
+                int green = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset + 1], alpha);
+                int red = VideoRgbHistogramData.UnpremultiplyChannel(bgraPixels[offset + 2], alpha);
+                int luma = Math.Clamp((int)Math.Round((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)), 0, 255);
+                int column = Math.Min(Width - 1, x * Width / sourceWidth);
+                int row = Height - 1 - (luma * (Height - 1) / byte.MaxValue);
+                density[(row * Width) + column]++;
+                sampleCount++;
+            }
+        }
+
+        int maximum = density.Max();
+        byte[] waveform = new byte[Width * Height * 4];
+        for (int index = 0; index < density.Length; index++)
+        {
+            if (density[index] == 0)
+            {
+                continue;
+            }
+
+            byte intensity = (byte)Math.Clamp(
+                Math.Round(70 + (185 * Math.Sqrt(density[index] / (double)maximum))),
+                0,
+                byte.MaxValue);
+            int offset = index * 4;
+            waveform[offset] = (byte)(intensity / 3);
+            waveform[offset + 1] = intensity;
+            waveform[offset + 2] = (byte)(intensity / 2);
+            waveform[offset + 3] = intensity;
+        }
+
+        return new VideoLumaWaveformData(waveform, sampleCount);
+    }
+
+    public static void Draw(CanvasDrawingSession session, Rect bounds, CanvasBitmap? bitmap)
+    {
+        session.FillRectangle(bounds, Color.FromArgb(255, 18, 22, 28));
+        Rect plot = new(bounds.X + 1, bounds.Y + 1, Math.Max(0, bounds.Width - 2), Math.Max(0, bounds.Height - 2));
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        if (bitmap is not null)
+        {
+            session.DrawImage(bitmap, plot, new Rect(0, 0, Width, Height), 1);
+        }
+
+        Color gridColour = Color.FromArgb(90, 130, 145, 160);
+        for (int division = 1; division < 4; division++)
+        {
+            float y = (float)(plot.Y + (plot.Height * division / 4));
+            session.DrawLine((float)plot.X, y, (float)(plot.X + plot.Width), y, gridColour, 1);
+        }
+    }
 }

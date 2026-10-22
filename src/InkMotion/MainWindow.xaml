@@ -264,9 +264,18 @@
                         <canvas:CanvasControl x:Name="VideoRgbHistogramSurface" Height="130" MinHeight="110"
                             Draw="VideoRgbHistogram_Draw"
                             AutomationProperties.Name="RGB histogram for the active video source after clip colour grading" />
+                        <TextBlock Text="RGB HISTOGRAM" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock x:Name="VideoScopeStatus" Text="Switch to Modified preview to view the active clip's RGB distribution."
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Horizontal: channel value (0-255) · vertical: square-root-scaled pixel frequency."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="LUMA WAVEFORM" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <canvas:CanvasControl x:Name="VideoLumaWaveformSurface" Height="130" MinHeight="110"
+                            Draw="VideoLumaWaveform_Draw"
+                            AutomationProperties.Name="Luma waveform for the active video source after clip colour grading; horizontal is image position and vertical is luma from black to white" />
+                        <TextBlock x:Name="VideoLumaWaveformStatus" Text="Switch to Modified preview to view the active clip's luma waveform."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Horizontal: source image position · vertical: luma (black at bottom, white at top) · brightness: pixel density."
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Active video source after clip colour grading; crop, transform, opacity, cross-dissolves and overlays are excluded."
                             TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

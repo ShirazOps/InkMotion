@@ -35,6 +35,7 @@ public sealed partial class MainWindow
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
+    private CanvasBitmap? _videoLumaWaveformBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
     private long _lastVideoScopeSampleMilliseconds;
     private TimelineVideoFrameSource? _previewVideoFrameSource;
@@ -703,10 +704,33 @@ public sealed partial class MainWindow
                 sample.DrawImage(image, new Rect(0, 0, 128, 72), source.Bounds, 1);
             }
 
-            _videoRgbHistogram = VideoRgbHistogramData.Analyse(_videoScopeSampleTarget.GetPixelBytes());
+            byte[] pixels = _videoScopeSampleTarget.GetPixelBytes();
+            _videoRgbHistogram = VideoRgbHistogramData.Analyse(pixels);
+            VideoLumaWaveformData waveform = VideoLumaWaveformData.Analyse(
+                pixels,
+                (int)_videoScopeSampleTarget.SizeInPixels.Width,
+                (int)_videoScopeSampleTarget.SizeInPixels.Height);
+            if (_videoLumaWaveformBitmap is null)
+            {
+                _videoLumaWaveformBitmap = CanvasBitmap.CreateFromBytes(
+                    canvas.Device,
+                    waveform.BgraPixels,
+                    VideoLumaWaveformData.Width,
+                    VideoLumaWaveformData.Height,
+                    Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                    96,
+                    CanvasAlphaMode.Premultiplied);
+            }
+            else
+            {
+                _videoLumaWaveformBitmap.SetPixelBytes(waveform.BgraPixels);
+            }
+
             _lastVideoScopeSampleMilliseconds = now;
             VideoRgbHistogramSurface.Invalidate();
+            VideoLumaWaveformSurface.Invalidate();
             VideoScopeStatus.Text = $"{_videoRgbHistogram.SampleCount:N0} sampled pixels · red, green and blue channels";
+            VideoLumaWaveformStatus.Text = $"{waveform.SampleCount:N0} sampled pixels · Rec. 709 luma";
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -724,16 +748,28 @@ public sealed partial class MainWindow
         }
 
         _videoRgbHistogram = null;
+        _videoLumaWaveformBitmap?.Dispose();
+        _videoLumaWaveformBitmap = null;
         VideoScopeStatus.Text = message;
+        VideoLumaWaveformStatus.Text = message.Replace("RGB distribution", "luma waveform", StringComparison.Ordinal);
         VideoRgbHistogramSurface.Invalidate();
+        VideoLumaWaveformSurface.Invalidate();
     }
 
     private void DisposeVideoScopeSampleTarget()
     {
         _videoScopeSampleTarget?.Dispose();
         _videoScopeSampleTarget = null;
+        _videoLumaWaveformBitmap?.Dispose();
+        _videoLumaWaveformBitmap = null;
         _lastVideoScopeSampleMilliseconds = 0;
     }
+
+    private void VideoLumaWaveform_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoLumaWaveformData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoLumaWaveformBitmap);
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
     {
