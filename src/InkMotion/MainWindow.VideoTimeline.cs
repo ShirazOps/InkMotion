@@ -31,9 +31,13 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, CanvasBitmap> _overlayBitmaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _overlayBitmapRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
+    private readonly MediaPlayer _transitionPreviewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
+    private MediaSource? _transitionPreviewMediaSource;
+    private string? _transitionPreviewSourcePath;
+    private bool _transitionPreviewReady;
     private string? _selectedTimelineTrackId;
     private string? _selectedTimelineClipId;
     private double _timelinePixelsPerSecond = 60;
@@ -59,8 +63,11 @@ public sealed partial class MainWindow
     private void InitialiseVideoTimeline()
     {
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
+        TransitionPreviewPlayer.SetMediaPlayer(_transitionPreviewMediaPlayer);
         _previewMediaPlayer.MediaOpened += PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed += PreviewMediaPlayer_MediaFailed;
+        _transitionPreviewMediaPlayer.MediaOpened += TransitionPreviewMediaPlayer_MediaOpened;
+        _transitionPreviewMediaPlayer.MediaFailed += TransitionPreviewMediaPlayer_MediaFailed;
         InitialiseSourceMonitor();
         EnsureDefaultVideoTrack();
         RefreshVideoTimeline();
@@ -270,6 +277,41 @@ public sealed partial class MainWindow
     private void SyncVideoPreview(double seconds, bool forceSeek)
     {
         TimelineClipLocation? active = VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate);
+        VideoCrossDissolve? transition = !IsOriginalPreview && active is not null
+            ? VideoTransitions.GetAt(active.Track, seconds, _frameRate)
+            : null;
+        if (transition is not null && active is not null)
+        {
+            bool incomingIsMain = transition.Progress >= 0.5;
+            TimelineClipProject mainClip = incomingIsMain ? transition.IncomingClip : transition.OutgoingClip;
+            TimelineClipProject secondaryClip = incomingIsMain ? transition.OutgoingClip : transition.IncomingClip;
+            double secondaryWeight = incomingIsMain ? 1 - transition.Progress : transition.Progress;
+            TimelineClipLocation main = new(active.Track, mainClip);
+            bool mainReady = SyncMainVideoPreview(main, seconds, forceSeek, transitionActive: true);
+            bool secondaryReady = SyncTransitionVideoPreview(
+                secondaryClip,
+                active.Track,
+                seconds,
+                forceSeek,
+                secondaryWeight);
+            if (!mainReady || !secondaryReady)
+            {
+                TransitionPreviewPlayer.Opacity = 0;
+            }
+
+            return;
+        }
+
+        HideTransitionPreview();
+        SyncMainVideoPreview(active, seconds, forceSeek, transitionActive: false);
+    }
+
+    private bool SyncMainVideoPreview(
+        TimelineClipLocation? active,
+        double seconds,
+        bool forceSeek,
+        bool transitionActive)
+    {
         StorageFile? file = null;
         if (active?.Clip.SourcePath is string path && !_unavailableTimelineSources.Contains(path))
         {
@@ -279,7 +321,7 @@ public sealed partial class MainWindow
         if (active is null || file is null)
         {
             ClearPreviewSource();
-            return;
+            return false;
         }
 
         if (!string.Equals(_previewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
@@ -293,18 +335,20 @@ public sealed partial class MainWindow
             previous?.Dispose();
             PreviewPlayer.Opacity = 0;
             UpdatePreviewEmptyState();
-            return;
+            return false;
         }
 
         if (!_previewReady)
         {
-            return;
+            return false;
         }
 
         TimelineClipProject clip = active.Clip;
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
         _previewMediaPlayer.IsMuted = !IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio);
-        PreviewPlayer.Opacity = IsOriginalPreview ? 1 : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
+        PreviewPlayer.Opacity = IsOriginalPreview || transitionActive
+            ? 1
+            : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
         double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
@@ -323,6 +367,75 @@ public sealed partial class MainWindow
         else if (session.PlaybackState == MediaPlaybackState.Playing)
         {
             _previewMediaPlayer.Pause();
+        }
+
+        return true;
+    }
+
+    private bool SyncTransitionVideoPreview(
+        TimelineClipProject clip,
+        TimelineTrackProject track,
+        double seconds,
+        bool forceSeek,
+        double weight)
+    {
+        TransitionPreviewPlayer.Opacity = 0;
+        if (clip.SourcePath is not string path ||
+            _unavailableTimelineSources.Contains(path) ||
+            !_timelineSourceFiles.TryGetValue(path, out StorageFile? file))
+        {
+            return false;
+        }
+
+        if (!string.Equals(_transitionPreviewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _transitionPreviewMediaPlayer.Pause();
+            MediaSource? previous = _transitionPreviewMediaSource;
+            _transitionPreviewSourcePath = file.Path;
+            _transitionPreviewReady = false;
+            _transitionPreviewMediaSource = MediaSource.CreateFromStorageFile(file);
+            _transitionPreviewMediaPlayer.Source = _transitionPreviewMediaSource;
+            previous?.Dispose();
+            return false;
+        }
+
+        if (!_transitionPreviewReady)
+        {
+            return false;
+        }
+
+        _transitionPreviewMediaPlayer.Volume = 0;
+        _transitionPreviewMediaPlayer.IsMuted = true;
+        TransitionPreviewPlayer.Opacity = Math.Clamp(weight, 0, 1);
+        MediaPlaybackSession session = _transitionPreviewMediaPlayer.PlaybackSession;
+        double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
+        double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
+        if (Math.Abs(session.Position.TotalSeconds - sourceSeconds) > tolerance)
+        {
+            session.Position = TimeSpan.FromSeconds(sourceSeconds);
+        }
+
+        if (_isPlaying)
+        {
+            if (session.PlaybackState is MediaPlaybackState.Paused or MediaPlaybackState.None)
+            {
+                _transitionPreviewMediaPlayer.Play();
+            }
+        }
+        else if (session.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _transitionPreviewMediaPlayer.Pause();
+        }
+
+        return true;
+    }
+
+    private void HideTransitionPreview()
+    {
+        TransitionPreviewPlayer.Opacity = 0;
+        if (_transitionPreviewMediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _transitionPreviewMediaPlayer.Pause();
         }
     }
 
@@ -370,6 +483,40 @@ public sealed partial class MainWindow
             ClearPreviewSource();
             InvalidateVideoTimeline();
             StatusText.Text = $"Could not play {Path.GetFileName(path)}: {message}";
+        });
+    }
+
+    private void TransitionPreviewMediaPlayer_MediaOpened(MediaPlayer sender, object args)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_transitionPreviewMediaSource is null ||
+                !ReferenceEquals(sender.Source, _transitionPreviewMediaSource))
+            {
+                return;
+            }
+
+            _transitionPreviewReady = true;
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: true);
+        });
+    }
+
+    private void TransitionPreviewMediaPlayer_MediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args)
+    {
+        string message = args.ErrorMessage;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_transitionPreviewSourcePath is not string path ||
+                !ReferenceEquals(sender.Source, _transitionPreviewMediaSource))
+            {
+                return;
+            }
+
+            _unavailableTimelineSources.Add(path);
+            _transitionPreviewReady = false;
+            HideTransitionPreview();
+            InvalidateVideoTimeline();
+            StatusText.Text = $"Could not play transition source {Path.GetFileName(path)}: {message}";
         });
     }
 
@@ -487,9 +634,16 @@ public sealed partial class MainWindow
     {
         DisposeSourceMonitor();
         ClearPreviewSource();
+        HideTransitionPreview();
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
         _previewMediaPlayer.Dispose();
+        _transitionPreviewMediaPlayer.MediaOpened -= TransitionPreviewMediaPlayer_MediaOpened;
+        _transitionPreviewMediaPlayer.MediaFailed -= TransitionPreviewMediaPlayer_MediaFailed;
+        _transitionPreviewMediaPlayer.Source = null;
+        _transitionPreviewMediaSource?.Dispose();
+        _transitionPreviewMediaSource = null;
+        _transitionPreviewMediaPlayer.Dispose();
         DisposeOverlayBitmaps();
         _timelineLabelFormat?.Dispose();
         _timelineRulerFormat?.Dispose();
@@ -673,6 +827,16 @@ public sealed partial class MainWindow
             session.DrawLine(x1 - (float)(clip.FadeOutSeconds * _timelinePixelsPerSecond), top + 2, x1, bottom, fadeColour);
         }
 
+        if (track.Kind == TimelineTrackKind.Video && clip.TransitionInSeconds > 0)
+        {
+            float transitionWidth = (float)(clip.TransitionInSeconds * _timelinePixelsPerSecond);
+            float transitionStart = x0 - transitionWidth / 2;
+            session.FillRectangle(transitionStart, top + 2, transitionWidth, TimelineLaneHeight - 4,
+                Color.FromArgb(100, 0xFF, 0xCB, 0x66));
+            session.DrawLine(transitionStart, bottom, x0 + transitionWidth / 2, top + 2,
+                Color.FromArgb(220, 0xFF, 0xE0, 0xA3), 2);
+        }
+
         if (clip.Id == _selectedTimelineClipId)
         {
             session.DrawRoundedRectangle(bounds, 3, 3, Color.FromArgb(255, 0xF2, 0xF4, 0xF8), 2);
@@ -710,6 +874,7 @@ public sealed partial class MainWindow
         destination.DurationSeconds = source.DurationSeconds;
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
+        destination.TransitionInSeconds = source.TransitionInSeconds;
     }
 
     private static float LaneTop(int index) => TimelineRulerHeight + (index * (TimelineLaneHeight + TimelineLaneSpacing));
@@ -1575,6 +1740,8 @@ public sealed partial class MainWindow
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
         RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;

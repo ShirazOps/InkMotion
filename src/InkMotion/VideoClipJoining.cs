@@ -47,9 +47,10 @@ public static class VideoClipJoining
         }
 
         if (left.FadeOutSeconds != 0 || right.FadeInSeconds != 0 ||
-            left.FadeInSeconds > leftDuration || right.FadeOutSeconds > rightDuration)
+            left.FadeInSeconds > leftDuration || right.FadeOutSeconds > rightDuration ||
+            right.TransitionInSeconds > 0)
         {
-            throw new InvalidOperationException("Remove fades at the join boundary and keep outer fades within their original clips before joining.");
+            throw new InvalidOperationException("Remove transitions or fades at the join boundary and keep outer fades within their original clips before joining.");
         }
 
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||

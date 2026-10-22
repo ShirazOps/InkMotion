@@ -33,6 +33,7 @@ public sealed class TimelineClipProject
     public double Volume { get; set; } = 1;
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
+    public double TransitionInSeconds { get; set; }
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -268,6 +269,7 @@ public static class VideoTimelineEditing
         TimelineClipProject right = Clone(clip);
         right.Id = NewClipId();
         right.StartFrame = playheadFrame;
+        right.TransitionInSeconds = 0;
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = clip.SourceInSeconds + offset;
@@ -410,7 +412,17 @@ public static class VideoTimelineEditing
         for (int index = tracks.Count - 1; index >= 0; index--)
         {
             TimelineTrackProject track = tracks[index];
-            if (track.IsVisible && FindClipAt(track, seconds, frameRate) is { } location)
+            if (!track.IsVisible)
+            {
+                continue;
+            }
+
+            if (track.Kind == TimelineTrackKind.Video && VideoTransitions.GetAt(track, seconds, frameRate) is { } transition)
+            {
+                layers.Add(new TimelineClipLocation(track, transition.OutgoingClip));
+                layers.Add(new TimelineClipLocation(track, transition.IncomingClip));
+            }
+            else if (FindClipAt(track, seconds, frameRate) is { } location)
             {
                 layers.Add(location);
             }
@@ -420,7 +432,7 @@ public static class VideoTimelineEditing
     }
 
     public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate) =>
-        clip.SourceInSeconds + Math.Max(0, timelineSeconds - GetStartSeconds(clip, frameRate));
+        clip.SourceInSeconds + timelineSeconds - GetStartSeconds(clip, frameRate);
 
     /// <summary>Clip opacity at a timeline time, including fade-in and fade-out ramps.</summary>
     public static double GetOpacity(TimelineClipProject clip, TimelineTrackKind kind, double timelineSeconds, double frameRate)
@@ -445,6 +457,9 @@ public static class VideoTimelineEditing
 
         return Math.Clamp(opacity, 0, 1);
     }
+
+    public static double GetOpacity(TimelineClipLocation location, double timelineSeconds, double frameRate) =>
+        VideoTransitions.GetOpacity(location, timelineSeconds, frameRate);
 
     public static void ClampFades(TimelineClipProject clip, TimelineTrackKind kind)
     {
@@ -546,6 +561,7 @@ public static class VideoTimelineEditing
         TimelineClipProject copy = Clone(source);
         copy.Id = Guid.NewGuid().ToString("N");
         copy.StartFrame = startFrame;
+        copy.TransitionInSeconds = 0;
         return copy;
     }
 
@@ -562,6 +578,7 @@ public static class VideoTimelineEditing
         Volume = clip.Volume,
         FadeInSeconds = clip.FadeInSeconds,
         FadeOutSeconds = clip.FadeOutSeconds,
+        TransitionInSeconds = clip.TransitionInSeconds,
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
@@ -612,6 +629,11 @@ public static class VideoTimelineEditing
                     return $"Clips on {track.Name} overlap.";
                 }
             }
+
+            if (VideoTransitions.Validate(track, frameRate) is string transitionError)
+            {
+                return transitionError;
+            }
         }
 
         return null;
@@ -644,14 +666,17 @@ public static class VideoTimelineEditing
                     double.IsFinite(sourceEnd) &&
                     // An unprobed source with no out point is allowed; its length is resolved when the media opens.
                     ((clip.SourceOutSeconds is null && clip.SourceDurationSeconds == 0) || sourceEnd > clip.SourceInSeconds) &&
-                    (clip.SourceDurationSeconds == 0 || sourceEnd <= clip.SourceDurationSeconds + Tolerance);
+                    (clip.SourceDurationSeconds == 0 || sourceEnd <= clip.SourceDurationSeconds + Tolerance) &&
+                    double.IsFinite(clip.TransitionInSeconds) && clip.TransitionInSeconds >= 0;
             case TimelineTrackKind.Image:
                 return !string.IsNullOrWhiteSpace(clip.SourcePath) &&
+                    clip.TransitionInSeconds == 0 &&
                     IsValidStillDuration(clip.DurationSeconds) &&
                     double.IsFinite(clip.Scale) &&
                     clip.Scale is >= MinimumScale and <= MaximumScale;
             case TimelineTrackKind.Text:
                 return !string.IsNullOrWhiteSpace(clip.Text) &&
+                    clip.TransitionInSeconds == 0 &&
                     clip.Text.Length <= 2048 &&
                     IsValidStillDuration(clip.DurationSeconds) &&
                     !string.IsNullOrWhiteSpace(clip.FontFamily) &&

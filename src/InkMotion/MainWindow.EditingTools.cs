@@ -288,6 +288,60 @@ public sealed partial class MainWindow
         StatusText.Text = unlinked ? "Audio and video unlinked." : "The selected audio clip is not linked.";
     }
 
+    private void ApplyCrossDissolve_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryGetEditableClip(out TimelineClipLocation selected) ||
+            selected.Track.Kind != TimelineTrackKind.Video)
+        {
+            return;
+        }
+
+        BeginEdit();
+        bool applied = VideoTransitions.TrySetCrossDissolve(
+            selected.Track,
+            selected.Clip,
+            CrossDissolveDurationBox.Value,
+            _frameRate);
+        if (applied)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        UpdateVideoInspector();
+        StatusText.Text = applied
+            ? $"Applied a {CrossDissolveDurationBox.Value:0.##} second cross-dissolve across the cut."
+            : "A cross-dissolve needs an adjacent previous video clip, enough source handles on both clips, no cut-edge fades, and both clips at full opacity.";
+    }
+
+    private void RemoveCrossDissolve_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryGetEditableClip(out TimelineClipLocation selected) ||
+            selected.Track.Kind != TimelineTrackKind.Video)
+        {
+            return;
+        }
+
+        BeginEdit();
+        bool removed = VideoTransitions.RemoveCrossDissolve(selected.Track, selected.Clip);
+        if (removed)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Cross-dissolve removed." : "The selected video clip has no incoming transition.";
+    }
+
     private void DeleteAudioClip_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)

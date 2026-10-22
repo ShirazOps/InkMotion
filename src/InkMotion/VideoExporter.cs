@@ -307,7 +307,7 @@ public static class VideoExporter
                 session.Clear(Microsoft.UI.Colors.Black);
                 foreach (TimelineClipLocation layer in layers)
                 {
-                    float opacity = (float)VideoTimelineEditing.GetOpacity(layer.Clip, layer.Track.Kind, seconds, _project.FrameRate);
+                    float opacity = (float)VideoTimelineEditing.GetOpacity(layer, seconds, _project.FrameRate);
                     if (opacity <= 0)
                     {
                         continue;

@@ -66,6 +66,68 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_CrossDissolvesAdjacentVideoSourcesAtTheCut()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string outgoingPath = Path.Combine(Path.GetTempPath(), $"inkmotion-outgoing-{Guid.NewGuid():N}.mp4");
+        string incomingPath = Path.Combine(Path.GetTempPath(), $"inkmotion-incoming-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-dissolve-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(outgoingPath, 0xFFFF0000);
+            WriteInkColourVideo(incomingPath, 0xFF0000FF);
+            var videoTrack = new TimelineTrackProject
+            {
+                Kind = TimelineTrackKind.Video,
+                Clips =
+                [
+                    new TimelineClipProject
+                    {
+                        StartFrame = 1,
+                        SourcePath = outgoingPath,
+                        SourceOutSeconds = 0.5,
+                        SourceDurationSeconds = 1,
+                    },
+                    new TimelineClipProject
+                    {
+                        StartFrame = 13,
+                        SourcePath = incomingPath,
+                        SourceInSeconds = 0.25,
+                        SourceOutSeconds = 0.75,
+                        SourceDurationSeconds = 1,
+                        TransitionInSeconds = 0.5,
+                    },
+                ],
+            };
+            var project = new EditorProject { VideoTracks = [videoTrack] };
+
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+
+            Assert.Equal(24, result.FrameCount);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.5));
+            (byte b, byte g, byte r) = GetPixel(video, 640, 504);
+            Assert.True(r > 80 && b > 80 && Math.Abs(r - b) < 45 && g < 50,
+                $"Expected an even red/blue blend, got {r},{g},{b}.");
+        }
+        finally
+        {
+            foreach (string path in new[] { outgoingPath, incomingPath, output })
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void Quality_ChangesTheTargetBitRate()
     {
         var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);
@@ -515,6 +577,23 @@ public sealed class VideoExportTests
             null,
             CancellationToken.None));
         Assert.False(File.Exists(output));
+    }
+
+    private static void WriteInkColourVideo(string path, uint colour)
+    {
+        var project = new EditorProject
+        {
+            Frames = [new EditorFrame { ExposureFrames = 24 }],
+        };
+        project.Frames[0].Strokes.Add([
+            new InkPoint { X = 0.3, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+            new InkPoint { X = 0.7, Y = 0.7, BrushWidth = 40, Pressure = 1, BrushColour = colour },
+        ]);
+        VideoExporter.Export(
+            new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, path, 720,
+                PreferHardware: false),
+            null,
+            CancellationToken.None);
     }
 
     private static (byte B, byte G, byte R) GetPixel(MediaFoundationVideoReader reader, int x, int y)

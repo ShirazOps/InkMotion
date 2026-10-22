@@ -202,6 +202,7 @@
                     </Grid.RenderTransform>
                     <Grid Margin="12">
                         <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
+                        <MediaPlayerElement x:Name="TransitionPreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" Opacity="0" />
                         <canvas:CanvasControl
                             x:Name="CompositionSurface"
                             ClearColor="Transparent"
@@ -427,6 +428,14 @@
                                 <NumberBox x:Name="ClipFadeInBox" Header="Fade in (s)" Minimum="0" Maximum="3600" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                                 <NumberBox x:Name="ClipFadeOutBox" Grid.Column="1" Header="Fade out (s)" Minimum="0" Maximum="3600" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             </Grid>
+                            <StackPanel x:Name="VideoTransitionActions" Spacing="6">
+                                <NumberBox x:Name="CrossDissolveDurationBox" Header="Cross-dissolve duration (s)" Minimum="0.084" Maximum="30" Value="1" SmallChange="0.25" SpinButtonPlacementMode="Compact" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Apply cross-dissolve" Click="ApplyCrossDissolve_Click" />
+                                    <Button Content="Remove transition" Click="RemoveCrossDissolve_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Transitions span the cut without moving either clip. Both sources need unused footage before/after their selected ranges; transition opacity requires both clip opacities at 100%. This is a video-only dissolve; audio timing and volume are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
                             <ComboBox x:Name="ClipFontSelector" Header="Font" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">

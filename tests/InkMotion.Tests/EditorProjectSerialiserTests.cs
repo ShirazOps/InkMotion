@@ -48,6 +48,54 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionNineteenProject_MigratesWithNoTransitions()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":19,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(0, Assert.Single(Assert.Single(restored.VideoTracks).Clips).TransitionInSeconds);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsCrossDissolveTransition()
+    {
+        TimelineTrackProject track = new()
+        {
+            Kind = TimelineTrackKind.Video,
+            Clips =
+            [
+                new TimelineClipProject
+                {
+                    Id = "outgoing",
+                    StartFrame = 1,
+                    SourcePath = @"C:\Media\outgoing.mp4",
+                    SourceOutSeconds = 5,
+                    SourceDurationSeconds = 6,
+                },
+                new TimelineClipProject
+                {
+                    Id = "incoming",
+                    StartFrame = 121,
+                    SourcePath = @"C:\Media\incoming.mp4",
+                    SourceInSeconds = 1,
+                    SourceOutSeconds = 6,
+                    SourceDurationSeconds = 6,
+                    TransitionInSeconds = 1,
+                },
+            ],
+        };
+        EditorProject original = new() { VideoTracks = [track] };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(original));
+
+        TimelineClipProject[] clips = Assert.Single(restored.VideoTracks).Clips.ToArray();
+        Assert.Equal("outgoing", clips[0].Id);
+        Assert.Equal("incoming", clips[1].Id);
+        Assert.Equal(1, clips[1].TransitionInSeconds);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesVideoFramesInkAndKeyframes()
     {
         var original = new EditorProject

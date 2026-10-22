@@ -2320,6 +2320,7 @@ public sealed partial class MainWindow : Window
     private void MarkEditChanged()
     {
         LinkedAudioVideoEditing.ClearMissingLinks(_videoTracks, _audioTracks.Select(track => track.Project));
+        VideoTransitions.ClearInvalid(_videoTracks, _frameRate);
         ClearAudioMasterAnalysis();
         _pendingEditChanged = true;
         UnsavedIndicator.Visibility = Visibility.Visible;
