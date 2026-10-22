@@ -696,6 +696,13 @@
                         <ProgressBar x:Name="MasterAudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Live preview master peak level" />
                         <TextBlock x:Name="MasterAudioMeterText" Text="Preview master: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Measures peak, RMS and latched clipping from the actual summed stereo samples routed through InkMotion's preview mix, including routed video audio. It is pre-device and pre-encoding, not true peak or LUFS." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="RECORDING" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="AudioRecordingDeviceSelector" Header="Input device" />
+                        <ComboBox x:Name="AudioRecordingSampleRateSelector" Header="Sample rate" />
+                        <Button x:Name="AudioRecordingButton" Content="Record audio" Click="AudioRecordingButton_Click" IsEnabled="False" />
+                        <TextBlock x:Name="AudioRecordingStatus" Text="Detecting audio inputs..." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Each take records one selected input as 16-bit PCM WAV and adds it as a new clip at the start frame. Files are kept in InkMotion's local Recordings folder. System-audio loopback and live input monitoring are not included." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
                         <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Reset clip indicators" Click="ResetAudioClipIndicator_Click" />

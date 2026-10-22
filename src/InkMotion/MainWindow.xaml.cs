@@ -71,6 +71,7 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
         InitialiseVideoTimeline();
+        InitialiseAudioRecordingControls();
         _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
         UpdateSelectedAudioTrack();
         RefreshInkLayers();
@@ -209,6 +210,12 @@ public sealed partial class MainWindow : Window
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        if (IsAudioRecordingInProgress)
+        {
+            StatusText.Text = "Stop audio recording before opening another project.";
+            return;
+        }
+
         PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
@@ -2616,6 +2623,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        StopAudioRecordingForClose();
         _mediaBinClosed = true;
         _mediaDiscoveryCancellation?.Cancel();
         _mediaDiscoveryCancellation = null;
