@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas;
 using Windows.Foundation;
-using Windows.Graphics.DirectX;
 
 namespace InkMotion;
 
@@ -278,7 +277,8 @@ public static class VideoExporter
         private readonly float _inkScale;
         private readonly bool _hasInk;
         private readonly Dictionary<string, CanvasBitmap?> _images = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, VideoSource?> _videos = [];
+        private readonly Dictionary<string, TimelineVideoFrameSource?> _videos = [];
+        private readonly Dictionary<string, VideoColorGradingEffect> _colorGradingEffects = [];
 
         public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings)
         {
@@ -323,7 +323,7 @@ public static class VideoExporter
                                 layer.Clip, seconds, _project.FrameRate);
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, layer.Clip), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
-                                imageTransform.RotationDegrees);
+                                imageTransform.RotationDegrees, layer.Clip, GetColorGradingEffect(layer.Clip));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
@@ -348,7 +348,7 @@ public static class VideoExporter
 
         public void Dispose()
         {
-            foreach (VideoSource? video in _videos.Values)
+            foreach (TimelineVideoFrameSource? video in _videos.Values)
             {
                 video?.Dispose();
             }
@@ -358,12 +358,17 @@ public static class VideoExporter
                 image?.Dispose();
             }
 
+            foreach (VideoColorGradingEffect effect in _colorGradingEffects.Values)
+            {
+                effect.Dispose();
+            }
+
             _target.Dispose();
         }
 
         private void DrawVideo(CanvasDrawingSession session, TimelineClipProject clip, double seconds, float width, float height, float opacity)
         {
-            if (!_videos.TryGetValue(clip.Id, out VideoSource? video))
+            if (!_videos.TryGetValue(clip.Id, out TimelineVideoFrameSource? video))
             {
                 video = OpenVideo(clip);
                 _videos[clip.Id] = video;
@@ -375,16 +380,32 @@ public static class VideoExporter
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _project.FrameRate);
-            if (video.Update(_device, sourceSeconds) is CanvasBitmap bitmap)
+            if (video.GetFrame(_device, sourceSeconds) is CanvasBitmap bitmap)
             {
-                (int x, int y, int w, int h) = video.Reader.Aperture;
+                (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), clip), width, height,
-                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees);
+                    transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip, GetColorGradingEffect(clip));
             }
         }
 
-        private VideoSource? OpenVideo(TimelineClipProject clip)
+        private VideoColorGradingEffect? GetColorGradingEffect(TimelineClipProject clip)
+        {
+            if (VideoColorGrading.IsNeutral(clip))
+            {
+                return null;
+            }
+
+            if (!_colorGradingEffects.TryGetValue(clip.Id, out VideoColorGradingEffect? effect))
+            {
+                effect = new VideoColorGradingEffect();
+                _colorGradingEffects.Add(clip.Id, effect);
+            }
+
+            return effect;
+        }
+
+        private TimelineVideoFrameSource? OpenVideo(TimelineClipProject clip)
         {
             if (string.IsNullOrWhiteSpace(clip.SourcePath))
             {
@@ -393,7 +414,7 @@ public static class VideoExporter
 
             try
             {
-                return new VideoSource(new MediaFoundationVideoReader(clip.SourcePath));
+                return new TimelineVideoFrameSource(clip.SourcePath);
             }
             catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
@@ -440,50 +461,4 @@ public static class VideoExporter
         }
     }
 
-    /// <summary>Uploads decoded frames to the GPU only when the decoder produced a new picture.</summary>
-    private sealed class VideoSource(MediaFoundationVideoReader reader) : IDisposable
-    {
-        private CanvasBitmap? _bitmap;
-        private long _version = -1;
-
-        public MediaFoundationVideoReader Reader => reader;
-
-        public CanvasBitmap? Update(CanvasDevice device, double sourceSeconds)
-        {
-            if (!reader.TryGetFrame(sourceSeconds) && _bitmap is null)
-            {
-                return null;
-            }
-
-            if (reader.FrameVersion != _version && reader.Width > 0 && reader.Height > 0)
-            {
-                if (_bitmap is null || _bitmap.SizeInPixels.Width != reader.Width || _bitmap.SizeInPixels.Height != reader.Height)
-                {
-                    _bitmap?.Dispose();
-                    _bitmap = CanvasBitmap.CreateFromBytes(
-                        device,
-                        reader.Pixels,
-                        reader.Width,
-                        reader.Height,
-                        DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                        96,
-                        CanvasAlphaMode.Ignore);
-                }
-                else
-                {
-                    _bitmap.SetPixelBytes(reader.Pixels);
-                }
-
-                _version = reader.FrameVersion;
-            }
-
-            return _bitmap;
-        }
-
-        public void Dispose()
-        {
-            _bitmap?.Dispose();
-            reader.Dispose();
-        }
-    }
 }

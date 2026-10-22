@@ -181,6 +181,59 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_AppliesClipColorGradingToVideoFrames()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-color-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-color-output-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(source, 0xFFFF0000);
+            var project = new EditorProject
+            {
+                VideoTracks =
+                [
+                    new TimelineTrackProject
+                    {
+                        Kind = TimelineTrackKind.Video,
+                        Clips =
+                        [
+                            new TimelineClipProject
+                            {
+                                SourcePath = source,
+                                SourceOutSeconds = 1,
+                                SourceDurationSeconds = 1,
+                                Saturation = 0,
+                            },
+                        ],
+                    },
+                ],
+            };
+
+            VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+
+            using var reader = new MediaFoundationVideoReader(output);
+            Assert.True(reader.TryGetFrame(0.25));
+            (byte b, byte g, byte r) = GetPixel(reader, 640, 360);
+            Assert.InRange(Math.Abs(r - g), 0, 10);
+            Assert.InRange(Math.Abs(g - b), 0, 10);
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Export_InterpolatesVideoTransformKeyframes()
     {
         if (!HasH264Encoder)

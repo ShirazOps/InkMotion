@@ -64,10 +64,13 @@ public static class VideoClipJoining
 
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
+            left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
+            left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
+            left.Saturation != right.Saturation ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {
-            throw new InvalidOperationException("Match the clip opacity, volume, transform, text and styling before joining; no clip properties will be discarded.");
+            throw new InvalidOperationException("Match the clip opacity, volume, transform, colour, text and styling before joining; no clip properties will be discarded.");
         }
 
         TimelineClipProject joined = VideoTimelineEditing.Clone(left);

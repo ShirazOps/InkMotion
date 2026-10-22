@@ -41,6 +41,11 @@ public sealed class TimelineClipProject
     public double CropTopPercent { get; set; }
     public double CropRightPercent { get; set; }
     public double CropBottomPercent { get; set; }
+    public double Exposure { get; set; }
+    public double Contrast { get; set; }
+    public double WhiteBalanceTemperature { get; set; }
+    public double WhiteBalanceTint { get; set; }
+    public double Saturation { get; set; } = 1;
     public double X { get; set; } = 0.5;
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
@@ -686,6 +691,11 @@ public static class VideoTimelineEditing
         CropTopPercent = clip.CropTopPercent,
         CropRightPercent = clip.CropRightPercent,
         CropBottomPercent = clip.CropBottomPercent,
+        Exposure = clip.Exposure,
+        Contrast = clip.Contrast,
+        WhiteBalanceTemperature = clip.WhiteBalanceTemperature,
+        WhiteBalanceTint = clip.WhiteBalanceTint,
+        Saturation = clip.Saturation,
         X = clip.X,
         Y = clip.Y,
         Scale = clip.Scale,
@@ -742,6 +752,11 @@ public static class VideoTimelineEditing
                 if (VideoCrop.Validate(clip, track.Kind) is string cropError)
                 {
                     return cropError;
+                }
+
+                if (VideoColorGrading.Validate(clip, track.Kind) is string colorError)
+                {
+                    return colorError;
                 }
             }
 

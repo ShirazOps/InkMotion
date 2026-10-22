@@ -399,6 +399,10 @@ public sealed partial class MainWindow : Window
     private void UpdatePreviewMode()
     {
         CompositionSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
+        if (IsOriginalPreview)
+        {
+            DisposePreviewVideoFrameSources();
+        }
         InkSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
         InkSurface.IsHitTestVisible = _workspace == "Ink" && !IsOriginalPreview;
         PreviewCaption.Text = IsOriginalPreview ? "ORIGINAL SOURCE · AT PLAYHEAD" : "MODIFIED";
