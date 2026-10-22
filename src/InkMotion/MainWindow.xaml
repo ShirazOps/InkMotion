@@ -1091,9 +1091,15 @@
                         <TextBlock Text="CEL EXPOSURE" Style="{StaticResource SectionHeaderTextStyle}" />
                         <NumberBox x:Name="ExposureFramesBox" Minimum="1" Maximum="999" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExposureFrames_Changed" LostFocus="ExposureFrames_LostFocus" />
                         <TextBlock Text="Output frames to hold this cel." FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="REPEAT CEL CYCLE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="CEL RANGE / CYCLE" Style="{StaticResource SectionHeaderTextStyle}" />
                         <NumberBox x:Name="InkCycleFirstBox" Header="First cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <NumberBox x:Name="InkCycleLastBox" Header="Last cel (inclusive)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button Content="Copy cel range" Tag="copy" Click="InkCelRangeAction_Click" />
+                        <NumberBox x:Name="InkRangeBeforeBox" Header="Insert before cel (count + 1 appends)" Minimum="1" Maximum="2147483647" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button x:Name="PasteInkCelRangeButton" Content="Paste copied range" Tag="paste" Click="InkCelRangeAction_Click" IsEnabled="False" />
+                        <Button Content="Move cel range" Tag="move" Click="InkCelRangeAction_Click" />
+                        <Button Content="Delete cel range" Tag="delete" Click="InkCelRangeAction_Click" />
+                        <TextBlock Text="Copy/move/delete uses the inclusive first/last range with keyframes at both ends, up to 10,000 cels. Paste makes independent copies; move uses the insertion cel number from before the move. Inserting within the moved range or immediately after it changes nothing. All layers (including locked drawings), text, exposures and tween settings travel together. Review tweens at the new neighbouring boundaries. Video, audio and markers stay fixed. Each paste/move/delete is one undoable edit; deletion keeps at least one cel. The range clipboard clears when opening another project." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <NumberBox x:Name="InkCycleCopiesBox" Header="Additional copies" Minimum="1" Maximum="100" Value="1" SmallChange="1" SpinButtonPlacementMode="Compact" />
                         <Button Content="Repeat cel range" Click="RepeatInkCelRange_Click" />
                         <TextBlock Text="Insert independent copies immediately after this range, retaining all layers, text, exposure and tween settings. First and last cels must be keyframes to contain the cycle. Maximum 10,000 added cels per operation. Later cels shift; video, audio and markers stay in place. Drawing locks do not block whole-cel operations. Undo restores the previous timeline." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

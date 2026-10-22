@@ -2,6 +2,90 @@ namespace InkMotion;
 
 public static class InkEditing
 {
+    public static List<EditorFrame> CopyCelRange(IReadOnlyList<EditorFrame> frames, int first, int last)
+    {
+        ValidateCelRange(frames, first, last);
+        return frames.Skip(first).Take(last - first + 1).Select(Clone).ToList();
+    }
+
+    private static void ValidateCelRange(IReadOnlyList<EditorFrame> frames, int first, int last)
+    {
+        if (first < 0 || last < first || last >= frames.Count || last - first >= 10000)
+        {
+            throw new InvalidOperationException("Choose an existing inclusive range of at most 10,000 cels.");
+        }
+
+        if (!frames[first].IsKeyframe || !frames[last].IsKeyframe)
+        {
+            throw new InvalidOperationException("Set keyframes on the first and last cels to keep the range's animation self-contained.");
+        }
+    }
+
+    public static int PasteCelRange(List<EditorFrame> frames, IReadOnlyList<EditorFrame> clipboard, int before)
+    {
+        if (before < 0 || before > frames.Count || clipboard.Count is < 1 or > 10000 ||
+            !clipboard[0].IsKeyframe || !clipboard[^1].IsKeyframe)
+        {
+            throw new InvalidOperationException("Copy a keyframe-bounded cel range and choose an insertion position from 1 to the cel count plus one.");
+        }
+
+        if ((long)frames.Count + clipboard.Count > int.MaxValue ||
+            frames.Concat(clipboard).Any(frame => frame.ExposureFrames < 1) ||
+            frames.Sum(frame => (long)frame.ExposureFrames) +
+                clipboard.Sum(frame => (long)frame.ExposureFrames) > int.MaxValue)
+        {
+            throw new InvalidOperationException("The pasted range would exceed the cel timeline limit.");
+        }
+
+        List<EditorFrame> copies = clipboard.Select(Clone).ToList();
+        frames.InsertRange(before, copies);
+        RenumberCels(frames);
+        return before;
+    }
+
+    public static int MoveCelRange(List<EditorFrame> frames, int first, int last, int before)
+    {
+        ValidateCelRange(frames, first, last);
+        if (before < 0 || before > frames.Count)
+        {
+            throw new InvalidOperationException("Choose an insertion position from 1 to the cel count plus one.");
+        }
+
+        if (before >= first && before <= last + 1)
+        {
+            return first;
+        }
+
+        int count = last - first + 1;
+        List<EditorFrame> range = frames.GetRange(first, count);
+        int destination = before > last ? before - count : before;
+        frames.RemoveRange(first, count);
+        frames.InsertRange(destination, range);
+        RenumberCels(frames);
+        return destination;
+    }
+
+    public static int DeleteCelRange(List<EditorFrame> frames, int first, int last)
+    {
+        ValidateCelRange(frames, first, last);
+        if (last - first + 1 == frames.Count)
+        {
+            throw new InvalidOperationException("Keep at least one cel in the animation.");
+        }
+
+        frames.RemoveRange(first, last - first + 1);
+        RenumberCels(frames);
+        return Math.Min(first, frames.Count - 1);
+    }
+
+    private static void RenumberCels(List<EditorFrame> frames)
+    {
+        for (int index = 0; index < frames.Count; index++)
+        {
+            frames[index].Number = index + 1;
+        }
+    }
+
     public static bool FlipLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id, bool horizontal)
     {
         InkLayerProject? layer = layers.FirstOrDefault(candidate => candidate.Id == id);

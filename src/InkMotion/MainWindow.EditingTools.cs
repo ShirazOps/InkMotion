@@ -41,6 +41,8 @@ public sealed partial class MainWindow
         ClearInkSelection();
         _copiedInkSelection.Clear();
         _copiedCel = null;
+        _copiedCelRange.Clear();
+        PasteInkCelRangeButton.IsEnabled = false;
         _copiedAudio = null;
         _copiedAudioPeaks = [];
         _copiedVideo = null;
