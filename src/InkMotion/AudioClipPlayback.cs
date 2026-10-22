@@ -94,19 +94,30 @@ public sealed class AudioClipPlayer : IDisposable
 {
     private const int OutputLatencyMilliseconds = 100;
     private readonly AudioFileReader _reader;
+    private readonly string _audioPath;
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
     private readonly AudioEffectsSampleProvider _effects;
     private readonly ChannelMixingSampleProvider _monitorMix;
     private readonly AudioMeterSampleProvider _meter;
-    private readonly WaveOutEvent _output;
+    private readonly AudioPreviewBus _previewBus;
+    private readonly AudioPreviewInput _previewInput;
     private bool _disposed;
     private bool _soloSuppressed;
     private AudioClipGainSettings _gainSettings;
+    private double _tempoRatio;
+    private double _pitchSemitones;
 
-    public AudioClipPlayer(string audioPath, AudioTrackProject project, AudioChannelLayout mixLayout)
+    public AudioClipPlayer(
+        string audioPath,
+        AudioTrackProject project,
+        AudioChannelLayout mixLayout,
+        AudioPreviewBus previewBus)
     {
+        ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
+        _audioPath = Path.GetFullPath(audioPath);
+        _previewBus = previewBus;
         _gainSettings = AudioClipEditing.CreateGainSettings(project);
         try
         {
@@ -118,14 +129,15 @@ public sealed class AudioClipPlayer : IDisposable
                 _gainSettings,
                 seconds => AudioSourcePosition.Seek(_reader, seconds));
             _stretch = new TimeStretchSampleProvider(_clip, _clip.Seek);
-            _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
-            _effects = new AudioEffectsSampleProvider(_stretch, project.Effects);
+            _tempoRatio = AudioClipEditing.GetTempoRatio(project);
+            _pitchSemitones = project.PitchSemitones;
+            _stretch.SetParameters(_tempoRatio, _pitchSemitones);
+            _effects = new AudioEffectsSampleProvider(_stretch, GetCompatibleEffects(project.Effects));
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout,
                 project.Balance, project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
             _meter = new AudioMeterSampleProvider(_monitorMix);
-            _output = new WaveOutEvent { DesiredLatency = OutputLatencyMilliseconds, NumberOfBuffers = 2 };
-            _output.Init(_meter);
+            _previewInput = _previewBus.AddInput(_meter);
         }
         catch
         {
@@ -142,7 +154,7 @@ public sealed class AudioClipPlayer : IDisposable
 
     public long SourceSampleFrames => _reader.Length / _reader.WaveFormat.BlockAlign;
 
-    public bool IsPlaying => !_disposed && _output.PlaybackState == PlaybackState.Playing;
+    public bool IsPlaying => !_disposed && _previewInput.IsEnabled && _previewBus.IsPlaying;
 
     public AudioMeterReading TakeMeterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
 
@@ -165,8 +177,15 @@ public sealed class AudioClipPlayer : IDisposable
     {
         _gainSettings = AudioClipEditing.CreateGainSettings(project);
         _clip.UpdateSettings(_soloSuppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
-        _stretch.SetParameters(AudioClipEditing.GetTempoRatio(project), project.PitchSemitones);
-        _effects.Update(project.Effects);
+        double tempoRatio = AudioClipEditing.GetTempoRatio(project);
+        if (_tempoRatio != tempoRatio || _pitchSemitones != project.PitchSemitones)
+        {
+            _tempoRatio = tempoRatio;
+            _pitchSemitones = project.PitchSemitones;
+            _stretch.SetParameters(tempoRatio, _pitchSemitones);
+            _previewInput.Reset();
+        }
+        _effects.Update(GetCompatibleEffects(project.Effects));
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
             project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
@@ -188,21 +207,22 @@ public sealed class AudioClipPlayer : IDisposable
     {
         _stretch.Seek(sourceSeconds);
         _effects.Reset();
+        _previewInput.Reset();
     }
 
     public void Play()
     {
-        if (!_disposed && _output.PlaybackState != PlaybackState.Playing)
+        if (!_disposed)
         {
-            _output.Play();
+            _previewInput.SetEnabled(true);
         }
     }
 
     public void Pause()
     {
-        if (!_disposed && _output.PlaybackState == PlaybackState.Playing)
+        if (!_disposed)
         {
-            _output.Pause();
+            _previewInput.SetEnabled(false);
         }
     }
 
@@ -212,10 +232,16 @@ public sealed class AudioClipPlayer : IDisposable
         {
             return;
         }
-
         _disposed = true;
-        _output.Stop();
-        _output.Dispose();
+        _disposed = true;
+        _previewInput.Dispose();
         _reader.Dispose();
     }
+
+    private AudioEffectSettings GetCompatibleEffects(AudioEffectSettings settings) =>
+        settings.NoiseReductionEnabled &&
+        settings.NoiseProfile is AudioNoiseProfile profile &&
+        !profile.MatchesSource(_audioPath, _reader.WaveFormat.SampleRate, _reader.WaveFormat.Channels)
+            ? settings with { NoiseReductionEnabled = false }
+            : settings;
 }

@@ -132,16 +132,18 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         _brushWidth = preset.Width;
         _brushColour = preset.ApplyColour(_brushColour);
+        InkBrushTextureSelector.SelectedIndex = (int)preset.Texture;
         InkWidthSlider.Value = preset.Width;
         InkStabilisationSlider.Value = preset.Stabilisation;
         InkCustomColourPicker.Color = ToColour(_brushColour);
         _isEraser = false;
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isInkLasso = false;
         _inkShape = null;
         ClearInkSelection();
         InkSurface.Invalidate();
         InkBrushPresetSelector.SelectedIndex = -1;
-        StatusText.Text = $"{preset.Name} selected. Round pressure-sensitive brush; colour retained. Width, alpha and stabilisation remain editable.";
+        StatusText.Text = $"{preset.Name} selected. {preset.Texture} pressure-sensitive brush; colour retained. Width, alpha and stabilisation remain editable.";
     }
 }

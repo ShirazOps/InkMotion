@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.IO;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Windows.Foundation;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -26,21 +27,34 @@ public sealed partial class MainWindow
     private const float TimelineLaneSpacing = 2;
     private const double PreviewDriftToleranceSeconds = 0.2;
     private readonly List<TimelineTrackProject> _videoTracks = [];
+    private readonly List<VideoMulticamGroup> _videoMulticamGroups = [];
     private readonly Dictionary<string, StorageFile> _timelineSourceFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unavailableTimelineSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CanvasBitmap> _overlayBitmaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _overlayBitmapRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _unavailablePreviewVideoSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, VideoColourGradingEffect> _previewColourGradingEffects = [];
+    private readonly Dictionary<string, VideoChromaKeyEffect> _previewChromaKeyEffects = [];
+    private readonly Dictionary<string, VideoBlurCanvasEffect> _previewBlurEffects = [];
+    private readonly Dictionary<string, VideoSharpenCanvasEffect> _previewSharpenEffects = [];
+    private readonly Dictionary<string, VideoVignetteCanvasEffect> _previewVignetteEffects = [];
+    private bool _isStabilisationRunning;
+    private bool _isMaskTrackingRunning;
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
+    private AudioClipPlayer? _videoAudioPlayer;
+    private AudioTrackProject? _videoAudioPlayerSettings;
+    private string? _videoAudioPlayerClipId;
+    private string? _videoAudioPlayerPath;
+    private string? _videoAudioFailedClipId;
+    private string? _videoAudioFailedPath;
+    private bool _videoAudioFallbackActive;
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
+    private CanvasBitmap? _videoLumaWaveformBitmap;
+    private CanvasBitmap? _videoVectorscopeBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
     private long _lastVideoScopeSampleMilliseconds;
-    private TimelineVideoFrameSource? _previewVideoFrameSource;
-    private string? _previewVideoFrameSourcePath;
-    private TimelineVideoFrameSource? _transitionVideoFrameSource;
-    private string? _transitionVideoFrameSourcePath;
+    private readonly Dictionary<string, (string Path, TimelineVideoFrameSource Source)> _previewVideoFrameSources = [];
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
@@ -198,6 +212,176 @@ public sealed partial class MainWindow
             : $"{message}  ·  placed on {track.Name} to avoid an overlap";
     }
 
+    private void CreateMulticamGroup_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            selected.Track.IsLocked)
+        {
+            StatusText.Text = "Select an unlocked video camera clip that is active at the playhead.";
+            return;
+        }
+
+        double seconds = _playheadFramePosition / _frameRate;
+        if (_videoTracks.Any(track =>
+                track.Kind == TimelineTrackKind.Video &&
+                VideoTransitions.GetAt(track, seconds, _frameRate) is not null))
+        {
+            StatusText.Text = "Create multicamera groups outside cross-dissolves so each angle has a single active clip.";
+            return;
+        }
+
+        List<TimelineClipLocation> active = VideoTimelineEditing.GetVisibleLayers(_videoTracks, seconds, _frameRate)
+            .Where(location => location.Track.Kind == TimelineTrackKind.Video)
+            .DistinctBy(location => location.Clip.Id)
+            .ToList();
+        active = active
+            .GroupBy(location => location.Track.Id, StringComparer.Ordinal)
+            .Select(group => group.FirstOrDefault(location => location.Clip.Id == selected.Clip.Id) ?? group.Last())
+            .ToList();
+        if (!active.Any(location => location.Clip.Id == selected.Clip.Id) || active.Count < 2)
+        {
+            StatusText.Text = "At least two visible camera clips must overlap at the playhead, including the selected clip.";
+            return;
+        }
+
+        var groupedClipIds = _videoMulticamGroups
+            .SelectMany(group => group.Angles)
+            .Select(angle => angle.TrackId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (active.Any(location => groupedClipIds.Contains(location.Track.Id)))
+        {
+            StatusText.Text = "One or more overlapping clips already belong to a multicamera group.";
+            return;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        _videoMulticamGroups.Add(new VideoMulticamGroup
+        {
+            Name = $"Multicam {_videoMulticamGroups.Count + 1}",
+            StartFrame = PlayheadFrameNumber,
+            Angles = active
+                .OrderByDescending(location => location.Track.Id == selected.Track.Id)
+                .DistinctBy(location => location.Track.Id)
+                .Select(location => new VideoMulticamAngle { TrackId = location.Track.Id, Name = location.Track.Name })
+                .ToList(),
+        });
+        MarkEditChanged();
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        StatusText.Text = $"Created a multicamera group with {active.Count} angles.";
+    }
+
+    private void SwitchMulticamAngle_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            selected.Track.IsLocked)
+        {
+            StatusText.Text = "Select an unlocked video clip that belongs to a multicamera group.";
+            return;
+        }
+
+        VideoMulticamGroup? group = _videoMulticamGroups.FirstOrDefault(candidate =>
+            candidate.Angles.Any(angle => angle.TrackId == selected.Track.Id));
+        if (group is null || PlayheadFrameNumber < group.StartFrame)
+        {
+            StatusText.Text = "The selected clip is not an active angle in a multicamera group at this playhead position.";
+            return;
+        }
+        if (!VideoTimelineEditing.GetVisibleLayers(_videoTracks, _playheadFramePosition / _frameRate, _frameRate)
+            .Any(location => location.Clip.Id == selected.Clip.Id))
+        {
+            StatusText.Text = "The selected camera clip must overlap the playhead to switch to that angle.";
+            return;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        VideoMulticamEditing.SetAngleAtFrame(group, PlayheadFrameNumber, selected.Track.Id);
+        MarkEditChanged();
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        StatusText.Text = $"Switched to {group.Angles.First(angle => angle.TrackId == selected.Track.Id).Name} at the playhead.";
+    }
+
+    private async void GenerateVideoProxy_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            string.IsNullOrWhiteSpace(selected.Clip.SourcePath) ||
+            !File.Exists(selected.Clip.SourcePath) ||
+            selected.Track.IsLocked)
+        {
+            StatusText.Text = "Select an unlocked video clip with an available source to generate a proxy.";
+            return;
+        }
+
+        string clipId = selected.Clip.Id;
+        string sourcePath = selected.Clip.SourcePath;
+        double duration = selected.Clip.SourceDurationSeconds;
+        PausePlayback();
+        FinishActiveEdit();
+        GenerateVideoProxyButton.IsEnabled = false;
+        StatusText.Text = "Generating a 24 fps proxy at up to 960 pixels…";
+        try
+        {
+            var progress = new Progress<VideoProxyProgress>(value =>
+                StatusText.Text = $"Generating proxy: {value.Frame}/{value.FrameCount} frames");
+            VideoProxyResult proxy = await Task.Run(() => VideoProxyGenerator.Generate(sourcePath, duration, progress));
+            TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
+            if (current is null || !string.Equals(current.Clip.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                StatusText.Text = "Proxy created, but the source clip changed before it could be attached.";
+                return;
+            }
+
+            BeginEdit();
+            current.Clip.ProxyPath = proxy.Path;
+            current.Clip.ProxySourceLength = proxy.SourceLength;
+            current.Clip.ProxySourceLastWriteUtcTicks = proxy.SourceLastWriteUtcTicks;
+            current.Clip.UseProxy = true;
+            MarkEditChanged();
+            CommitEdit();
+            RefreshVideoTimeline();
+            SeekToCurrentFrame();
+            StatusText.Text = $"Proxy created and enabled: {Path.GetFileName(proxy.Path)}";
+        }
+        catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or
+            InvalidOperationException or NotSupportedException or ArgumentException or OperationCanceledException)
+        {
+            StatusText.Text = $"Could not generate the video proxy: {ex.Message}";
+        }
+        finally
+        {
+            GenerateVideoProxyButton.IsEnabled = true;
+        }
+    }
+
+    private void ToggleVideoProxy_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        if (!selected.Clip.UseProxy && !VideoProxy.IsAvailable(selected.Clip))
+        {
+            StatusText.Text = "Generate a proxy before enabling proxy playback.";
+            return;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        selected.Clip.UseProxy = !selected.Clip.UseProxy;
+        MarkEditChanged();
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        StatusText.Text = selected.Clip.UseProxy ? "Proxy playback enabled." : "Original media playback enabled.";
+    }
+
     private static async Task<double> ProbeVideoDurationAsync(StorageFile file)
     {
         try
@@ -328,6 +512,8 @@ public sealed partial class MainWindow
         if (!string.Equals(_previewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
         {
             _previewMediaPlayer.Pause();
+            ClearVideoAudioPlayer();
+            _previewMediaPlayer.IsMuted = true;
             MediaSource? previous = _previewMediaSource;
             _previewSourcePath = file.Path;
             _previewReady = false;
@@ -341,17 +527,19 @@ public sealed partial class MainWindow
 
         if (!_previewReady)
         {
+            _videoAudioPlayer?.Pause();
             return false;
         }
 
         TimelineClipProject clip = active.Clip;
+        MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
+        double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
+        bool videoAudioRouted = SyncVideoAudioPreview(active, sourceSeconds, forceSeek);
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
-        _previewMediaPlayer.IsMuted = clip.IsReversed ||
+        _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
             (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
         _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
         PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
-        MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
-        double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
         double tolerance = forceSeek || !_isPlaying
             ? 0.001
             : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
@@ -373,6 +561,102 @@ public sealed partial class MainWindow
         }
 
         return true;
+    }
+
+    private bool SyncVideoAudioPreview(TimelineClipLocation active, double sourceSeconds, bool forceSeek)
+    {
+        TimelineClipProject clip = active.Clip;
+        string? path = clip.SourcePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            ClearVideoAudioPlayer();
+            return false;
+        }
+
+        AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio);
+        bool shouldHear = !project.Muted;
+        if (string.Equals(_videoAudioFailedClipId, clip.Id, StringComparison.Ordinal) &&
+            string.Equals(_videoAudioFailedPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            _videoAudioFallbackActive = shouldHear;
+            return false;
+        }
+
+        if (!string.Equals(_videoAudioPlayerClipId, clip.Id, StringComparison.Ordinal) ||
+            !string.Equals(_videoAudioPlayerPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            ClearVideoAudioPlayer();
+            _videoAudioPlayerClipId = clip.Id;
+            _videoAudioPlayerPath = path;
+            try
+            {
+                _videoAudioPlayer = new AudioClipPlayer(path, project, _audioMixLayout, _audioPreviewBus);
+            }
+            catch (Exception ex) when (
+                IsFileAccessException(ex) ||
+                ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
+            {
+                _videoAudioFailedClipId = clip.Id;
+                _videoAudioFailedPath = path;
+                _videoAudioFallbackActive = shouldHear;
+                return false;
+            }
+        }
+
+        if (_videoAudioPlayer is not AudioClipPlayer player)
+        {
+            return false;
+        }
+
+        bool routeAvailable = _audioPreviewBus.IsPlaying;
+        if (_videoAudioPlayerSettings is null || !VideoAudioSettingsEqual(_videoAudioPlayerSettings, project))
+        {
+            player.Update(project, _audioMixLayout);
+            _videoAudioPlayerSettings = project;
+        }
+
+        if (shouldHear && _isPlaying && routeAvailable)
+        {
+            if (forceSeek || !player.IsPlaying || Math.Abs(player.AudiblePositionSeconds - sourceSeconds) > 0.2)
+            {
+                player.Seek(sourceSeconds);
+            }
+
+            player.Play();
+        }
+        else
+        {
+            player.Pause();
+            if (forceSeek || Math.Abs(player.AudiblePositionSeconds - sourceSeconds) > 0.05)
+            {
+                player.Seek(sourceSeconds);
+            }
+        }
+
+        _videoAudioFallbackActive = shouldHear && _isPlaying && !routeAvailable;
+        return routeAvailable;
+    }
+
+    private static bool VideoAudioSettingsEqual(AudioTrackProject left, AudioTrackProject right) =>
+        string.Equals(left.AudioPath, right.AudioPath, StringComparison.OrdinalIgnoreCase) &&
+        left.SourceInSeconds == right.SourceInSeconds &&
+        left.SourceOutSeconds == right.SourceOutSeconds &&
+        left.Volume == right.Volume &&
+        left.FadeInSeconds == right.FadeInSeconds &&
+        left.FadeOutSeconds == right.FadeOutSeconds &&
+        left.TempoPercent == right.TempoPercent &&
+        left.Muted == right.Muted;
+
+    private void ClearVideoAudioPlayer()
+    {
+        _videoAudioPlayer?.Dispose();
+        _videoAudioPlayer = null;
+        _videoAudioPlayerSettings = null;
+        _videoAudioPlayerClipId = null;
+        _videoAudioPlayerPath = null;
+        _videoAudioFailedClipId = null;
+        _videoAudioFailedPath = null;
+        _videoAudioFallbackActive = false;
     }
 
     private void ApplyVideoPreviewTransform(
@@ -400,6 +684,7 @@ public sealed partial class MainWindow
 
     private void ClearPreviewSource()
     {
+        ClearVideoAudioPlayer();
         if (_previewMediaPlayer.Source is not null)
         {
             _previewMediaPlayer.Pause();
@@ -463,26 +748,10 @@ public sealed partial class MainWindow
         }
 
         DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
-        foreach (TimelineClipLocation overlay in VideoTimelineEditing.GetVisibleOverlays(_videoTracks, seconds, _frameRate))
-        {
-            float opacity = (float)VideoTimelineEditing.GetOpacity(overlay.Clip, overlay.Track.Kind, seconds, _frameRate);
-            if (opacity <= 0)
-            {
-                continue;
-            }
-
-            if (overlay.Track.Kind == TimelineTrackKind.Image)
-            {
-                DrawImageOverlay(sender, args.DrawingSession, overlay.Clip, width, height, opacity);
-            }
-            else
-            {
-                TimelineCompositor.DrawTitle(args.DrawingSession, overlay.Clip, width, height, opacity);
-            }
-        }
     }
 
-    private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height)
+    private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height,
+        bool requireComplete = false)
     {
         if (IsOriginalPreview)
         {
@@ -490,27 +759,48 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate) is not TimelineClipLocation active)
+        IReadOnlyList<TimelineClipLocation> layers =
+            VideoTimelineEditing.GetVisibleLayers(_videoTracks, seconds, _frameRate, _videoMulticamGroups);
+        IReadOnlyList<TimelineClipLocation> videoLayers =
+            VideoTimelineEditing.GetVisibleVideoLayers(_videoTracks, seconds, _frameRate, _videoMulticamGroups);
+        if (videoLayers.Count == 0)
         {
             DisposePreviewVideoFrameSources();
             SetVideoScopeUnavailable("No active video clip at the playhead.");
-            return;
         }
 
-        if (VideoTransitions.GetAt(active.Track, seconds, _frameRate) is VideoCrossDissolve transition)
+        var activeIds = videoLayers.Select(location => location.Clip.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (string clipId in _previewVideoFrameSources.Keys.Where(id => !activeIds.Contains(id)).ToArray())
         {
-            float outgoingOpacity = (float)VideoTimelineEditing.GetOpacity(
-                new TimelineClipLocation(active.Track, transition.OutgoingClip), seconds, _frameRate);
-            float incomingOpacity = (float)VideoTimelineEditing.GetOpacity(
-                new TimelineClipLocation(active.Track, transition.IncomingClip), seconds, _frameRate);
-            DrawComposedVideoClip(canvas, session, transition.OutgoingClip, seconds, width, height, outgoingOpacity, secondary: true);
-            DrawComposedVideoClip(canvas, session, transition.IncomingClip, seconds, width, height, incomingOpacity, secondary: false);
-            return;
+            _previewVideoFrameSources[clipId].Source.Dispose();
+            _previewVideoFrameSources.Remove(clipId);
         }
 
-        DisposeTransitionVideoFrameSource();
-        float opacity = (float)VideoTimelineEditing.GetOpacity(active.Clip, TimelineTrackKind.Video, seconds, _frameRate);
-        DrawComposedVideoClip(canvas, session, active.Clip, seconds, width, height, opacity, secondary: false);
+        string? scopeClipId = videoLayers.LastOrDefault()?.Clip.Id;
+        foreach (TimelineClipLocation layer in layers)
+        {
+            float opacity = (float)VideoTimelineEditing.GetOpacity(layer, seconds, _frameRate);
+            if (opacity <= 0)
+            {
+                continue;
+            }
+
+            switch (layer.Track.Kind)
+            {
+                case TimelineTrackKind.Video:
+                    DrawComposedVideoClip(
+                        canvas, session, layer.Clip, seconds, width, height, opacity,
+                        updateScopes: !requireComplete && layer.Clip.Id == scopeClipId,
+                        requireComplete: requireComplete);
+                    break;
+                case TimelineTrackKind.Image:
+                    DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
+                    break;
+                case TimelineTrackKind.Text:
+                    TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
+                    break;
+            }
+        }
     }
 
     private void DrawComposedVideoClip(
@@ -521,22 +811,37 @@ public sealed partial class MainWindow
         float width,
         float height,
         float opacity,
-        bool secondary)
+        bool updateScopes,
+        bool requireComplete = false)
     {
-        if (opacity <= 0 || clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
+        string path = VideoProxy.GetRenderPath(clip);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
+            (_unavailableTimelineSources.Contains(clip.SourcePath ?? path) && !clip.UseProxy))
         {
-            if (!secondary)
+            if (requireComplete)
             {
-                SetVideoScopeUnavailable(opacity <= 0
-                    ? "The active video clip is fully transparent."
-                    : "The active video clip has no available source.");
+                throw new InvalidOperationException($"Video source unavailable: {Path.GetFileName(path)}.");
             }
+
+            if (updateScopes)
+            {
+                SetVideoScopeUnavailable("The active video clip has no available source.");
+            }
+            return;
+        }
+        if (opacity <= 0)
+        {
             return;
         }
 
         if (_unavailablePreviewVideoSources.Contains(path))
         {
-            if (!secondary)
+            if (requireComplete)
+            {
+                throw new InvalidOperationException($"The modified video frame is unavailable: {Path.GetFileName(path)}.");
+            }
+
+            if (updateScopes)
             {
                 PreviewPlayer.Opacity = 1;
                 SetVideoScopeUnavailable("The active video frame is unavailable for scope analysis.");
@@ -544,32 +849,37 @@ public sealed partial class MainWindow
             return;
         }
 
-        TimelineVideoFrameSource? source = secondary ? _transitionVideoFrameSource : _previewVideoFrameSource;
-        string? sourcePath = secondary ? _transitionVideoFrameSourcePath : _previewVideoFrameSourcePath;
-        if (!string.Equals(sourcePath, path, StringComparison.OrdinalIgnoreCase))
+        TimelineVideoFrameSource? source = null;
+        if (_previewVideoFrameSources.TryGetValue(clip.Id, out var cached))
         {
-            source?.Dispose();
-            source = null;
+            if (string.Equals(cached.Path, path, StringComparison.OrdinalIgnoreCase))
+            {
+                source = cached.Source;
+            }
+            else
+            {
+                cached.Source.Dispose();
+                _previewVideoFrameSources.Remove(clip.Id);
+            }
         }
 
         try
         {
-            source ??= new TimelineVideoFrameSource(path);
-            if (secondary)
+            if (source is null)
             {
-                _transitionVideoFrameSource = source;
-                _transitionVideoFrameSourcePath = path;
-            }
-            else
-            {
-                _previewVideoFrameSource = source;
-                _previewVideoFrameSourcePath = path;
+                source = new TimelineVideoFrameSource(path);
+                _previewVideoFrameSources.Add(clip.Id, (path, source));
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
             if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
             {
-                if (!secondary)
+                if (requireComplete)
+                {
+                    throw new InvalidOperationException($"No video frame is available from {Path.GetFileName(path)}.");
+                }
+
+                if (updateScopes)
                 {
                     SetVideoScopeUnavailable("Waiting for an active video frame.");
                 }
@@ -579,45 +889,46 @@ public sealed partial class MainWindow
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
-            TimelineCompositor.DrawFitted(
-                session,
-                bitmap,
-                VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
-                width,
-                height,
-                transform.Scale,
-                transform.X,
-                transform.Y,
-                opacity,
-                transform.RotationDegrees,
-                clip,
-                colourGradingEffect);
-            if (!secondary)
+            if (opacity > 0)
+            {
+                TimelineCompositor.DrawFitted(
+                    session,
+                    bitmap,
+                    VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
+                    width,
+                    height,
+                    transform.Scale,
+                    transform.X,
+                    transform.Y,
+                    opacity,
+                    transform.RotationDegrees,
+                    clip,
+                    colourGradingEffect,
+                    GetPreviewChromaKeyEffect(clip),
+                    GetPreviewBlurEffect(clip),
+                    GetPreviewVignetteEffect(clip),
+                    VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
+                    GetPreviewSharpenEffect(clip));
+            }
+            if (updateScopes)
             {
                 UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
             }
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
-            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException))
         {
             source?.Dispose();
-            if (secondary)
-            {
-                _transitionVideoFrameSource = null;
-                _transitionVideoFrameSourcePath = null;
-            }
-            else
-            {
-                _previewVideoFrameSource = null;
-                _previewVideoFrameSourcePath = null;
-            }
+            _previewVideoFrameSources.Remove(clip.Id);
 
             _unavailablePreviewVideoSources.Add(path);
-            if (!secondary)
+            if (updateScopes)
             {
                 PreviewPlayer.Opacity = 1;
             }
-            StatusText.Text = $"Could not render {Path.GetFileName(path)} in the modified preview; showing the native video preview instead: {ex.Message}";
+            StatusText.Text = updateScopes
+                ? $"Could not render {Path.GetFileName(path)} in the modified preview; showing the native video preview instead: {ex.Message}"
+                : $"Could not render composited video layer {Path.GetFileName(path)}: {ex.Message}";
         }
     }
 
@@ -627,16 +938,27 @@ public sealed partial class MainWindow
         TimelineClipProject clip,
         float width,
         float height,
-        float opacity)
+        float opacity,
+        bool requireComplete = false)
     {
         if (clip.SourcePath is not string path)
         {
+            if (requireComplete)
+            {
+                throw new InvalidOperationException("The visible image has no source path.");
+            }
+
             return;
         }
 
         if (!_overlayBitmaps.TryGetValue(path, out CanvasBitmap? bitmap))
         {
             RequestOverlayBitmap(canvas, path);
+            if (requireComplete)
+            {
+                throw new InvalidOperationException($"Image {Path.GetFileName(path)} is not loaded. Wait for its preview, then sample again.");
+            }
+
             return;
         }
 
@@ -645,10 +967,13 @@ public sealed partial class MainWindow
         {
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
-                GetPreviewColourGradingEffect(clip));
+                GetPreviewColourGradingEffect(clip), GetPreviewChromaKeyEffect(clip),
+                GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip),
+                VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
+                GetPreviewSharpenEffect(clip));
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
-            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException))
         {
             StatusText.Text = $"Could not render image {Path.GetFileName(path)} with its colour settings: {ex.Message}";
         }
@@ -665,6 +990,70 @@ public sealed partial class MainWindow
         {
             effect = new VideoColourGradingEffect();
             _previewColourGradingEffects.Add(clip.Id, effect);
+        }
+
+        return effect;
+    }
+
+    private VideoChromaKeyEffect? GetPreviewChromaKeyEffect(TimelineClipProject clip)
+    {
+        if (!clip.ChromaKeyEnabled)
+        {
+            return null;
+        }
+
+        if (!_previewChromaKeyEffects.TryGetValue(clip.Id, out VideoChromaKeyEffect? effect))
+        {
+            effect = new VideoChromaKeyEffect();
+            _previewChromaKeyEffects.Add(clip.Id, effect);
+        }
+
+        return effect;
+    }
+
+    private VideoBlurCanvasEffect? GetPreviewBlurEffect(TimelineClipProject clip)
+    {
+        if (clip.BlurAmount <= 0)
+        {
+            return null;
+        }
+
+        if (!_previewBlurEffects.TryGetValue(clip.Id, out VideoBlurCanvasEffect? effect))
+        {
+            effect = new VideoBlurCanvasEffect();
+            _previewBlurEffects.Add(clip.Id, effect);
+        }
+
+        return effect;
+    }
+
+    private VideoVignetteCanvasEffect? GetPreviewVignetteEffect(TimelineClipProject clip)
+    {
+        if (clip.VignetteAmount <= 0)
+        {
+            return null;
+        }
+
+        if (!_previewVignetteEffects.TryGetValue(clip.Id, out VideoVignetteCanvasEffect? effect))
+        {
+            effect = new VideoVignetteCanvasEffect();
+            _previewVignetteEffects.Add(clip.Id, effect);
+        }
+
+        return effect;
+    }
+
+    private VideoSharpenCanvasEffect? GetPreviewSharpenEffect(TimelineClipProject clip)
+    {
+        if (clip.SharpenAmount <= 0)
+        {
+            return null;
+        }
+
+        if (!_previewSharpenEffects.TryGetValue(clip.Id, out VideoSharpenCanvasEffect? effect))
+        {
+            effect = new VideoSharpenCanvasEffect();
+            _previewSharpenEffects.Add(clip.Id, effect);
         }
 
         return effect;
@@ -703,10 +1092,52 @@ public sealed partial class MainWindow
                 sample.DrawImage(image, new Rect(0, 0, 128, 72), source.Bounds, 1);
             }
 
-            _videoRgbHistogram = VideoRgbHistogramData.Analyse(_videoScopeSampleTarget.GetPixelBytes());
+            byte[] pixels = _videoScopeSampleTarget.GetPixelBytes();
+            _videoRgbHistogram = VideoRgbHistogramData.Analyse(pixels);
+            VideoLumaWaveformData waveform = VideoLumaWaveformData.Analyse(
+                pixels,
+                (int)_videoScopeSampleTarget.SizeInPixels.Width,
+                (int)_videoScopeSampleTarget.SizeInPixels.Height);
+            if (_videoLumaWaveformBitmap is null)
+            {
+                _videoLumaWaveformBitmap = CanvasBitmap.CreateFromBytes(
+                    canvas.Device,
+                    waveform.BgraPixels,
+                    VideoLumaWaveformData.Width,
+                    VideoLumaWaveformData.Height,
+                    Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                    96,
+                    CanvasAlphaMode.Premultiplied);
+            }
+            else
+            {
+                _videoLumaWaveformBitmap.SetPixelBytes(waveform.BgraPixels);
+            }
+
+            VideoVectorscopeData vectorscope = VideoVectorscopeData.Analyse(pixels);
+            if (_videoVectorscopeBitmap is null)
+            {
+                _videoVectorscopeBitmap = CanvasBitmap.CreateFromBytes(
+                    canvas.Device,
+                    vectorscope.BgraPixels,
+                    VideoVectorscopeData.Width,
+                    VideoVectorscopeData.Height,
+                    Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                    96,
+                    CanvasAlphaMode.Premultiplied);
+            }
+            else
+            {
+                _videoVectorscopeBitmap.SetPixelBytes(vectorscope.BgraPixels);
+            }
+
             _lastVideoScopeSampleMilliseconds = now;
             VideoRgbHistogramSurface.Invalidate();
+            VideoLumaWaveformSurface.Invalidate();
+            VideoVectorscopeSurface.Invalidate();
             VideoScopeStatus.Text = $"{_videoRgbHistogram.SampleCount:N0} sampled pixels · red, green and blue channels";
+            VideoLumaWaveformStatus.Text = $"{waveform.SampleCount:N0} sampled pixels · Rec. 709 luma";
+            VideoVectorscopeStatus.Text = $"{vectorscope.SampleCount:N0} sampled pixels · Rec. 709 Cb/Cr";
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException)
@@ -724,16 +1155,40 @@ public sealed partial class MainWindow
         }
 
         _videoRgbHistogram = null;
+        _videoLumaWaveformBitmap?.Dispose();
+        _videoLumaWaveformBitmap = null;
+        _videoVectorscopeBitmap?.Dispose();
+        _videoVectorscopeBitmap = null;
         VideoScopeStatus.Text = message;
+        VideoLumaWaveformStatus.Text = message.Replace("RGB distribution", "luma waveform", StringComparison.Ordinal);
+        VideoVectorscopeStatus.Text = message.Replace("RGB distribution", "chroma distribution", StringComparison.Ordinal);
         VideoRgbHistogramSurface.Invalidate();
+        VideoLumaWaveformSurface.Invalidate();
+        VideoVectorscopeSurface.Invalidate();
     }
 
     private void DisposeVideoScopeSampleTarget()
     {
         _videoScopeSampleTarget?.Dispose();
         _videoScopeSampleTarget = null;
+        _videoLumaWaveformBitmap?.Dispose();
+        _videoLumaWaveformBitmap = null;
+        _videoVectorscopeBitmap?.Dispose();
+        _videoVectorscopeBitmap = null;
         _lastVideoScopeSampleMilliseconds = 0;
     }
+
+    private void VideoLumaWaveform_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoLumaWaveformData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoLumaWaveformBitmap);
+
+    private void VideoVectorscope_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoVectorscopeData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoVectorscopeBitmap);
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
     {
@@ -790,22 +1245,37 @@ public sealed partial class MainWindow
 
     private void DisposePreviewVideoFrameSources()
     {
-        _previewVideoFrameSource?.Dispose();
-        _previewVideoFrameSource = null;
-        _previewVideoFrameSourcePath = null;
-        DisposeTransitionVideoFrameSource();
-    }
+        foreach ((string _, TimelineVideoFrameSource source) in _previewVideoFrameSources.Values)
+        {
+            source.Dispose();
+        }
 
-    private void DisposeTransitionVideoFrameSource()
-    {
-        _transitionVideoFrameSource?.Dispose();
-        _transitionVideoFrameSource = null;
-        _transitionVideoFrameSourcePath = null;
+        _previewVideoFrameSources.Clear();
         foreach (VideoColourGradingEffect effect in _previewColourGradingEffects.Values)
         {
             effect.Dispose();
         }
         _previewColourGradingEffects.Clear();
+        foreach (VideoChromaKeyEffect effect in _previewChromaKeyEffects.Values)
+        {
+            effect.Dispose();
+        }
+        _previewChromaKeyEffects.Clear();
+        foreach (VideoBlurCanvasEffect effect in _previewBlurEffects.Values)
+        {
+            effect.Dispose();
+        }
+        _previewBlurEffects.Clear();
+        foreach (VideoVignetteCanvasEffect effect in _previewVignetteEffects.Values)
+        {
+            effect.Dispose();
+        }
+        _previewVignetteEffects.Clear();
+        foreach (VideoSharpenCanvasEffect effect in _previewSharpenEffects.Values)
+        {
+            effect.Dispose();
+        }
+        _previewSharpenEffects.Clear();
     }
 
     private void DisposeVideoTimeline()
@@ -1720,7 +2190,12 @@ public sealed partial class MainWindow
         "Move the playhead inside the selected clip to trim it.");
 
     private void SplitClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.Split(location.Track, location.Clip, PlayheadFrameNumber, _frameRate) is not null,
+        location =>
+        {
+            TimelineClipProject? right = VideoTimelineEditing.Split(
+                location.Track, location.Clip, PlayheadFrameNumber, _frameRate);
+            return right is not null;
+        },
         "Split the clip at the playhead.",
         "Move the playhead inside the selected clip to split it.");
 
@@ -1923,7 +2398,30 @@ public sealed partial class MainWindow
         bool supportsTransform = isVideo || isImage;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        CreateMulticamGroupButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        SwitchMulticamAngleButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        GenerateVideoProxyButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ToggleVideoProxyButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        CreateMulticamGroupButton.IsEnabled = isVideo && !location.Track.IsLocked;
+        VideoMulticamGroup? selectedGroup = isVideo
+            ? _videoMulticamGroups.FirstOrDefault(group => group.Angles.Any(angle => angle.TrackId == location.Track.Id))
+            : null;
+        SwitchMulticamAngleButton.IsEnabled = selectedGroup is not null &&
+            PlayheadFrameNumber >= selectedGroup.StartFrame && !location.Track.IsLocked;
+        GenerateVideoProxyButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
+        bool proxyAvailable = VideoProxy.IsAvailable(clip);
+        ToggleVideoProxyButton.IsEnabled = isVideo && !location.Track.IsLocked && (clip.UseProxy || proxyAvailable);
+        ToggleVideoProxyButton.Content = clip.UseProxy
+            ? proxyAvailable ? "Use original media" : "Proxy unavailable; using original"
+            : "Use proxy";
+        ToolTipService.SetToolTip(
+            ToggleVideoProxyButton,
+            clip.UseProxy && !proxyAvailable
+                ? "The configured proxy is unavailable; preview and export are using the original source."
+                : "Choose whether preview and export decode the generated proxy or the original source.");
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        StabiliseVideoButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        StabiliseVideoButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
         ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipColourGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
@@ -1990,6 +2488,38 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(ClipColourLutLabel, clip.ColourLutPath);
         RemoveClipColourLutButton.IsEnabled = !location.Track.IsLocked &&
             !string.IsNullOrWhiteSpace(clip.ColourLutPath);
+        ClipChromaKeyEnabled.IsChecked = clip.ChromaKeyEnabled;
+        ClipChromaKeyColourSelector.SelectedItem = ClipChromaKeyColourSelector.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string tag &&
+                uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out uint colour) &&
+                colour == clip.ChromaKeyColour);
+        ClipChromaKeyToleranceBox.Value = clip.ChromaKeyTolerance;
+        ClipChromaKeyFeather.IsChecked = clip.ChromaKeyFeather;
+        ClipBlurAmountBox.Value = clip.BlurAmount;
+        ClipSharpenAmountBox.Value = clip.SharpenAmount;
+        ClipVignetteAmountBox.Value = clip.VignetteAmount;
+        ClipMaskShapeSelector.SelectedItem = ClipMaskShapeSelector.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string tag &&
+                Enum.TryParse(tag, out VideoMaskShape shape) && shape == clip.MaskShape);
+        ClipMaskInvertedCheck.IsChecked = clip.MaskInverted;
+        ClipMaskFeatherBox.Value = clip.MaskFeather;
+        VideoMaskValue mask = VideoClipMask.GetValue(
+            clip,
+            VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate));
+        ClipMaskXBox.Value = mask.X;
+        ClipMaskYBox.Value = mask.Y;
+        ClipMaskWidthBox.Value = mask.Width;
+        ClipMaskHeightBox.Value = mask.Height;
+        SetMaskKeyframeButton.IsEnabled = isVideo && !location.Track.IsLocked &&
+            clip.MaskShape != VideoMaskShape.None &&
+            VideoTransformKeyframes.CanSetAtFrame(
+                clip, kind,
+                VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
+                _frameRate);
+        TrackMaskSubjectButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        TrackMaskSubjectButton.IsEnabled = isVideo && !location.Track.IsLocked &&
+            clip.MaskShape != VideoMaskShape.None && !_isMaskTrackingRunning;
         ClipCurveCanvas.Invalidate();
         ClipXSlider.Value = transform.X;
         ClipYSlider.Value = transform.Y;
@@ -2178,6 +2708,153 @@ public sealed partial class MainWindow
         clip.CropTopPercent = top;
         clip.CropBottomPercent = bottom;
         ApplyClipPreview();
+    }
+
+    private void ClipChromaKey_Changed(object sender, RoutedEventArgs e) =>
+        ApplyClipChromaKeySettings(commitEdit: true);
+
+    private void ClipChromaKeyColour_Changed(object sender, SelectionChangedEventArgs e) =>
+        ApplyClipChromaKeySettings(commitEdit: true);
+
+    private void ClipChromaKeyTolerance_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < 0 or > 1)
+        {
+            StatusText.Text = "Chroma-key tolerance must be between 0 and 1.";
+            UpdateVideoInspector();
+            return;
+        }
+
+        ApplyClipChromaKeySettings(commitEdit: false);
+    }
+
+    private void ClipBlurAmount_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < 0 or > VideoBlurEffect.MaximumAmount)
+        {
+            StatusText.Text = $"Blur amount must be between 0 and {VideoBlurEffect.MaximumAmount:0}.";
+            UpdateVideoInspector();
+            return;
+        }
+
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (location.Clip.BlurAmount == args.NewValue)
+        {
+            return;
+        }
+
+        location.Clip.BlurAmount = args.NewValue;
+        ApplyClipPreview();
+    }
+
+    private void ClipVignetteAmount_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < 0 or > VideoVignette.MaximumAmount)
+        {
+            StatusText.Text = "Vignette amount must be between 0 and 1.";
+            UpdateVideoInspector();
+            return;
+        }
+
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (location.Clip.VignetteAmount == args.NewValue)
+        {
+            return;
+        }
+
+        location.Clip.VignetteAmount = args.NewValue;
+        ApplyClipPreview();
+    }
+
+    private void ClipSharpenAmount_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject)
+        {
+            return;
+        }
+
+        if (!double.IsFinite(args.NewValue) || args.NewValue is < 0 or > VideoSharpen.MaximumAmount)
+        {
+            StatusText.Text = $"Sharpen amount must be between 0 and {VideoSharpen.MaximumAmount:0}.";
+            UpdateVideoInspector();
+            return;
+        }
+
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (location.Clip.SharpenAmount == args.NewValue)
+        {
+            return;
+        }
+
+        location.Clip.SharpenAmount = args.NewValue;
+        ApplyClipPreview();
+    }
+
+    private void ApplyClipChromaKeySettings(bool commitEdit)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            ClipChromaKeyColourSelector.SelectedItem is not ComboBoxItem { Tag: string colourTag } ||
+            !uint.TryParse(colourTag, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out uint colour) ||
+            !double.IsFinite(ClipChromaKeyToleranceBox.Value) ||
+            ClipChromaKeyToleranceBox.Value is < 0 or > 1 ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        TimelineClipProject clip = location.Clip;
+        bool enabled = ClipChromaKeyEnabled.IsChecked == true;
+        double tolerance = ClipChromaKeyToleranceBox.Value;
+        bool feather = ClipChromaKeyFeather.IsChecked == true;
+        if (clip.ChromaKeyEnabled == enabled && clip.ChromaKeyColour == colour &&
+            clip.ChromaKeyTolerance == tolerance && clip.ChromaKeyFeather == feather)
+        {
+            CommitEdit();
+            return;
+        }
+
+        clip.ChromaKeyEnabled = enabled;
+        clip.ChromaKeyColour = colour;
+        clip.ChromaKeyTolerance = tolerance;
+        clip.ChromaKeyFeather = feather;
+        ApplyClipPreview();
+        if (commitEdit)
+        {
+            CommitEdit();
+            UpdateVideoInspector();
+            StatusText.Text = enabled ? "Chroma key applied to the selected clip." : "Chroma key disabled.";
+        }
     }
 
     private void ClipColourGrading_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -2662,6 +3339,204 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
+    }
+
+    private async void StabiliseVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isStabilisationRunning ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            selected.Track.IsLocked ||
+            string.IsNullOrWhiteSpace(selected.Clip.SourcePath))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        TimelineClipProject snapshot = VideoTimelineEditing.Clone(selected.Clip);
+        string originalState = System.Text.Json.JsonSerializer.Serialize(snapshot);
+        string clipId = selected.Clip.Id;
+        _isStabilisationRunning = true;
+        StabiliseVideoButton.IsEnabled = false;
+        StatusText.Text = "Analysing source motion for translation and small-angle rotational stabilisation…";
+        try
+        {
+            IReadOnlyList<VideoTransformKeyframe> stabilised = await Task.Run(
+                () => VideoStabilisation.Analyse(snapshot, _frameRate));
+
+            if (SelectedTimelineClip is not TimelineClipLocation current ||
+                current.Clip.Id != clipId ||
+                System.Text.Json.JsonSerializer.Serialize(current.Clip) != originalState)
+            {
+                StatusText.Text = "Stabilisation was not applied because the selected clip changed during analysis.";
+                return;
+            }
+
+            if (!TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                return;
+            }
+
+            location.Clip.TransformKeyframes = stabilised.ToList();
+            ApplyClipPreview();
+            CommitEdit();
+            UpdateVideoInspector();
+            StatusText.Text = $"Applied translation and rotational stabilisation with {stabilised.Count} motion samples.";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            StatusText.Text = $"Could not stabilise the selected clip: {ex.Message}";
+        }
+        finally
+        {
+            _isStabilisationRunning = false;
+            UpdateVideoInspector();
+        }
+    }
+
+    private void ClipMaskShape_Changed(object sender, SelectionChangedEventArgs e) =>
+        ApplyClipMaskSettings();
+
+    private void ClipMaskNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e) =>
+        ApplyClipMaskSettings();
+
+    private void ClipMaskFeather_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e) =>
+        ApplyClipMaskSettings();
+
+    private void ClipMaskSettings_Changed(object sender, RoutedEventArgs e) =>
+        ApplyClipMaskSettings();
+
+    private void ApplyClipMaskSettings()
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            ClipMaskShapeSelector.SelectedItem is not ComboBoxItem { Tag: string shapeTag } ||
+            !Enum.TryParse(shapeTag, out VideoMaskShape shape) ||
+            !double.IsFinite(ClipMaskXBox.Value) || ClipMaskXBox.Value is < 0 or > 1 ||
+            !double.IsFinite(ClipMaskYBox.Value) || ClipMaskYBox.Value is < 0 or > 1 ||
+            !double.IsFinite(ClipMaskWidthBox.Value) || ClipMaskWidthBox.Value is <= 0 or > 1 ||
+            !double.IsFinite(ClipMaskHeightBox.Value) || ClipMaskHeightBox.Value is <= 0 or > 1 ||
+            !double.IsFinite(ClipMaskFeatherBox.Value) || ClipMaskFeatherBox.Value is < 0 or > 0.25 ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        TimelineClipProject clip = location.Clip;
+        int currentFrameOffset = VideoTransformKeyframes.GetFrameOffset(clip, CurrentPlaybackSeconds, _frameRate);
+        VideoMaskValue currentMask = VideoClipMask.GetValue(clip, currentFrameOffset);
+        var newMask = new VideoMaskValue(
+            ClipMaskXBox.Value, ClipMaskYBox.Value, ClipMaskWidthBox.Value, ClipMaskHeightBox.Value);
+        bool inverted = ClipMaskInvertedCheck.IsChecked == true;
+        double feather = ClipMaskFeatherBox.Value;
+        if (clip.MaskShape == shape && currentMask == newMask &&
+            clip.MaskInverted == inverted && clip.MaskFeather == feather)
+        {
+            CommitEdit();
+            return;
+        }
+
+        clip.MaskShape = shape;
+        clip.MaskInverted = inverted;
+        clip.MaskFeather = feather;
+        if (shape != VideoMaskShape.None && location.Track.Kind == TimelineTrackKind.Video &&
+            clip.MaskKeyframes.Count > 0)
+        {
+            VideoClipMask.SetKeyframe(clip, location.Track.Kind, currentFrameOffset, _frameRate, newMask);
+        }
+        else
+        {
+            clip.MaskX = newMask.X;
+            clip.MaskY = newMask.Y;
+            clip.MaskWidth = newMask.Width;
+            clip.MaskHeight = newMask.Height;
+        }
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
+    private async void TrackMaskSubject_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            selected.Track.IsLocked || selected.Clip.MaskShape == VideoMaskShape.None ||
+            string.IsNullOrWhiteSpace(selected.Clip.SourcePath))
+        {
+            return;
+        }
+
+        TimelineClipProject snapshot = VideoTimelineEditing.Clone(selected.Clip);
+        string clipId = snapshot.Id;
+        string sourcePath = snapshot.SourcePath!;
+        int startOffset = VideoTransformKeyframes.GetFrameOffset(
+            snapshot, _playheadFramePosition / _frameRate, _frameRate);
+        VideoMaskValue initialMask = VideoClipMask.GetValue(snapshot, startOffset);
+        double frameRate = _frameRate;
+        _isMaskTrackingRunning = true;
+        TrackMaskSubjectButton.IsEnabled = false;
+        StatusText.Text = "Tracking the selected mask feature from the playhead…";
+        try
+        {
+            IReadOnlyList<VideoMaskKeyframe> keys = await Task.Run(() =>
+                VideoMaskTracking.Analyse(snapshot, frameRate, startOffset, initialMask));
+            TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
+            if (current is null ||
+                !string.Equals(current.Clip.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
+                current.Clip.MaskShape != snapshot.MaskShape)
+            {
+                StatusText.Text = "Tracking finished, but the selected clip or mask changed; no tracking keys were applied.";
+                return;
+            }
+
+            FinishActiveEdit();
+            BeginEdit();
+            current.Clip.MaskKeyframes.RemoveAll(key => key.FrameOffset >= startOffset);
+            current.Clip.MaskKeyframes.AddRange(keys);
+            current.Clip.MaskKeyframes.Sort((left, right) => left.FrameOffset.CompareTo(right.FrameOffset));
+            MarkEditChanged();
+            CommitEdit();
+            RefreshVideoTimeline();
+            SeekToCurrentFrame();
+            StatusText.Text = $"Tracked the mask across {keys.Count} samples. Review the keys and adjust any drift.";
+        }
+        catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or
+            InvalidOperationException or ArgumentException or InvalidDataException)
+        {
+            StatusText.Text = $"Could not track the mask: {ex.Message}";
+        }
+        finally
+        {
+            _isMaskTrackingRunning = false;
+            UpdateVideoInspector();
+        }
+    }
+
+    private void SetMaskKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video || selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool added = VideoClipMask.SetKeyframe(selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (added)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = added
+            ? $"Mask tracking keyframe set at clip frame {frameOffset + 1}."
+            : "Choose a rectangle or ellipse mask and move the playhead inside the video clip.";
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)

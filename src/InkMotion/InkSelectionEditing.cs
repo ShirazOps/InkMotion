@@ -1,7 +1,152 @@
 namespace InkMotion;
 
+public sealed record InkStrokePartition(
+    List<InkPoint> Original,
+    List<List<InkPoint>> Pieces,
+    List<List<InkPoint>> Selected);
+
 public static class InkSelectionEditing
 {
+    public static List<InkStrokePartition> SelectPartial(
+        List<List<InkPoint>> strokes, IReadOnlyList<InkPoint> polygon)
+    {
+        if (polygon.Count < 3 || polygon.Any(point => !double.IsFinite(point.X) || !double.IsFinite(point.Y)) ||
+            Math.Abs(Enumerable.Range(0, polygon.Count).Sum(index =>
+                polygon[index].X * polygon[(index + 1) % polygon.Count].Y -
+                polygon[(index + 1) % polygon.Count].X * polygon[index].Y)) < 1e-10)
+        {
+            return [];
+        }
+
+        bool Inside(InkPoint point)
+        {
+            bool inside = false;
+            for (int i = 0, j = polygon.Count - 1; i < polygon.Count; j = i++)
+            {
+                InkPoint a = polygon[j];
+                InkPoint b = polygon[i];
+                double cross = (b.X - a.X) * (point.Y - a.Y) - (b.Y - a.Y) * (point.X - a.X);
+                if (Math.Abs(cross) < 1e-12 &&
+                    point.X >= Math.Min(a.X, b.X) && point.X <= Math.Max(a.X, b.X) &&
+                    point.Y >= Math.Min(a.Y, b.Y) && point.Y <= Math.Max(a.Y, b.Y))
+                {
+                    return true;
+                }
+
+                if ((a.Y > point.Y) != (b.Y > point.Y) &&
+                    point.X < (b.X - a.X) * (point.Y - a.Y) / (b.Y - a.Y) + a.X)
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
+        var partitions = new List<InkStrokePartition>();
+        foreach (List<InkPoint> stroke in strokes)
+        {
+            if (stroke.Count == 1)
+            {
+                if (Inside(stroke[0]))
+                {
+                    List<InkPoint> dot = InkEditing.CloneStrokes([stroke])[0];
+                    partitions.Add(new(stroke, [dot], [dot]));
+                }
+                continue;
+            }
+
+            var pieces = new List<List<InkPoint>>();
+            var selected = new List<List<InkPoint>>();
+            List<InkPoint>? piece = null;
+            bool? previousInside = null;
+            for (int index = 1; index < stroke.Count; index++)
+            {
+                InkPoint a = stroke[index - 1];
+                InkPoint b = stroke[index];
+                double dx = b.X - a.X;
+                double dy = b.Y - a.Y;
+                var cuts = new List<double> { 0, 1 };
+                for (int edge = 0; edge < polygon.Count; edge++)
+                {
+                    InkPoint c = polygon[edge];
+                    InkPoint d = polygon[(edge + 1) % polygon.Count];
+                    double ex = d.X - c.X;
+                    double ey = d.Y - c.Y;
+                    double denominator = dx * ey - dy * ex;
+                    if (Math.Abs(denominator) > 1e-12)
+                    {
+                        double t = ((c.X - a.X) * ey - (c.Y - a.Y) * ex) / denominator;
+                        double u = ((c.X - a.X) * dy - (c.Y - a.Y) * dx) / denominator;
+                        if (t > 0 && t < 1 && u >= 0 && u <= 1)
+                        {
+                            cuts.Add(t);
+                        }
+                    }
+                    else if (Math.Abs((c.X - a.X) * dy - (c.Y - a.Y) * dx) < 1e-12 &&
+                        dx * dx + dy * dy > 1e-20)
+                    {
+                        foreach (InkPoint end in new[] { c, d })
+                        {
+                            double t = ((end.X - a.X) * dx + (end.Y - a.Y) * dy) / (dx * dx + dy * dy);
+                            if (t > 0 && t < 1)
+                            {
+                                cuts.Add(t);
+                            }
+                        }
+                    }
+                }
+
+                cuts.Sort();
+                for (int cut = 1; cut < cuts.Count; cut++)
+                {
+                    double start = cuts[cut - 1];
+                    double end = cuts[cut];
+                    if (end - start < 1e-12)
+                    {
+                        continue;
+                    }
+
+                    bool inside = Inside(InkStrokeEditing.Interpolate(a, b, (start + end) / 2));
+                    if (piece is null || inside != previousInside)
+                    {
+                        piece = [InkStrokeEditing.Interpolate(a, b, start)];
+                        pieces.Add(piece);
+                        if (inside)
+                        {
+                            selected.Add(piece);
+                        }
+                    }
+
+                    piece.Add(InkStrokeEditing.Interpolate(a, b, end));
+                    previousInside = inside;
+                }
+            }
+
+            if (selected.Count > 0)
+            {
+                partitions.Add(new(stroke, pieces, selected));
+            }
+        }
+
+        return partitions;
+    }
+
+    public static void ApplyPartitions(List<List<InkPoint>> strokes, IReadOnlyList<InkStrokePartition> partitions)
+    {
+        if (partitions.Any(partition => !strokes.Contains(partition.Original)))
+        {
+            throw new InvalidOperationException("The drawing changed after the partial selection. Select it again.");
+        }
+
+        foreach (InkStrokePartition partition in partitions)
+        {
+            int index = strokes.IndexOf(partition.Original);
+            strokes.RemoveAt(index);
+            strokes.InsertRange(index, partition.Pieces);
+        }
+    }
+
     public static List<List<InkPoint>> Select(List<List<InkPoint>> strokes, IReadOnlyList<InkPoint> polygon)
     {
         if (polygon.Count < 3 || Math.Abs(Enumerable.Range(0, polygon.Count).Sum(index =>

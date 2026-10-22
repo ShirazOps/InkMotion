@@ -135,8 +135,8 @@ public sealed class InkEditingTests
     [Fact]
     public void BrushPresets_StayWithinToolsRangesAndPreserveHueWhileReplacingAlpha()
     {
-        Assert.Equal(4, InkBrushPresets.All.Count);
-        Assert.Equal(4, InkBrushPresets.All.Select(preset => preset.Name).Distinct().Count());
+        Assert.Equal(6, InkBrushPresets.All.Count);
+        Assert.Equal(6, InkBrushPresets.All.Select(preset => preset.Name).Distinct().Count());
         foreach (InkBrushPreset preset in InkBrushPresets.All)
         {
             Assert.InRange(preset.Width, 1, 12);
@@ -147,11 +147,12 @@ public sealed class InkEditingTests
             Assert.Equal((uint)Math.Round(preset.Opacity * 255), colour >> 24);
             var project = new EditorProject
             {
-                Frames = [new() { Strokes = [[new() { BrushWidth = preset.Width, BrushColour = colour }]] }],
+                Frames = [new() { Strokes = [[new() { BrushWidth = preset.Width, BrushColour = colour, BrushTexture = preset.Texture }]] }],
             };
             EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
             Assert.Equal(colour, reopened.Frames[0].Strokes[0][0].BrushColour);
             Assert.Equal(preset.Width, reopened.Frames[0].Strokes[0][0].BrushWidth);
+            Assert.Equal(preset.Texture, reopened.Frames[0].Strokes[0][0].BrushTexture);
         }
     }
 

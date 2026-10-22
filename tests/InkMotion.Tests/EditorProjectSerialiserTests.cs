@@ -58,6 +58,53 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionThirtyProject_MigratesWithNoProxyOrMulticamState()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":30,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Empty(restored.VideoMulticamGroups);
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Null(clip.ProxyPath);
+        Assert.False(clip.UseProxy);
+    }
+
+    [Fact]
+    public void Deserialise_VersionThirtyThreeProject_MigratesMulticamClipIdsToTrackIds()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":33,"VideoTracks":[{"Id":"track-a","Kind":"Video","Name":"Camera A","Clips":[{"Id":"clip-a","SourcePath":"C:\\Media\\a.mp4","SourceDurationSeconds":10}]},{"Id":"track-b","Kind":"Video","Name":"Camera B","Clips":[{"Id":"clip-b","SourcePath":"C:\\Media\\b.mp4","SourceDurationSeconds":10}]}],"VideoMulticamGroups":[{"Id":"group","Name":"Two cameras","StartFrame":1,"Angles":[{"ClipId":"clip-a","Name":"Camera A"},{"ClipId":"clip-b","Name":"Camera B"}],"Switches":[{"Frame":25,"ClipId":"clip-b"}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        VideoMulticamGroup group = Assert.Single(restored.VideoMulticamGroups);
+        Assert.Equal(["track-a", "track-b"], group.Angles.Select(angle => angle.TrackId));
+        Assert.Equal("track-b", VideoMulticamEditing.GetActiveTrackId(group, 25));
+    }
+
+    [Fact]
+    public void Deserialise_VersionThirtyFourProject_DefaultsSharpeningToDisabled()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":34,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(0, Assert.Single(Assert.Single(restored.VideoTracks).Clips).SharpenAmount);
+    }
+
+    [Fact]
+    public void Deserialise_VersionThirtyFiveProject_DisablesNoiseReductionWithoutAProfile()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":35,"AudioTracks":[{"AudioPath":"C:\\Media\\speech.wav","Effects":{"Enabled":true}}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        AudioEffectSettings effects = Assert.Single(restored.AudioTracks).Effects;
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.False(effects.NoiseReductionEnabled);
+        Assert.Null(effects.NoiseProfile);
+    }
+
+    [Fact]
     public void Deserialise_VersionTwentyProject_MigratesWithNoTransformKeyframes()
     {
         EditorProject restored = EditorProjectSerialiser.Deserialise(
@@ -589,6 +636,15 @@ public sealed class EditorProjectSerialiserTests
                     GainDecibels = 3.2,
                     TempoPercent = 125,
                     PitchSemitones = -3.5,
+                    Effects = new AudioEffectSettings
+                    {
+                        Enabled = true,
+                        NoiseReductionEnabled = true,
+                        NoiseReductionStrengthDecibels = 9,
+                        NoiseProfile = new AudioNoiseProfile(
+                            @"C:\Media\voice.wav", 48000, 1, AudioNoiseProfile.DefaultFftSize,
+                            Enumerable.Repeat(0.025, AudioNoiseProfile.DefaultFftSize / 2 + 1).ToArray()),
+                    },
                 },
             ],
             AudioMixLayout = AudioChannelLayout.Surround121,
@@ -604,6 +660,11 @@ public sealed class EditorProjectSerialiserTests
         Assert.Equal(3.2, track.GainDecibels);
         Assert.Equal(125, track.TempoPercent);
         Assert.Equal(-3.5, track.PitchSemitones);
+        Assert.True(track.Effects.NoiseReductionEnabled);
+        Assert.Equal(9, track.Effects.NoiseReductionStrengthDecibels);
+        AudioNoiseProfile profile = Assert.IsType<AudioNoiseProfile>(track.Effects.NoiseProfile);
+        Assert.Equal(513, profile.Magnitudes.Length);
+        Assert.All(profile.Magnitudes, value => Assert.Equal(0.025, value));
         Assert.Equal(AudioChannelLayout.Surround121, restored.AudioMixLayout);
     }
 

@@ -140,13 +140,14 @@ public static class InkStrokeEditing
         return changed;
     }
 
-    private static InkPoint Interpolate(InkPoint a, InkPoint b, double t) => new()
+    internal static InkPoint Interpolate(InkPoint a, InkPoint b, double t) => new()
     {
         X = a.X + (b.X - a.X) * t,
         Y = a.Y + (b.Y - a.Y) * t,
         Pressure = a.Pressure + (b.Pressure - a.Pressure) * t,
         BrushWidth = a.BrushWidth + (b.BrushWidth - a.BrushWidth) * t,
         BrushColour = t < 1 ? a.BrushColour : b.BrushColour,
+        BrushTexture = t < 1 ? a.BrushTexture : b.BrushTexture,
     };
 
     public static InkPoint Stabilise(InkPoint input, InkPoint? previous, double amount)
@@ -163,6 +164,7 @@ public static class InkStrokeEditing
             Pressure = input.Pressure,
             BrushWidth = input.BrushWidth,
             BrushColour = input.BrushColour,
+            BrushTexture = input.BrushTexture,
         };
     }
 }

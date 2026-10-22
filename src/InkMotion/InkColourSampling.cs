@@ -6,15 +6,22 @@ namespace InkMotion;
 public static class InkColourSampling
 {
     public static uint Sample(ICanvasResourceCreator device, EditorProject project, int frameIndex,
-        double width, double height, double x, double y)
+        double width, double height, double x, double y) =>
+        SampleComposite(device, project, frameIndex, width, height, x, y, 0, (_, _, _) => { });
+
+    public static uint SampleComposite(ICanvasResourceCreator device, EditorProject project, int frameIndex,
+        double width, double height, double x, double y, uint background,
+        Action<CanvasDrawingSession, float, float> drawMedia)
     {
+        ArgumentNullException.ThrowIfNull(drawMedia);
         (int pixelX, int pixelY) = GetPixel(x, y, width, height);
         using var pixel = new CanvasRenderTarget(device, 1, 1, 96,
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession session = pixel.CreateDrawingSession())
         {
-            session.Clear(Microsoft.UI.Colors.Transparent);
+            session.Clear(TimelineCompositor.ToColour(background));
             session.Transform = Matrix3x2.CreateTranslation(-pixelX, -pixelY);
+            drawMedia(session, (float)width, (float)height);
             TimelineCompositor.DrawInkFrame(session, project, frameIndex, (float)width, (float)height, 1);
         }
 

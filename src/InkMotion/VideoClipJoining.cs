@@ -72,6 +72,19 @@ public static class VideoClipJoining
             !left.GreenCurve.SequenceEqual(right.GreenCurve) ||
             !left.BlueCurve.SequenceEqual(right.BlueCurve) ||
             !string.Equals(left.ColourLutPath, right.ColourLutPath, StringComparison.OrdinalIgnoreCase) ||
+            left.ChromaKeyEnabled != right.ChromaKeyEnabled ||
+            left.ChromaKeyColour != right.ChromaKeyColour ||
+            left.ChromaKeyTolerance != right.ChromaKeyTolerance ||
+            left.ChromaKeyFeather != right.ChromaKeyFeather ||
+            left.BlurAmount != right.BlurAmount ||
+            left.SharpenAmount != right.SharpenAmount ||
+            left.VignetteAmount != right.VignetteAmount ||
+            left.MaskShape != right.MaskShape ||
+            left.MaskInverted != right.MaskInverted || left.MaskFeather != right.MaskFeather ||
+            left.UseProxy != right.UseProxy ||
+            left.MaskX != right.MaskX || left.MaskY != right.MaskY ||
+            left.MaskWidth != right.MaskWidth || left.MaskHeight != right.MaskHeight ||
+            !left.MaskKeyframes.SequenceEqual(right.MaskKeyframes) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {

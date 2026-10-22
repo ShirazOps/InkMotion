@@ -170,6 +170,62 @@ public sealed class VideoClipJoiningTests
         Assert.Contains("colour", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("enabled")]
+    [InlineData("colour")]
+    [InlineData("tolerance")]
+    [InlineData("feather")]
+    [InlineData("blur")]
+    [InlineData("vignette")]
+    [InlineData("stabilised")]
+    public void Join_RejectsClipsWithDifferentVideoEffectSettings(string setting)
+    {
+        TimelineClipProject left = new()
+        {
+            SourcePath = @"C:\Media\source.mp4",
+            SourceOutSeconds = 2,
+            SourceDurationSeconds = 4,
+        };
+        TimelineTrackProject track = new()
+        {
+            Kind = TimelineTrackKind.Video,
+            Clips = [left],
+        };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, left, 25, 24));
+        switch (setting)
+        {
+            case "enabled":
+                right.ChromaKeyEnabled = true;
+                break;
+            case "colour":
+                right.ChromaKeyColour = 0xFF0000FF;
+                break;
+            case "tolerance":
+                right.ChromaKeyTolerance = 0.2;
+                break;
+            case "feather":
+                right.ChromaKeyFeather = false;
+                break;
+            case "blur":
+                right.BlurAmount = 2;
+                break;
+            case "vignette":
+                right.VignetteAmount = 0.5;
+                break;
+            case "stabilised":
+                right.TransformKeyframes = [new VideoTransformKeyframe { FrameOffset = 1, X = 0.45, Y = 0.5, Scale = 1.1 }];
+                break;
+        }
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => VideoClipJoining.Join(track, left, right, 24));
+        Assert.Contains(
+            setting == "stabilised" ? "keyframes" : "styling",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private static float[] ReadMix(EditorProject project)
     {
         using var mixer = new ExportAudioMixer(project, 48000);

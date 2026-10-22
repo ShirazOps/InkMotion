@@ -641,7 +641,7 @@ public sealed class VideoExportTests
                 VideoExportCodec.H264, output, 720, PreferHardware: false), null, CancellationToken.None);
             Assert.Equal(60, result.FrameCount);
             Assert.Equal(0.5, result.DurationSeconds, 3);
-            Assert.False(result.UsedHardwareEncoder);
+            Assert.False(result.HardwareTransformsEnabled);
             using var video = new MediaFoundationVideoReader(output);
             Assert.True(video.TryGetFrame(0.1));
             var red = GetPixel(video, 640, 504);

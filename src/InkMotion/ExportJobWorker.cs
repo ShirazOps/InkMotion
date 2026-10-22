@@ -95,7 +95,10 @@ public static class ExportJobWorker
                         video.InkReferenceHeight, video.PreferHardware, video.Quality, video.AudioSampleRate, video.AudioBitRate),
                         new InlineProgress<VideoExportProgress>(update => Report(update.Fraction,
                             $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0}")), cancellation.Token);
-                    summary = $"Exported {result.DurationSeconds:0.0} s · {(result.UsedHardwareEncoder ? "GPU encoder" : "software encoder")}";
+                    summary = $"Exported {result.DurationSeconds:0.0} s · " +
+                        (result.HardwareTransformsEnabled
+                            ? "hardware transforms preferred (encoder hardware use unverified)"
+                            : "hardware transforms not requested (encoder hardware use unverified)");
                     warnings = result.Warnings;
                 }
 

@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly AudioPreviewBus _audioPreviewBus = new();
     private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
     private readonly List<RenderedStroke> _renderedStrokes = [];
     private readonly List<RenderedText> _renderedText = [];
@@ -70,6 +71,8 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
         InitialiseVideoTimeline();
+        InitialiseAudioRecordingControls();
+        _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
         UpdateSelectedAudioTrack();
         RefreshInkLayers();
         InkBrushPresetSelector.ItemsSource = InkBrushPresets.All.Select(preset => preset.Name).ToArray();
@@ -207,6 +210,12 @@ public sealed partial class MainWindow : Window
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        if (IsAudioRecordingInProgress)
+        {
+            StatusText.Text = "Stop audio recording before opening another project.";
+            return;
+        }
+
         PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
@@ -1378,7 +1387,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout);
+            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout, _audioPreviewBus);
         }
         catch (Exception ex) when (
             IsFileAccessException(ex) ||
@@ -1416,6 +1425,15 @@ public sealed partial class MainWindow : Window
             {
                 _timelinePosition = TimeSpan.Zero;
                 SelectFrame(0, seekVideo: false);
+            }
+
+            try
+            {
+                _audioPreviewBus.Play();
+            }
+            catch (Exception ex) when (ex is NAudio.MmException or InvalidOperationException or IOException)
+            {
+                StatusText.Text = $"Audio preview could not start: {ex.Message}";
             }
 
             _isPlaying = true;
@@ -1594,6 +1612,7 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isEraser = false;
         _inkShape = null;
         _isInkLasso = false;
@@ -1604,6 +1623,7 @@ public sealed partial class MainWindow : Window
     {
         FinishActiveEdit();
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isEraser = true;
         _inkShape = null;
         _isInkLasso = false;
@@ -1666,6 +1686,8 @@ public sealed partial class MainWindow : Window
     private void ExportResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateExportProfileReadout();
+        UpdateInkRulerReadout();
+        InkSurface?.Invalidate();
     }
 
     private void UpdateExportProfileReadout()
@@ -1697,10 +1719,18 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (_isInkTextPicker)
+        {
+            var point = e.GetCurrentPoint(InkSurface).Position;
+            SelectInkTextAtPoint(point.X, point.Y);
+            e.Handled = true;
+            return;
+        }
+
         if (_isInkColourSampler)
         {
             var point = e.GetCurrentPoint(InkSurface).Position;
-            SampleInkColour(point.X, point.Y);
+            SampleInkColour(point.X, point.Y, _samplePreviewColour);
             e.Handled = true;
             return;
         }
@@ -1881,6 +1911,7 @@ public sealed partial class MainWindow : Window
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
+            BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
@@ -1996,6 +2027,8 @@ public sealed partial class MainWindow : Window
         }
 
         DrawInkSelection(args.DrawingSession, width, height);
+        DrawSelectedInkText(args.DrawingSession, width, height);
+        DrawInkRulers(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
@@ -2040,6 +2073,7 @@ public sealed partial class MainWindow : Window
         _isEraser = false;
         _inkShape = shape;
         _isInkColourSampler = false;
+        _isInkTextPicker = false;
         _isInkLasso = false;
         StatusText.Text = $"{name} tool selected. Drag on the canvas to draw an outline on the active layer.";
     }
@@ -2057,6 +2091,10 @@ public sealed partial class MainWindow : Window
             Math.Clamp(_shapeStartPoint.Y / InkSurface.ActualHeight, 0, 1),
             Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
             Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour);
+        foreach (InkPoint shapePoint in points)
+        {
+            shapePoint.BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex;
+        }
         _activeStroke.Clear();
         _activeStroke.AddRange(points);
         MarkEditChanged();
@@ -2212,6 +2250,7 @@ public sealed partial class MainWindow : Window
         {
             FrameRate = _frameRate,
             VideoTracks = videoTracks,
+            VideoMulticamGroups = _videoMulticamGroups.Select(VideoMulticamEditing.Clone).ToList(),
             Markers = _timelineMarkers.Select(TimelineMarkers.Clone).ToList(),
             AudioPath = firstLoadedTrack?.AudioPath,
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
@@ -2253,6 +2292,8 @@ public sealed partial class MainWindow : Window
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         RestoreVideoTracks(project.VideoTracks);
+        _videoMulticamGroups.Clear();
+        _videoMulticamGroups.AddRange(project.VideoMulticamGroups.Select(VideoMulticamEditing.Clone));
         _timelineMarkers.Clear();
         _timelineMarkers.AddRange(project.Markers.Select(TimelineMarkers.Clone));
         _audioMixLayout = project.AudioMixLayout;
@@ -2334,6 +2375,11 @@ public sealed partial class MainWindow : Window
 
     private void CommitEdit()
     {
+        var existingVideoTrackIds = _videoTracks
+            .Where(track => track.Kind == TimelineTrackKind.Video)
+            .Select(track => track.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        VideoMulticamEditing.RemoveMissingTracks(_videoMulticamGroups, existingVideoTrackIds);
         if (_pendingEdit is not null && _pendingEditChanged)
         {
             PushHistory(_undoHistory, _pendingEdit);
@@ -2457,6 +2503,7 @@ public sealed partial class MainWindow : Window
         {
             track.Player?.Pause();
         }
+        _audioPreviewBus.Pause();
 
         if (_timelineClock.IsRunning)
         {
@@ -2494,6 +2541,7 @@ public sealed partial class MainWindow : Window
                     Pressure = point.Pressure,
                     BrushWidth = point.BrushWidth,
                     BrushColour = point.BrushColour,
+                    BrushTexture = point.BrushTexture,
                 }).ToList())
                 .ToList());
         }
@@ -2604,6 +2652,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        StopAudioRecordingForClose();
         _mediaBinClosed = true;
         _mediaDiscoveryCancellation?.Cancel();
         _mediaDiscoveryCancellation = null;
@@ -2619,6 +2668,8 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Stop();
         DisposeAudioTracks();
         DisposeVideoTimeline();
+        _audioPreviewBus.PlaybackStopped -= AudioPreviewBus_PlaybackStopped;
+        _audioPreviewBus.Dispose();
     }
 
     private sealed class AudioTrackRuntime(AudioTrackProject project) : IDisposable

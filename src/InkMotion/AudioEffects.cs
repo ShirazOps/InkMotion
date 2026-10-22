@@ -20,6 +20,9 @@ public sealed record AudioEffectSettings
     public double GateAttackMilliseconds { get; init; } = 5;
     public double GateReleaseMilliseconds { get; init; } = 100;
     public double GateHoldMilliseconds { get; init; } = 20;
+    public bool NoiseReductionEnabled { get; init; }
+    public double NoiseReductionStrengthDecibels { get; init; } = 12;
+    public AudioNoiseProfile? NoiseProfile { get; init; }
     public bool LimiterEnabled { get; init; }
     public double LimiterCeilingDecibels { get; init; } = -1;
     public double LimiterReleaseMilliseconds { get; init; } = 100;
@@ -46,6 +49,9 @@ public sealed record AudioEffectSettings
         double.IsFinite(GateAttackMilliseconds) && GateAttackMilliseconds is >= 0.1 and <= 200 &&
         double.IsFinite(GateReleaseMilliseconds) && GateReleaseMilliseconds is >= 5 and <= 2000 &&
         double.IsFinite(GateHoldMilliseconds) && GateHoldMilliseconds is >= 0 and <= 1000 &&
+        double.IsFinite(NoiseReductionStrengthDecibels) && NoiseReductionStrengthDecibels is >= 0 and <= 24 &&
+        (NoiseProfile is null || NoiseProfile.IsValid) &&
+        (!NoiseReductionEnabled || NoiseProfile is not null) &&
         double.IsFinite(LimiterCeilingDecibels) && LimiterCeilingDecibels is >= -24 and <= 0 &&
         double.IsFinite(LimiterReleaseMilliseconds) && LimiterReleaseMilliseconds is >= 5 and <= 2000 &&
         double.IsFinite(DelayMilliseconds) && DelayMilliseconds is >= 1 and <= 2000 &&
@@ -60,6 +66,8 @@ public sealed record AudioEffectSettings
 public sealed class AudioEffectsSampleProvider : ISampleProvider
 {
     private readonly ISampleProvider _source;
+    private ISampleProvider _processingSource;
+    private AudioNoiseReductionSampleProvider? _noiseReduction;
     private readonly object _sync = new();
     private AudioEffectSettings _settings;
     private BiQuadFilter[][] _filters = [];
@@ -75,7 +83,8 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
 
     public AudioEffectsSampleProvider(ISampleProvider source, AudioEffectSettings settings)
     {
-        _source = source;
+        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _processingSource = source;
         _settings = settings;
         Update(settings);
     }
@@ -98,6 +107,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
             }
 
             _settings = settings;
+            UpdateNoiseReduction(settings);
             ResetCore();
         }
     }
@@ -106,6 +116,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     {
         lock (_sync)
         {
+            _noiseReduction?.Reset();
             ResetCore();
         }
     }
@@ -139,6 +150,26 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
             ? Enumerable.Range(0, WaveFormat.Channels).Select(_ => new AudioReverb(WaveFormat.SampleRate, _settings)).ToArray()
             : [];
         _filters = Enumerable.Range(0, WaveFormat.Channels).Select(_ => CreateFilters()).ToArray();
+    }
+
+    private void UpdateNoiseReduction(AudioEffectSettings settings)
+    {
+        bool apply = settings.Enabled && settings.NoiseReductionEnabled;
+        if (_noiseReduction is null)
+        {
+            if (apply)
+            {
+                _noiseReduction = new AudioNoiseReductionSampleProvider(
+                    _source, settings.NoiseProfile!, settings.NoiseReductionStrengthDecibels);
+            }
+        }
+        else
+        {
+            AudioNoiseProfile profile = settings.NoiseProfile ?? _noiseReduction.Profile;
+            _noiseReduction.Update(profile, apply ? settings.NoiseReductionStrengthDecibels : 0);
+        }
+
+        _processingSource = _noiseReduction ?? _source;
     }
 
     private BiQuadFilter[] CreateFilters()
@@ -178,7 +209,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     {
         lock (_sync)
         {
-            int read = _source.Read(buffer, offset, count);
+            int read = _processingSource.Read(buffer, offset, count);
             if (_suppressed)
             {
                 Array.Clear(buffer, offset, read);

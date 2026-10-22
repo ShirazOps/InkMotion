@@ -11,16 +11,59 @@ public sealed partial class MainWindow
     private bool _submittingExport;
     private bool _hasActiveExports;
     private bool _checkingAudioEncoders;
+    private bool _checkingVideoEncoders;
+    private bool _measuringVideoPerformance;
+
+    private async void CheckVideoEncoders_Click(object sender, RoutedEventArgs e)
+    {
+        if (_checkingVideoEncoders || _checkingAudioEncoders || _measuringVideoPerformance ||
+            _submittingExport || _hasActiveExports)
+        {
+            return;
+        }
+
+        _checkingVideoEncoders = true;
+        CheckVideoEncodersButton.IsEnabled = false;
+        MeasureVideoPerformanceButton.IsEnabled = false;
+        VideoEncoderCapabilitiesText.Text = "Encoding one-frame software probes for H.264/HEVC at 720p–4K and common 24–120 fps rates. No user files are changed.";
+        try
+        {
+            IReadOnlyList<VideoExportCapability> capabilities =
+                await Task.Run(VideoExportCapabilities.DiscoverSoftwareCapabilities);
+            VideoEncoderCapabilitiesText.Text = string.Join(
+                Environment.NewLine,
+                capabilities.Select(capability =>
+                    $"{(capability.SoftwareSupported ? "Available" : "Unavailable")} · " +
+                    $"{ExportPlanning.CodecName(capability.Codec)} · " +
+                    $"{capability.Profile.Width}×{capability.Profile.Height} · " +
+                    $"{capability.Profile.FrameRate:0.###} fps" +
+                    (capability.SoftwareFailure is null ? string.Empty : $" · {capability.SoftwareFailure}"))) +
+                Environment.NewLine +
+                "This checks real software encode/finalise support for these profiles on this PC. It does not certify GPU encoder use or sustained-speed/resolution performance.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            VideoEncoderCapabilitiesText.Text = $"Could not run video encoder capability probes: {ex.Message}";
+        }
+        finally
+        {
+            _checkingVideoEncoders = false;
+            CheckVideoEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            MeasureVideoPerformanceButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+        }
+    }
 
     private async void CheckAudioEncoders_Click(object sender, RoutedEventArgs e)
     {
-        if (_checkingAudioEncoders || _submittingExport || _hasActiveExports)
+        if (_checkingAudioEncoders || _checkingVideoEncoders || _measuringVideoPerformance ||
+            _submittingExport || _hasActiveExports)
         {
             return;
         }
 
         _checkingAudioEncoders = true;
         CheckAudioEncodersButton.IsEnabled = false;
+        MeasureVideoPerformanceButton.IsEnabled = false;
         AudioEncoderCapabilitiesText.Text = "Checking installed Windows audio encoder formats...";
         try
         {
@@ -40,6 +83,61 @@ public sealed partial class MainWindow
         {
             _checkingAudioEncoders = false;
             CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            MeasureVideoPerformanceButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+        }
+    }
+
+    private async void MeasureVideoPerformance_Click(object sender, RoutedEventArgs e)
+    {
+        if (_measuringVideoPerformance || _checkingVideoEncoders || _checkingAudioEncoders ||
+            _submittingExport || _hasActiveExports ||
+            ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
+            !Enum.TryParse(resolutionName, out ExportResolution resolution) ||
+            !double.IsFinite(GetExportFrameRate()) || GetExportFrameRate() < 24 || GetExportFrameRate() > 120)
+        {
+            return;
+        }
+
+        _measuringVideoPerformance = true;
+        MeasureVideoPerformanceButton.IsEnabled = false;
+        CheckVideoEncodersButton.IsEnabled = false;
+        CheckAudioEncodersButton.IsEnabled = false;
+        ExportVideoButton.IsEnabled = false;
+        ExportAudioButton.IsEnabled = false;
+        ToolbarExportButton.IsEnabled = false;
+        ToolbarExportAudioButton.IsEnabled = false;
+        VideoEncoderCapabilitiesText.Text =
+            "Measuring a two-second synthetic sample for the selected profile. This writes only a temporary file.";
+        try
+        {
+            VideoExportProfile profile = VideoExportProfile.Create(resolution, GetExportFrameRate());
+            VideoExportCodec codec = GetSelectedExportCodec();
+            bool preferHardware = ExportHardwareToggle.IsOn;
+            VideoExportPerformance result = await Task.Run(() =>
+                VideoExportCapabilities.MeasureProfilePerformance(profile, codec, preferHardware));
+            VideoEncoderCapabilitiesText.Text =
+                $"Synthetic sample: {result.FrameCount} frames at {profile.Width}×{profile.Height}, " +
+                $"{profile.FrameRate:0.###} fps, {ExportPlanning.CodecName(codec)}. " +
+                $"Encoded in {result.ElapsedSeconds:0.00}s ({result.FramesPerSecond:0.0} fps); " +
+                $"{result.OutputBytes / 1_000_000d:0.0} MB. " +
+                $"Hardware-transform preference {(result.HardwareTransformsPreferred ? "enabled" : "disabled")}. " +
+                "Performance is this run's synthetic result; Media Foundation does not identify or certify the actual encoder hardware.";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException or
+            NotSupportedException or IOException or ArgumentException or OverflowException)
+        {
+            VideoEncoderCapabilitiesText.Text = $"Could not measure the selected video profile: {ex.Message}";
+        }
+        finally
+        {
+            _measuringVideoPerformance = false;
+            MeasureVideoPerformanceButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            CheckVideoEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingVideoEncoders;
+            CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingAudioEncoders;
+            ExportVideoButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            ExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            ToolbarExportButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            ToolbarExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
         }
     }
 
@@ -65,7 +163,8 @@ public sealed partial class MainWindow
 
     private async void ExportAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (_submittingExport || _hasActiveExports)
+        if (_submittingExport || _hasActiveExports || _measuringVideoPerformance ||
+            _checkingVideoEncoders || _checkingAudioEncoders)
         {
             return;
         }
@@ -114,7 +213,8 @@ public sealed partial class MainWindow
 
     private async void ExportVideo_Click(object sender, RoutedEventArgs e)
     {
-        if (_submittingExport || _hasActiveExports ||
+        if (_submittingExport || _hasActiveExports || _measuringVideoPerformance ||
+            _checkingVideoEncoders || _checkingAudioEncoders ||
             ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
             !Enum.TryParse(resolutionName, out ExportResolution resolution))
         {
@@ -186,9 +286,12 @@ public sealed partial class MainWindow
     {
         ExportVideoButton.IsEnabled = !running;
         ToolbarExportButton.IsEnabled = !running;
+        ToolbarExportAudioButton.IsEnabled = !running;
         ExportAudioButton.IsEnabled = !running;
         AudioExportOptions.IsEnabled = !running;
         CheckAudioEncodersButton.IsEnabled = !running && !_checkingAudioEncoders;
+        CheckVideoEncodersButton.IsEnabled = !running && !_checkingVideoEncoders;
+        MeasureVideoPerformanceButton.IsEnabled = !running && !_measuringVideoPerformance;
         ExportResolutionSelector.IsEnabled = !running;
         ExportCodecSelector.IsEnabled = !running;
         ExportFrameRateBox.IsEnabled = !running;

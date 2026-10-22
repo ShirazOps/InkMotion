@@ -341,7 +341,7 @@ public sealed class AudioEncoderUnavailableException(int channels, Exception inn
 
 /// <summary>
 /// MP4 writer built on the Media Foundation sink writer. Video is supplied as top-down BGRA frames and audio as
-/// interleaved 16-bit PCM; Media Foundation converts colour and selects hardware encoders where available.
+/// interleaved 16-bit PCM; Media Foundation converts colour and may select available hardware transforms.
 /// </summary>
 public sealed class MediaFoundationVideoWriter : IDisposable
 {

@@ -51,4 +51,14 @@ public sealed class VideoExportProfileTests
     [InlineData(120)]
     public void Create_AcceptsIndependentOutputFrameRates(double rate) =>
         Assert.Equal(rate, VideoExportProfile.Create(ExportResolution.P1080, rate).FrameRate);
+
+    [Fact]
+    public void CapabilityProbeFrameRates_CoverCommonIntegerAndFractionalRates()
+    {
+        Assert.Equal(
+            new[] { 24, 25, 29.97, 30, 48, 50, 59.94, 60, 100, 119.88, 120 },
+            VideoExportCapabilities.CapabilityProbeFrameRates);
+        Assert.All(VideoExportCapabilities.CapabilityProbeFrameRates,
+            rate => Assert.InRange(rate, 24, 120));
+    }
 }

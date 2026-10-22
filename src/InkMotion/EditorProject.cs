@@ -1,17 +1,19 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 26;
+    public const int CurrentVersion = 37;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
     public List<TimelineTrackProject> VideoTracks { get; set; } = [];
+    public List<VideoMulticamGroup> VideoMulticamGroups { get; set; } = [];
     public List<TimelineMarkerProject> Markers { get; set; } = [];
     public string? AudioPath { get; set; }
     public double AudioVolume { get; set; } = 1;
@@ -204,12 +206,19 @@ public static class InkTimeline
     }
 }
 
+public enum InkBrushTexture
+{
+    Round,
+    Grain,
+}
+
 public sealed class InkPoint
 {
     public double X { get; set; }
     public double Y { get; set; }
     public double Pressure { get; set; } = 0.5;
     public double BrushWidth { get; set; } = 4;
+    public InkBrushTexture BrushTexture { get; set; }
     [JsonPropertyName("BrushColor")]
     public uint BrushColour { get; set; } = 0xFFFFA500;
 }
@@ -236,7 +245,10 @@ public static class EditorProjectSerialiser
 
     public static EditorProject Deserialise(string json)
     {
-        EditorProject project = JsonSerializer.Deserialize<EditorProject>(json, Options)
+        JsonNode root = JsonNode.Parse(json)
+            ?? throw new InvalidDataException("The project file is empty.");
+        MigrateLegacyMulticamClipIds(root);
+        EditorProject project = JsonSerializer.Deserialize<EditorProject>(root.ToJsonString(), Options)
             ?? throw new InvalidDataException("The project file is empty.");
         if (project.Version == 1)
         {
@@ -336,11 +348,121 @@ public static class EditorProjectSerialiser
         }
         if (project.Version == 25)
         {
+            project.Version = 26;
+        }
+        if (project.Version == 26)
+        {
+            project.Version = 27;
+        }
+        if (project.Version == 27)
+        {
+            project.Version = 28;
+        }
+        if (project.Version == 28)
+        {
+            project.Version = 29;
+        }
+        if (project.Version == 29)
+        {
+            project.Version = 30;
+        }
+        if (project.Version == 30)
+        {
+            project.Version = 31;
+        }
+        if (project.Version == 31)
+        {
+            project.Version = 32;
+        }
+        if (project.Version == 32)
+        {
+            project.Version = 33;
+        }
+        if (project.Version == 33)
+        {
+            project.Version = 34;
+        }
+        if (project.Version == 34)
+        {
+            project.Version = 35;
+        }
+        if (project.Version == 35)
+        {
+            project.Version = 36;
+        }
+        if (project.Version == 36)
+        {
             project.Version = EditorProject.CurrentVersion;
         }
 
         EditorProjectValidation.Validate(project);
         return project;
+    }
+
+    private static void MigrateLegacyMulticamClipIds(JsonNode root)
+    {
+        if (root is not JsonObject project ||
+            project["VideoTracks"] is not JsonArray tracks ||
+            project["VideoMulticamGroups"] is not JsonArray groups)
+        {
+            return;
+        }
+
+        var clipToTrack = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (JsonNode? trackNode in tracks)
+        {
+            if (trackNode is not JsonObject track ||
+                !string.Equals(track["Kind"]?.GetValue<string>(), nameof(TimelineTrackKind.Video), StringComparison.Ordinal) ||
+                track["Id"]?.GetValue<string>() is not { Length: > 0 } trackId ||
+                track["Clips"] is not JsonArray clips)
+            {
+                continue;
+            }
+
+            foreach (JsonNode? clipNode in clips)
+            {
+                if (clipNode is JsonObject clip && clip["Id"]?.GetValue<string>() is { Length: > 0 } clipId)
+                {
+                    clipToTrack.TryAdd(clipId, trackId);
+                }
+            }
+        }
+
+        foreach (JsonNode? groupNode in groups)
+        {
+            if (groupNode is not JsonObject group)
+            {
+                continue;
+            }
+
+            if (group["Angles"] is JsonArray angles)
+            {
+                foreach (JsonNode? angleNode in angles)
+                {
+                    MigrateLegacyClipId(angleNode as JsonObject, clipToTrack);
+                }
+            }
+
+            if (group["Switches"] is JsonArray switches)
+            {
+                foreach (JsonNode? switchNode in switches)
+                {
+                    MigrateLegacyClipId(switchNode as JsonObject, clipToTrack);
+                }
+            }
+        }
+    }
+
+    private static void MigrateLegacyClipId(JsonObject? value, IReadOnlyDictionary<string, string> clipToTrack)
+    {
+        if (value?["ClipId"]?.GetValue<string>() is not { Length: > 0 } clipId ||
+            !clipToTrack.TryGetValue(clipId, out string? trackId))
+        {
+            return;
+        }
+
+        value["TrackId"] = trackId;
+        value.Remove("ClipId");
     }
 
     private static void MigrateVersionOne(EditorProject project)
@@ -499,6 +621,7 @@ public static class InkAnimation
                     Pressure = Lerp(first[pointIndex].Pressure, second[pointIndex].Pressure, progress),
                     BrushWidth = Lerp(first[pointIndex].BrushWidth, second[pointIndex].BrushWidth, progress),
                     BrushColour = first[pointIndex].BrushColour,
+                    BrushTexture = first[pointIndex].BrushTexture,
                 });
             }
 
@@ -621,6 +744,7 @@ public static class InkAnimation
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
+                    BrushTexture = stroke[0].BrushTexture,
                 })
                 .ToList();
         }
@@ -644,6 +768,7 @@ public static class InkAnimation
                     Pressure = stroke[0].Pressure,
                     BrushWidth = stroke[0].BrushWidth,
                     BrushColour = stroke[0].BrushColour,
+                    BrushTexture = stroke[0].BrushTexture,
                 })
                 .ToList();
         }
@@ -667,6 +792,7 @@ public static class InkAnimation
                 Pressure = Lerp(stroke[segment - 1].Pressure, stroke[segment].Pressure, progress),
                 BrushWidth = Lerp(stroke[segment - 1].BrushWidth, stroke[segment].BrushWidth, progress),
                 BrushColour = stroke[segment - 1].BrushColour,
+                BrushTexture = stroke[segment - 1].BrushTexture,
             });
         }
 
@@ -744,6 +870,35 @@ internal static class EditorProjectValidation
         if (VideoTimelineEditing.Validate(project.VideoTracks, project.FrameRate) is string timelineError)
         {
             throw new InvalidDataException(timelineError);
+        }
+
+        if (project.VideoMulticamGroups is null ||
+            project.VideoMulticamGroups.Any(group =>
+                group is null || string.IsNullOrWhiteSpace(group.Id) || string.IsNullOrWhiteSpace(group.Name) ||
+                group.StartFrame < 1 || group.Angles is null || group.Angles.Count < 2 || group.Switches is null) ||
+            project.VideoMulticamGroups.Select(group => group.Id).Distinct(StringComparer.Ordinal).Count() != project.VideoMulticamGroups.Count)
+        {
+            throw new InvalidDataException("Multicamera groups must have unique ids, a name, a start frame and at least two angles.");
+        }
+
+        var videoTrackIds = project.VideoTracks
+            .Where(track => track.Kind == TimelineTrackKind.Video)
+            .Select(track => track.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var groupedTrackIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (VideoMulticamGroup group in project.VideoMulticamGroups)
+        {
+            if (group.Angles.Any(angle =>
+                    angle is null || string.IsNullOrWhiteSpace(angle.TrackId) || string.IsNullOrWhiteSpace(angle.Name) ||
+                    !videoTrackIds.Contains(angle.TrackId) || !groupedTrackIds.Add(angle.TrackId)) ||
+                group.Angles.Select(angle => angle.TrackId).Distinct(StringComparer.Ordinal).Count() != group.Angles.Count ||
+                group.Switches.Any(item =>
+                    item is null || item.Frame < group.StartFrame ||
+                    !group.Angles.Any(angle => angle.TrackId == item.TrackId)) ||
+                group.Switches.Select(item => item.Frame).Distinct().Count() != group.Switches.Count)
+            {
+                throw new InvalidDataException("Multicamera angles and switches must reference unique video tracks and valid frames.");
+            }
         }
 
         if (LinkedAudioVideoEditing.Validate(project.VideoTracks, project.AudioTracks) is string linkError)
@@ -838,7 +993,8 @@ internal static class EditorProjectValidation
                     !double.IsFinite(point.Pressure) ||
                     point.Pressure is < 0 or > 1 ||
                     !double.IsFinite(point.BrushWidth) ||
-                    point.BrushWidth is < 0.5 or > 64))
+                    point.BrushWidth is < 0.5 or > 64 ||
+                    !Enum.IsDefined(point.BrushTexture)))
                 {
             throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
         }
