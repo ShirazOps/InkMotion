@@ -39,6 +39,7 @@ public sealed partial class MainWindow
     private double _timelinePixelsPerSecond = 60;
     private TimelineDrag? _timelineDrag;
     private bool _isScrubbingTimeline;
+    private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
     private CanvasTextFormat? _timelineLabelFormat;
     private CanvasTextFormat? _timelineRulerFormat;
 
@@ -675,6 +676,11 @@ public sealed partial class MainWindow
         if (clip.Id == _selectedTimelineClipId)
         {
             session.DrawRoundedRectangle(bounds, 3, 3, Color.FromArgb(255, 0xF2, 0xF4, 0xF8), 2);
+            if (_timelineToolMode == TimelineToolMode.Trim)
+            {
+                session.FillRectangle(x0, top + 5, 4, TimelineLaneHeight - 10, Color.FromArgb(255, 0xFF, 0xCB, 0x66));
+                session.FillRectangle(x1 - 4, top + 5, 4, TimelineLaneHeight - 10, Color.FromArgb(255, 0xFF, 0xCB, 0x66));
+            }
         }
 
         float labelWidth = x1 - x0 - 12;
@@ -773,7 +779,49 @@ public sealed partial class MainWindow
         }
 
         _selectedTimelineClipId = location.Clip.Id;
-        if (!track.IsLocked)
+        if (_timelineToolMode == TimelineToolMode.Blade)
+        {
+            if (!track.IsLocked)
+            {
+                int bladeFrame = Math.Max(1, (int)Math.Round(seconds * _frameRate) + 1);
+                BeginEdit();
+                TimelineClipProject? right = VideoTimelineEditing.Split(track, location.Clip, bladeFrame, _frameRate);
+                if (right is not null)
+                {
+                    MarkEditChanged();
+                    CommitEdit();
+                    _selectedTimelineClipId = right.Id;
+                    RefreshVideoTimeline();
+                    SeekToCurrentFrame();
+                    StatusText.Text = $"Split {VideoTimelineEditing.KindLabel(track.Kind)} at frame {bladeFrame}.";
+                }
+                else
+                {
+                    CommitEdit();
+                    StatusText.Text = "Blade cuts must be inside a clip, away from its edges.";
+                }
+            }
+            return;
+        }
+
+        if (_timelineToolMode == TimelineToolMode.Trim)
+        {
+            double start = VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate);
+            double end = VideoTimelineEditing.GetEndSeconds(location.Clip, track.Kind, _frameRate);
+            double startDistance = Math.Abs(seconds - start);
+            double endDistance = Math.Abs(seconds - end);
+            double handleTolerance = 8 / _timelinePixelsPerSecond;
+            if (!track.IsLocked && Math.Min(startDistance, endDistance) <= handleTolerance)
+            {
+                TimelineTrimEdge edge = startDistance <= endDistance ? TimelineTrimEdge.Start : TimelineTrimEdge.End;
+                _timelineDrag = TimelineDrag.CreateTrim(location.Clip, track, edge);
+            }
+            else
+            {
+                StatusText.Text = "Trim mode: drag a selected clip's highlighted start or end handle.";
+            }
+        }
+        else if (!track.IsLocked)
         {
             _timelineDrag = new TimelineDrag(
                 location.Clip,
@@ -798,6 +846,45 @@ public sealed partial class MainWindow
 
         if (_timelineDrag is not TimelineDrag drag)
         {
+            return;
+        }
+
+        if (drag.TrimEdge is TimelineTrimEdge trimEdge)
+        {
+            int edgeFrame = Math.Max(1, (int)Math.Round(seconds * _frameRate) + 1);
+            if (edgeFrame == drag.LastTrimFrame)
+            {
+                return;
+            }
+
+            TimelineTrackProject workingTrack = VideoTimelineEditing.Clone(drag.OriginalTrack);
+            TimelineClipProject? workingClip = workingTrack.Clips.FirstOrDefault(clip => clip.Id == drag.Clip.Id);
+            if (workingClip is null || !VideoEditTools.TryTrimEdge(workingTrack, workingClip, trimEdge, edgeFrame, _frameRate))
+            {
+                drag.Blocked = true;
+                return;
+            }
+
+            if (!drag.Started)
+            {
+                BeginEdit();
+                drag.Started = true;
+            }
+
+            drag.Clip.StartFrame = workingClip.StartFrame;
+            drag.Clip.SourceInSeconds = workingClip.SourceInSeconds;
+            drag.Clip.SourceOutSeconds = workingClip.SourceOutSeconds;
+            drag.Clip.DurationSeconds = workingClip.DurationSeconds;
+            drag.Clip.FadeInSeconds = workingClip.FadeInSeconds;
+            drag.Clip.FadeOutSeconds = workingClip.FadeOutSeconds;
+            VideoTimelineEditing.SortClips(drag.Track);
+            drag.LastTrimFrame = edgeFrame;
+            drag.Moved = true;
+            drag.Blocked = false;
+            MarkEditChanged();
+            InvalidateVideoTimeline();
+            CompositionSurface.Invalidate();
+            UpdateVideoInspector();
             return;
         }
 
@@ -905,8 +992,12 @@ public sealed partial class MainWindow
         }
 
         StatusText.Text = drag.Blocked
-            ? "Clips can't overlap on a track; the clip stopped at the last free position."
-            : $"Moved clip to {FormatTimelineTime(VideoTimelineEditing.GetStartSeconds(drag.Clip, _frameRate), true)} on {drag.Track.Name}.";
+            ? drag.TrimEdge is not null
+                ? "Trim stopped at the last valid frame; clips cannot overlap or lose their remaining source range."
+                : "Clips can't overlap on a track; the clip stopped at the last free position."
+            : drag.TrimEdge is not null
+                ? $"Trimmed {drag.TrimEdge.Value.ToString().ToLowerInvariant()} to frame {drag.LastTrimFrame}."
+                : $"Moved clip to {FormatTimelineTime(VideoTimelineEditing.GetStartSeconds(drag.Clip, _frameRate), true)} on {drag.Track.Name}.";
     }
 
     private void RefreshVideoTrackHeaders()
@@ -1633,13 +1724,53 @@ public sealed partial class MainWindow
         CommitEdit();
     }
 
+    private enum TimelineToolMode
+    {
+        Select,
+        Blade,
+        Trim,
+    }
+
     private sealed class TimelineDrag(TimelineClipProject clip, TimelineTrackProject track, double grabOffsetSeconds)
     {
         public TimelineClipProject Clip { get; } = clip;
         public TimelineTrackProject Track { get; set; } = track;
+        public TimelineTrackProject OriginalTrack { get; private init; } = VideoTimelineEditing.Clone(track);
         public double GrabOffsetSeconds { get; } = grabOffsetSeconds;
+        public TimelineTrimEdge? TrimEdge { get; private init; }
+        public int LastTrimFrame { get; set; } = -1;
         public bool Started { get; set; }
         public bool Moved { get; set; }
         public bool Blocked { get; set; }
+
+        public static TimelineDrag CreateTrim(TimelineClipProject clip, TimelineTrackProject track, TimelineTrimEdge edge) =>
+            new(clip, track, 0) { TrimEdge = edge, OriginalTrack = VideoTimelineEditing.Clone(track) };
+    }
+
+    private void TimelineToolMode_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not string mode ||
+            !Enum.TryParse(mode, ignoreCase: true, out TimelineToolMode selected))
+        {
+            return;
+        }
+
+        _timelineToolMode = selected;
+        SelectTimelineToolButton.IsChecked = selected == TimelineToolMode.Select;
+        BladeTimelineToolButton.IsChecked = selected == TimelineToolMode.Blade;
+        TrimTimelineToolButton.IsChecked = selected == TimelineToolMode.Trim;
+        VideoTimelineHint.Text = selected switch
+        {
+            TimelineToolMode.Select => "Select: drag clips to move. Click the ruler or empty lane to move the playhead.",
+            TimelineToolMode.Blade => "Blade: click inside a clip to split it at that frame.",
+            _ => "Trim: drag a selected clip's highlighted start or end handle.",
+        };
+        InvalidateVideoTimeline();
+        StatusText.Text = selected switch
+        {
+            TimelineToolMode.Select => "Select tool: click and drag clips to move them.",
+            TimelineToolMode.Blade => "Blade tool: click inside a clip to split it at that frame.",
+            _ => "Trim tool: drag a selected clip's highlighted start or end handle.",
+        };
     }
 }

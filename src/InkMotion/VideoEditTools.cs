@@ -1,7 +1,52 @@
 namespace InkMotion;
 
+public enum TimelineTrimEdge
+{
+    Start,
+    End,
+}
+
 public static class VideoEditTools
 {
+    public static bool TryTrimEdge(
+        TimelineTrackProject track, TimelineClipProject clip, TimelineTrimEdge edge, int edgeFrame, double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+        ArgumentNullException.ThrowIfNull(clip);
+        if (track.IsLocked || !track.Clips.Contains(clip) || edgeFrame < 1 ||
+            !double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            return false;
+        }
+
+        TimelineTrackProject workingTrack = VideoTimelineEditing.Clone(track);
+        TimelineClipProject? workingClip = workingTrack.Clips.FirstOrDefault(candidate => candidate.Id == clip.Id);
+        if (workingClip is null)
+        {
+            return false;
+        }
+
+        bool changed = edge switch
+        {
+            TimelineTrimEdge.Start => VideoTimelineEditing.TryTrimStart(workingTrack, workingClip, edgeFrame, frameRate),
+            TimelineTrimEdge.End => VideoTimelineEditing.TryTrimEnd(workingTrack, workingClip, edgeFrame, frameRate),
+            _ => false,
+        };
+        if (!changed || VideoTimelineEditing.Validate([workingTrack], frameRate) is not null)
+        {
+            return false;
+        }
+
+        clip.StartFrame = workingClip.StartFrame;
+        clip.SourceInSeconds = workingClip.SourceInSeconds;
+        clip.SourceOutSeconds = workingClip.SourceOutSeconds;
+        clip.DurationSeconds = workingClip.DurationSeconds;
+        clip.FadeInSeconds = workingClip.FadeInSeconds;
+        clip.FadeOutSeconds = workingClip.FadeOutSeconds;
+        VideoTimelineEditing.SortClips(track);
+        return true;
+    }
+
     public static bool CloseGapBefore(TimelineTrackProject track, TimelineClipProject clip, double frameRate)
     {
         if (track.IsLocked || !track.Clips.Contains(clip) || !double.IsFinite(frameRate) || frameRate <= 0 ||

@@ -901,9 +901,18 @@
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
                     <TextBlock Text="VIDEO TIMELINE" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
+                    <ToggleButton x:Name="SelectTimelineToolButton" Content="Select" Tag="Select"
+                                  IsChecked="True" Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Select and move clips" />
+                    <ToggleButton x:Name="BladeTimelineToolButton" Content="Blade" Tag="Blade"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Click inside a clip to split it" />
+                    <ToggleButton x:Name="TrimTimelineToolButton" Content="Trim" Tag="Trim"
+                                  Click="TimelineToolMode_Click"
+                                  ToolTipService.ToolTip="Drag a selected clip's start or end handle" />
                     <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
-                    <TextBlock x:Name="VideoTimelineHint" Text="Click a clip to select it, drag to move it, click the ruler to move the playhead." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="VideoTimelineHint" Text="Select: drag clips to move. Blade: click inside to split. Trim: drag a selected clip's highlighted edge." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
