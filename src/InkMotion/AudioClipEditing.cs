@@ -171,6 +171,7 @@ public static class AudioClipEditing
         double clipEnd = GetClipEnd(track.SourceInSeconds, track.SourceOutSeconds, sourceDurationSeconds);
         double splitPoint = TimelineToSourceSeconds(track, offset);
         AudioTrackProject right = Clone(track);
+        right.LinkedVideoClipId = null;
         right.StartFrame = playheadFrameNumber;
         right.SourceInSeconds = splitPoint;
         right.SourceOutSeconds = track.SourceOutSeconds ?? (double.IsFinite(clipEnd) ? clipEnd : null);
@@ -213,6 +214,7 @@ public static class AudioClipEditing
     public static AudioTrackProject Clone(AudioTrackProject track) => new()
     {
         AudioPath = track.AudioPath,
+        LinkedVideoClipId = track.LinkedVideoClipId,
         StartFrame = track.StartFrame,
         Volume = track.Volume,
         Muted = track.Muted,

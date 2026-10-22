@@ -87,10 +87,10 @@ public sealed class ImageRotationTests
     }
 
     [Fact]
-    public void RejectsRotationForMediaKindsWithoutRotationRendering()
+    public void VideoRotationIsValidForRenderedMedia()
     {
         var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video,
             Clips = [new() { SourcePath = "video.mp4", SourceDurationSeconds = 4, RotationDegrees = 30 }] };
-        Assert.NotNull(VideoTimelineEditing.Validate([track], 24));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
     }
 }

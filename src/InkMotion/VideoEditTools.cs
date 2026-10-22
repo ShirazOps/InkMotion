@@ -40,6 +40,9 @@ public static class VideoEditTools
         clip.StartFrame = workingClip.StartFrame;
         clip.SourceInSeconds = workingClip.SourceInSeconds;
         clip.SourceOutSeconds = workingClip.SourceOutSeconds;
+        clip.PlaybackSpeed = workingClip.PlaybackSpeed;
+        clip.IsReversed = workingClip.IsReversed;
+        clip.ReverseEmbeddedAudio = workingClip.ReverseEmbeddedAudio;
         clip.DurationSeconds = workingClip.DurationSeconds;
         clip.FadeInSeconds = workingClip.FadeInSeconds;
         clip.FadeOutSeconds = workingClip.FadeOutSeconds;
@@ -82,7 +85,7 @@ public static class VideoEditTools
             !double.IsFinite(frameRate) || frameRate <= 0 ||
             !CanUseRange(clip, sourceIn, sourceOut, frameRate) ||
             !VideoTimelineEditing.IsRangeFree(track, VideoTimelineEditing.GetStartSeconds(clip, frameRate),
-                sourceOut - sourceIn, frameRate, clip) ||
+                (sourceOut - sourceIn) / clip.PlaybackSpeed, frameRate, clip) ||
             (clip.SourceInSeconds == sourceIn && (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) == sourceOut))
         {
             return false;
@@ -148,8 +151,11 @@ public static class VideoEditTools
             return false;
         }
 
-        double start = clip.SourceInSeconds + (trimStart ? frames / frameRate : 0);
-        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + (trimStart ? 0 : frames / frameRate);
+        double sourceDelta = frames / frameRate * clip.PlaybackSpeed;
+        double start = clip.SourceInSeconds +
+            (trimStart ? (clip.IsReversed ? 0 : sourceDelta) : (clip.IsReversed ? -sourceDelta : 0));
+        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) +
+            (trimStart ? (clip.IsReversed ? -sourceDelta : 0) : (clip.IsReversed ? 0 : sourceDelta));
         if (!CanUseRange(clip, start, end, frameRate))
         {
             return false;
@@ -180,19 +186,41 @@ public static class VideoEditTools
         }
 
         double delta = frames / frameRate;
-        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + delta;
-        double nextIn = next.SourceInSeconds + delta;
-        long nextStart = (long)next.StartFrame + frames;
-        if (nextStart < 1 || nextStart > int.MaxValue ||
-            !CanUseRange(clip, clip.SourceInSeconds, end, frameRate) ||
-            !CanUseRange(next, nextIn, next.SourceOutSeconds ?? next.SourceDurationSeconds, frameRate))
+        double clipDelta = delta * clip.PlaybackSpeed;
+        double nextDelta = delta * next.PlaybackSpeed;
+        double clipBoundary = clip.IsReversed
+            ? clip.SourceInSeconds - clipDelta
+            : (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + clipDelta;
+        double nextBoundary = next.IsReversed
+            ? (next.SourceOutSeconds ?? next.SourceDurationSeconds) - nextDelta
+            : next.SourceInSeconds + nextDelta;
+        long nextStartFrame = (long)next.StartFrame + frames;
+        if (nextStartFrame < 1 || nextStartFrame > int.MaxValue ||
+            !CanUseRange(clip, clip.IsReversed ? clipBoundary : clip.SourceInSeconds,
+                clip.IsReversed ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) : clipBoundary, frameRate) ||
+            !CanUseRange(next, next.IsReversed ? next.SourceInSeconds : nextBoundary,
+                next.IsReversed ? nextBoundary : (next.SourceOutSeconds ?? next.SourceDurationSeconds), frameRate))
         {
             return false;
         }
 
-        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, end);
-        next.SourceInSeconds = Math.Max(0, nextIn);
-        next.StartFrame = (int)nextStart;
+        if (clip.IsReversed)
+        {
+            clip.SourceInSeconds = Math.Max(0, clipBoundary);
+        }
+        else
+        {
+            clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, clipBoundary);
+        }
+        if (next.IsReversed)
+        {
+            next.SourceOutSeconds = Math.Max(0, nextBoundary);
+        }
+        else
+        {
+            next.SourceInSeconds = Math.Max(0, nextBoundary);
+        }
+        next.StartFrame = (int)nextStartFrame;
         return true;
     }
 
@@ -207,20 +235,42 @@ public static class VideoEditTools
         }
 
         double delta = frames / frameRate;
-        double previousEnd = (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) + delta;
-        double nextIn = next.SourceInSeconds + delta;
+        double previousDelta = delta * previous.PlaybackSpeed;
+        double nextDelta = delta * next.PlaybackSpeed;
+        double previousBoundary = previous.IsReversed
+            ? previous.SourceInSeconds - previousDelta
+            : (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) + previousDelta;
+        double nextBoundary = next.IsReversed
+            ? (next.SourceOutSeconds ?? next.SourceDurationSeconds) - nextDelta
+            : next.SourceInSeconds + nextDelta;
         long start = (long)clip.StartFrame + frames;
         long nextStart = (long)next.StartFrame + frames;
         if (start < 1 || start > int.MaxValue || nextStart < 1 || nextStart > int.MaxValue ||
-            !CanUseRange(previous, previous.SourceInSeconds, previousEnd, frameRate) ||
-            !CanUseRange(next, nextIn, next.SourceOutSeconds ?? next.SourceDurationSeconds, frameRate))
+            !CanUseRange(previous, previous.IsReversed ? previousBoundary : previous.SourceInSeconds,
+                previous.IsReversed ? (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) : previousBoundary, frameRate) ||
+            !CanUseRange(next, next.IsReversed ? next.SourceInSeconds : nextBoundary,
+                next.IsReversed ? nextBoundary : (next.SourceOutSeconds ?? next.SourceDurationSeconds), frameRate))
         {
             return false;
         }
 
-        previous.SourceOutSeconds = Math.Min(previous.SourceDurationSeconds, previousEnd);
+        if (previous.IsReversed)
+        {
+            previous.SourceInSeconds = Math.Max(0, previousBoundary);
+        }
+        else
+        {
+            previous.SourceOutSeconds = Math.Min(previous.SourceDurationSeconds, previousBoundary);
+        }
         clip.StartFrame = (int)start;
-        next.SourceInSeconds = Math.Max(0, nextIn);
+        if (next.IsReversed)
+        {
+            next.SourceOutSeconds = Math.Max(0, nextBoundary);
+        }
+        else
+        {
+            next.SourceInSeconds = Math.Max(0, nextBoundary);
+        }
         next.StartFrame = (int)nextStart;
         return true;
     }
@@ -251,8 +301,9 @@ public static class VideoEditTools
     {
         double duration = end - start;
         return double.IsFinite(start) && double.IsFinite(end) && double.IsFinite(clip.SourceDurationSeconds) &&
-            start >= -1e-8 && end <= clip.SourceDurationSeconds + 1e-8 && duration >= 1 / frameRate - 1e-8 &&
-            duration >= clip.FadeInSeconds + clip.FadeOutSeconds - 1e-8;
+            start >= -1e-8 && end <= clip.SourceDurationSeconds + 1e-8 &&
+            duration / clip.PlaybackSpeed >= 1 / frameRate - 1e-8 &&
+            duration / clip.PlaybackSpeed >= clip.FadeInSeconds + clip.FadeOutSeconds - 1e-8;
     }
 
     public static bool Relink(TimelineTrackProject track, TimelineClipProject clip, string path, double sourceDuration)

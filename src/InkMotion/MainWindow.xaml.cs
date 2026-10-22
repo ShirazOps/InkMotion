@@ -399,6 +399,11 @@ public sealed partial class MainWindow : Window
     private void UpdatePreviewMode()
     {
         CompositionSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
+        if (IsOriginalPreview)
+        {
+            DisposePreviewVideoFrameSources();
+            SetVideoScopeUnavailable("Switch to Modified preview to view the active clip's RGB distribution.");
+        }
         InkSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
         InkSurface.IsHitTestVisible = _workspace == "Ink" && !IsOriginalPreview;
         PreviewCaption.Text = IsOriginalPreview ? "ORIGINAL SOURCE · AT PLAYHEAD" : "MODIFIED";
@@ -621,6 +626,7 @@ public sealed partial class MainWindow : Window
     private void UpdateSelectedAudioTrack()
     {
         UpdateAudioSourceRangeInspector();
+        UpdateAudioVideoLinkControls();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         bool hasClip = hasSelection && _audioTracks[_selectedAudioTrackIndex].HasSource;
         RelinkMatchingAudioSourcesButton.IsEnabled = hasSelection &&
@@ -680,7 +686,11 @@ public sealed partial class MainWindow : Window
         UpdateAudioEffectsInspector(hasClip ? track.Project : null);
         AudioTrackLabel.Text = string.IsNullOrWhiteSpace(track.Project.AudioPath)
             ? $"Audio track {_selectedAudioTrackIndex + 1} — empty"
-            : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}";
+            : $"{System.IO.Path.GetFileName(track.Project.AudioPath)} · starts at frame {track.Project.StartFrame}" +
+              (track.Project.LinkedVideoClipId is string linkedId &&
+                  VideoTimelineEditing.FindClip(_videoTracks, linkedId) is { } linkedVideo
+                  ? $" · linked to {GetClipLabel(linkedVideo.Track, linkedVideo.Clip)}"
+                  : string.Empty);
         AudioVolumeSlider.Value = track.Project.Volume;
         AudioMuteButton.IsChecked = track.Project.Muted;
         AudioSoloButton.IsChecked = track.Project.Solo;
@@ -729,13 +739,28 @@ public sealed partial class MainWindow : Window
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        track.Project.StartFrame = playheadFrameNumber;
-        MarkEditChanged();
+        bool moved = LinkedAudioVideoEditing.TryMoveAudio(track.Project, playheadFrameNumber, _videoTracks, _frameRate);
+        if (moved)
+        {
+            MarkEditChanged();
+        }
+
         CommitEdit();
+        if (!moved)
+        {
+            StatusText.Text = "The linked video clip cannot move to the matching timeline position.";
+            return;
+        }
+
         SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         UpdateSelectedAudioTrack();
+        UpdateVideoInspector();
         RefreshAudioTracks();
-        StatusText.Text = $"Audio clip moved to frame {playheadFrameNumber}.";
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        StatusText.Text = track.Project.LinkedVideoClipId is null
+            ? $"Audio clip moved to frame {playheadFrameNumber}."
+            : $"Linked audio and video moved together to frame {playheadFrameNumber}.";
     }
 
     private bool TryGetSelectedAudioClip([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out AudioTrackRuntime? track)
@@ -2180,11 +2205,13 @@ public sealed partial class MainWindow : Window
     private EditorProject CreateProjectSnapshot()
     {
         List<AudioTrackProject> tracks = _audioTracks.Select(track => CloneAudioTrack(track.Project)).ToList();
+        List<TimelineTrackProject> videoTracks = _videoTracks.Select(VideoTimelineEditing.Clone).ToList();
+        LinkedAudioVideoEditing.ClearMissingLinks(videoTracks, tracks);
         AudioTrackProject? firstLoadedTrack = tracks.FirstOrDefault(track => !string.IsNullOrWhiteSpace(track.AudioPath));
         return new EditorProject
         {
             FrameRate = _frameRate,
-            VideoTracks = _videoTracks.Select(VideoTimelineEditing.Clone).ToList(),
+            VideoTracks = videoTracks,
             Markers = _timelineMarkers.Select(TimelineMarkers.Clone).ToList(),
             AudioPath = firstLoadedTrack?.AudioPath,
             AudioVolume = firstLoadedTrack?.Volume ?? 1,
@@ -2297,6 +2324,9 @@ public sealed partial class MainWindow : Window
 
     private void MarkEditChanged()
     {
+        LinkedAudioVideoEditing.ClearMissingLinks(_videoTracks, _audioTracks.Select(track => track.Project));
+        VideoTransitions.ClearInvalid(_videoTracks, _frameRate);
+        VideoTransformKeyframes.ClearInvalid(_videoTracks, _frameRate);
         ClearAudioMasterAnalysis();
         _pendingEditChanged = true;
         UnsavedIndicator.Visibility = Visibility.Visible;

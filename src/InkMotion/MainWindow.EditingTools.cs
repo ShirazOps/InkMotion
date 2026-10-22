@@ -207,6 +207,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         BeginEdit();
         AudioTrackProject copy = AudioClipEditing.Clone(source);
+        copy.LinkedVideoClipId = null;
         copy.StartFrame = startFrame;
         var runtime = new AudioTrackRuntime(copy) { WaveformPeaks = peaks };
         OpenAudioPlayer(runtime);
@@ -220,6 +221,125 @@ public sealed partial class MainWindow
         StatusText.Text = runtime.LoadError is null
             ? "Audio clip copy placed on a new track."
             : $"Audio clip copy placed, but its source could not be loaded: {runtime.LoadError}";
+    }
+
+    private void UpdateAudioVideoLinkControls()
+    {
+        bool hasAudio = TryGetSelectedAudioClip(out AudioTrackRuntime? audio);
+        TimelineClipLocation? video = SelectedTimelineClip;
+        bool canLink = hasAudio &&
+            video is { Track.Kind: TimelineTrackKind.Video } &&
+            audio!.Project.LinkedVideoClipId is null &&
+            !_audioTracks.Any(track => track.Project.LinkedVideoClipId == video.Clip.Id);
+        LinkAudioVideoButton.IsEnabled = canLink;
+        UnlinkAudioVideoButton.IsEnabled = hasAudio && audio!.Project.LinkedVideoClipId is not null;
+    }
+
+    private void LinkSelectedAudioVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } video ||
+            !TryGetSelectedAudioClip(out AudioTrackRuntime? audio))
+        {
+            StatusText.Text = "Select one video clip and one available audio clip to link.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        bool linked = LinkedAudioVideoEditing.TryLink(
+            video.Track,
+            video.Clip,
+            audio.Project,
+            _audioTracks.Select(track => track.Project));
+        if (linked)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        UpdateSelectedAudioTrack();
+        UpdateVideoInspector();
+        StatusText.Text = linked
+            ? "Audio and video linked. Moving either clip moves both; their current timing offset is preserved."
+            : "Could not link these clips. Each video clip can have one linked audio clip.";
+    }
+
+    private void UnlinkSelectedAudioVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedAudioClip(out AudioTrackRuntime? audio))
+        {
+            StatusText.Text = "Select a linked audio clip to unlink.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        bool unlinked = LinkedAudioVideoEditing.TryUnlink(audio.Project);
+        if (unlinked)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        UpdateSelectedAudioTrack();
+        UpdateVideoInspector();
+        StatusText.Text = unlinked ? "Audio and video unlinked." : "The selected audio clip is not linked.";
+    }
+
+    private void ApplyCrossDissolve_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryGetEditableClip(out TimelineClipLocation selected) ||
+            selected.Track.Kind != TimelineTrackKind.Video)
+        {
+            return;
+        }
+
+        BeginEdit();
+        bool applied = VideoTransitions.TrySetCrossDissolve(
+            selected.Track,
+            selected.Clip,
+            CrossDissolveDurationBox.Value,
+            _frameRate);
+        if (applied)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        UpdateVideoInspector();
+        StatusText.Text = applied
+            ? $"Applied a {CrossDissolveDurationBox.Value:0.##} second cross-dissolve across the cut."
+            : "A cross-dissolve needs an adjacent previous video clip, enough source handles on both clips, no cut-edge fades, and both clips at full opacity.";
+    }
+
+    private void RemoveCrossDissolve_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        if (!TryGetEditableClip(out TimelineClipLocation selected) ||
+            selected.Track.Kind != TimelineTrackKind.Video)
+        {
+            return;
+        }
+
+        BeginEdit();
+        bool removed = VideoTransitions.RemoveCrossDissolve(selected.Track, selected.Clip);
+        if (removed)
+        {
+            MarkEditChanged();
+        }
+
+        CommitEdit();
+        RefreshVideoTimeline();
+        SeekToCurrentFrame();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Cross-dissolve removed." : "The selected video clip has no incoming transition.";
     }
 
     private void DeleteAudioClip_Click(object sender, RoutedEventArgs e)

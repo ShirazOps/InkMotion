@@ -112,7 +112,19 @@ public static class VideoTimelinePlacement
             if (clipStart < overwriteStart - Tolerance)
             {
                 TimelineClipProject left = VideoTimelineEditing.Clone(clip);
-                left.SourceOutSeconds = clip.SourceInSeconds + overwriteStart - clipStart;
+                double sourceBoundary = VideoTimelineEditing.GetSourceBoundarySeconds(
+                    clip, overwriteStart, frameRate);
+                if (clip.IsReversed)
+                {
+                    left.SourceInSeconds = sourceBoundary;
+                }
+                else
+                {
+                    left.SourceOutSeconds = sourceBoundary;
+                }
+                VideoTransformKeyframes.TrimEnd(
+                    left,
+                    (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
                 VideoTimelineEditing.ClampFades(left, track.Kind);
                 track.Clips.Add(left);
@@ -123,7 +135,19 @@ public static class VideoTimelinePlacement
                 TimelineClipProject right = VideoTimelineEditing.Clone(clip);
                 right.Id = VideoTimelineEditing.NewClipId();
                 right.StartFrame = endFrame;
-                right.SourceInSeconds = clip.SourceInSeconds + overwriteEnd - clipStart;
+                double sourceBoundary = VideoTimelineEditing.GetSourceBoundarySeconds(
+                    clip, overwriteEnd, frameRate);
+                if (clip.IsReversed)
+                {
+                    right.SourceOutSeconds = sourceBoundary;
+                }
+                else
+                {
+                    right.SourceInSeconds = sourceBoundary;
+                }
+                VideoTransformKeyframes.TrimStart(
+                    right,
+                    (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
                 VideoTimelineEditing.ClampFades(right, track.Kind);
                 track.Clips.Add(right);
@@ -143,9 +167,13 @@ public static class VideoTimelinePlacement
                 existing.StartFrame = candidate.StartFrame;
                 existing.SourceInSeconds = candidate.SourceInSeconds;
                 existing.SourceOutSeconds = candidate.SourceOutSeconds;
+                existing.PlaybackSpeed = candidate.PlaybackSpeed;
+                existing.IsReversed = candidate.IsReversed;
+                existing.ReverseEmbeddedAudio = candidate.ReverseEmbeddedAudio;
                 existing.DurationSeconds = candidate.DurationSeconds;
                 existing.FadeInSeconds = candidate.FadeInSeconds;
                 existing.FadeOutSeconds = candidate.FadeOutSeconds;
+                existing.TransformKeyframes = VideoTransformKeyframes.CloneKeys(candidate.TransformKeyframes);
                 result.Add(existing);
             }
             else

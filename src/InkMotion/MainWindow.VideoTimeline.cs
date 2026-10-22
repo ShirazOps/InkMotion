@@ -30,7 +30,17 @@ public sealed partial class MainWindow
     private readonly HashSet<string> _unavailableTimelineSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CanvasBitmap> _overlayBitmaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _overlayBitmapRequests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _unavailablePreviewVideoSources = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, VideoColourGradingEffect> _previewColourGradingEffects = [];
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
+    private readonly CompositeTransform _previewVideoTransform = new();
+    private CanvasRenderTarget? _videoScopeSampleTarget;
+    private VideoRgbHistogramData? _videoRgbHistogram;
+    private long _lastVideoScopeSampleMilliseconds;
+    private TimelineVideoFrameSource? _previewVideoFrameSource;
+    private string? _previewVideoFrameSourcePath;
+    private TimelineVideoFrameSource? _transitionVideoFrameSource;
+    private string? _transitionVideoFrameSourcePath;
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
@@ -40,6 +50,10 @@ public sealed partial class MainWindow
     private TimelineDrag? _timelineDrag;
     private bool _isScrubbingTimeline;
     private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
+    private TimelineClipProject? _draggedCurveClip;
+    private VideoColourCurveChannel _draggedCurveChannel;
+    private int _draggedCurvePointIndex = -1;
+    private uint? _curveDragPointerId;
     private CanvasTextFormat? _timelineLabelFormat;
     private CanvasTextFormat? _timelineRulerFormat;
 
@@ -59,6 +73,9 @@ public sealed partial class MainWindow
     private void InitialiseVideoTimeline()
     {
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
+        _previewVideoTransform.ScaleX = _previewVideoTransform.ScaleY = 1;
+        PreviewPlayer.RenderTransformOrigin = new Point(0, 0);
+        PreviewPlayer.RenderTransform = _previewVideoTransform;
         _previewMediaPlayer.MediaOpened += PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed += PreviewMediaPlayer_MediaFailed;
         InitialiseSourceMonitor();
@@ -76,6 +93,8 @@ public sealed partial class MainWindow
 
     private void RestoreVideoTracks(IEnumerable<TimelineTrackProject> tracks)
     {
+        DisposePreviewVideoFrameSources();
+        _unavailablePreviewVideoSources.Clear();
         _videoTracks.Clear();
         _videoTracks.AddRange(tracks.Select(VideoTimelineEditing.Clone));
         EnsureDefaultVideoTrack();
@@ -212,6 +231,8 @@ public sealed partial class MainWindow
     private async Task<string?> LoadTimelineSourcesAsync()
     {
         _unavailableTimelineSources.Clear();
+        _unavailablePreviewVideoSources.Clear();
+        DisposePreviewVideoFrameSources();
         string[] paths = _videoTracks
             .Where(track => track.Kind != TimelineTrackKind.Text)
             .SelectMany(track => track.Clips)
@@ -270,6 +291,28 @@ public sealed partial class MainWindow
     private void SyncVideoPreview(double seconds, bool forceSeek)
     {
         TimelineClipLocation? active = VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate);
+        VideoCrossDissolve? transition = !IsOriginalPreview && active is not null
+            ? VideoTransitions.GetAt(active.Track, seconds, _frameRate)
+            : null;
+        if (transition is not null && active is not null)
+        {
+            bool incomingIsMain = transition.Progress >= 0.5;
+            TimelineClipProject mainClip = incomingIsMain ? transition.IncomingClip : transition.OutgoingClip;
+            TimelineClipLocation main = new(active.Track, mainClip);
+            SyncMainVideoPreview(main, seconds, forceSeek);
+            return;
+        }
+
+        SyncMainVideoPreview(active, seconds, forceSeek);
+    }
+
+    private bool SyncMainVideoPreview(TimelineClipLocation? active, double seconds, bool forceSeek)
+    {
+        ApplyVideoPreviewTransform(
+            _previewVideoTransform,
+            PreviewPlayer,
+            IsOriginalPreview ? null : active?.Clip,
+            seconds);
         StorageFile? file = null;
         if (active?.Clip.SourcePath is string path && !_unavailableTimelineSources.Contains(path))
         {
@@ -279,7 +322,7 @@ public sealed partial class MainWindow
         if (active is null || file is null)
         {
             ClearPreviewSource();
-            return;
+            return false;
         }
 
         if (!string.Equals(_previewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
@@ -293,27 +336,31 @@ public sealed partial class MainWindow
             previous?.Dispose();
             PreviewPlayer.Opacity = 0;
             UpdatePreviewEmptyState();
-            return;
+            return false;
         }
 
         if (!_previewReady)
         {
-            return;
+            return false;
         }
 
         TimelineClipProject clip = active.Clip;
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
-        _previewMediaPlayer.IsMuted = !IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio);
-        PreviewPlayer.Opacity = IsOriginalPreview ? 1 : VideoTimelineEditing.GetOpacity(clip, TimelineTrackKind.Video, seconds, _frameRate);
+        _previewMediaPlayer.IsMuted = clip.IsReversed ||
+            (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
+        _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
+        PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
-        double tolerance = forceSeek || !_isPlaying ? 0.001 : PreviewDriftToleranceSeconds;
+        double tolerance = forceSeek || !_isPlaying
+            ? 0.001
+            : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
         if (Math.Abs(session.Position.TotalSeconds - sourceSeconds) > tolerance)
         {
             session.Position = TimeSpan.FromSeconds(sourceSeconds);
         }
 
-        if (_isPlaying)
+        if (_isPlaying && !clip.IsReversed)
         {
             if (session.PlaybackState is MediaPlaybackState.Paused or MediaPlaybackState.None)
             {
@@ -324,6 +371,31 @@ public sealed partial class MainWindow
         {
             _previewMediaPlayer.Pause();
         }
+
+        return true;
+    }
+
+    private void ApplyVideoPreviewTransform(
+        CompositeTransform transform,
+        MediaPlayerElement element,
+        TimelineClipProject? clip,
+        double seconds)
+    {
+        VideoTransformValue value = clip is null
+            ? new VideoTransformValue(0.5, 0.5, 1, 0)
+            : VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+        MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
+        VideoPreviewTransform preview = VideoCrop.GetPreviewTransform(
+            new Size(element.ActualWidth, element.ActualHeight),
+            new Size(session.NaturalVideoWidth, session.NaturalVideoHeight),
+            clip ?? new TimelineClipProject(),
+            value);
+        transform.CenterX = preview.PivotX;
+        transform.CenterY = preview.PivotY;
+        transform.ScaleX = transform.ScaleY = preview.Scale;
+        transform.Rotation = preview.RotationDegrees;
+        transform.TranslateX = preview.TranslateX;
+        transform.TranslateY = preview.TranslateY;
     }
 
     private void ClearPreviewSource()
@@ -338,7 +410,7 @@ public sealed partial class MainWindow
         _previewMediaSource = null;
         _previewSourcePath = null;
         _previewReady = false;
-        PreviewPlayer.Opacity = 1;
+        PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
         UpdatePreviewEmptyState();
     }
 
@@ -376,6 +448,8 @@ public sealed partial class MainWindow
     private void CompositionSurface_CreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
     {
         DisposeOverlayBitmaps();
+        DisposePreviewVideoFrameSources();
+        DisposeVideoScopeSampleTarget();
     }
 
     private void CompositionSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -388,6 +462,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
         foreach (TimelineClipLocation overlay in VideoTimelineEditing.GetVisibleOverlays(_videoTracks, seconds, _frameRate))
         {
             float opacity = (float)VideoTimelineEditing.GetOpacity(overlay.Clip, overlay.Track.Kind, seconds, _frameRate);
@@ -404,6 +479,145 @@ public sealed partial class MainWindow
             {
                 TimelineCompositor.DrawTitle(args.DrawingSession, overlay.Clip, width, height, opacity);
             }
+        }
+    }
+
+    private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height)
+    {
+        if (IsOriginalPreview)
+        {
+            SetVideoScopeUnavailable("Switch to Modified preview to view the active clip's RGB distribution.");
+            return;
+        }
+
+        if (VideoTimelineEditing.GetActiveVideoClip(_videoTracks, seconds, _frameRate) is not TimelineClipLocation active)
+        {
+            DisposePreviewVideoFrameSources();
+            SetVideoScopeUnavailable("No active video clip at the playhead.");
+            return;
+        }
+
+        if (VideoTransitions.GetAt(active.Track, seconds, _frameRate) is VideoCrossDissolve transition)
+        {
+            float outgoingOpacity = (float)VideoTimelineEditing.GetOpacity(
+                new TimelineClipLocation(active.Track, transition.OutgoingClip), seconds, _frameRate);
+            float incomingOpacity = (float)VideoTimelineEditing.GetOpacity(
+                new TimelineClipLocation(active.Track, transition.IncomingClip), seconds, _frameRate);
+            DrawComposedVideoClip(canvas, session, transition.OutgoingClip, seconds, width, height, outgoingOpacity, secondary: true);
+            DrawComposedVideoClip(canvas, session, transition.IncomingClip, seconds, width, height, incomingOpacity, secondary: false);
+            return;
+        }
+
+        DisposeTransitionVideoFrameSource();
+        float opacity = (float)VideoTimelineEditing.GetOpacity(active.Clip, TimelineTrackKind.Video, seconds, _frameRate);
+        DrawComposedVideoClip(canvas, session, active.Clip, seconds, width, height, opacity, secondary: false);
+    }
+
+    private void DrawComposedVideoClip(
+        CanvasControl canvas,
+        CanvasDrawingSession session,
+        TimelineClipProject clip,
+        double seconds,
+        float width,
+        float height,
+        float opacity,
+        bool secondary)
+    {
+        if (opacity <= 0 || clip.SourcePath is not string path || _unavailableTimelineSources.Contains(path))
+        {
+            if (!secondary)
+            {
+                SetVideoScopeUnavailable(opacity <= 0
+                    ? "The active video clip is fully transparent."
+                    : "The active video clip has no available source.");
+            }
+            return;
+        }
+
+        if (_unavailablePreviewVideoSources.Contains(path))
+        {
+            if (!secondary)
+            {
+                PreviewPlayer.Opacity = 1;
+                SetVideoScopeUnavailable("The active video frame is unavailable for scope analysis.");
+            }
+            return;
+        }
+
+        TimelineVideoFrameSource? source = secondary ? _transitionVideoFrameSource : _previewVideoFrameSource;
+        string? sourcePath = secondary ? _transitionVideoFrameSourcePath : _previewVideoFrameSourcePath;
+        if (!string.Equals(sourcePath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            source?.Dispose();
+            source = null;
+        }
+
+        try
+        {
+            source ??= new TimelineVideoFrameSource(path);
+            if (secondary)
+            {
+                _transitionVideoFrameSource = source;
+                _transitionVideoFrameSourcePath = path;
+            }
+            else
+            {
+                _previewVideoFrameSource = source;
+                _previewVideoFrameSourcePath = path;
+            }
+
+            double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
+            if (source.GetFrame(canvas.Device, sourceSeconds) is not CanvasBitmap bitmap)
+            {
+                if (!secondary)
+                {
+                    SetVideoScopeUnavailable("Waiting for an active video frame.");
+                }
+                return;
+            }
+
+            (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
+            VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+            VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
+            TimelineCompositor.DrawFitted(
+                session,
+                bitmap,
+                VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
+                width,
+                height,
+                transform.Scale,
+                transform.X,
+                transform.Y,
+                opacity,
+                transform.RotationDegrees,
+                clip,
+                colourGradingEffect);
+            if (!secondary)
+            {
+                UpdateVideoRgbHistogram(canvas, bitmap, clip, colourGradingEffect);
+            }
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            source?.Dispose();
+            if (secondary)
+            {
+                _transitionVideoFrameSource = null;
+                _transitionVideoFrameSourcePath = null;
+            }
+            else
+            {
+                _previewVideoFrameSource = null;
+                _previewVideoFrameSourcePath = null;
+            }
+
+            _unavailablePreviewVideoSources.Add(path);
+            if (!secondary)
+            {
+                PreviewPlayer.Opacity = 1;
+            }
+            StatusText.Text = $"Could not render {Path.GetFileName(path)} in the modified preview; showing the native video preview instead: {ex.Message}";
         }
     }
 
@@ -426,8 +640,99 @@ public sealed partial class MainWindow
             return;
         }
 
-        TimelineCompositor.DrawFitted(session, bitmap, bitmap.Bounds, width, height, clip.Scale, clip.X, clip.Y, opacity,
-            clip.RotationDegrees);
+        VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
+        try
+        {
+            TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height,
+                transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
+                GetPreviewColourGradingEffect(clip));
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            StatusText.Text = $"Could not render image {Path.GetFileName(path)} with its colour settings: {ex.Message}";
+        }
+    }
+
+    private VideoColourGradingEffect? GetPreviewColourGradingEffect(TimelineClipProject clip)
+    {
+        if (VideoColourGrading.IsNeutral(clip))
+        {
+            return null;
+        }
+
+        if (!_previewColourGradingEffects.TryGetValue(clip.Id, out VideoColourGradingEffect? effect))
+        {
+            effect = new VideoColourGradingEffect();
+            _previewColourGradingEffects.Add(clip.Id, effect);
+        }
+
+        return effect;
+    }
+
+    private void VideoRgbHistogram_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
+        VideoRgbHistogramData.Draw(
+            args.DrawingSession,
+            new Rect(0, 0, sender.ActualWidth, sender.ActualHeight),
+            _videoRgbHistogram);
+
+    private void UpdateVideoRgbHistogram(
+        CanvasControl canvas,
+        CanvasBitmap source,
+        TimelineClipProject clip,
+        VideoColourGradingEffect? colourGradingEffect)
+    {
+        if (VideoInspectorPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        long now = Environment.TickCount64;
+        if (now - _lastVideoScopeSampleMilliseconds < 100)
+        {
+            return;
+        }
+
+        try
+        {
+            _videoScopeSampleTarget ??= new CanvasRenderTarget(canvas.Device, 128, 72, 96);
+            using (CanvasDrawingSession sample = _videoScopeSampleTarget.CreateDrawingSession())
+            {
+                sample.Clear(Color.FromArgb(0, 0, 0, 0));
+                ICanvasImage image = colourGradingEffect?.GetOutput(source, clip) ?? source;
+                sample.DrawImage(image, new Rect(0, 0, 128, 72), source.Bounds, 1);
+            }
+
+            _videoRgbHistogram = VideoRgbHistogramData.Analyse(_videoScopeSampleTarget.GetPixelBytes());
+            _lastVideoScopeSampleMilliseconds = now;
+            VideoRgbHistogramSurface.Invalidate();
+            VideoScopeStatus.Text = $"{_videoRgbHistogram.SampleCount:N0} sampled pixels · red, green and blue channels";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or
+            UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            SetVideoScopeUnavailable($"Could not update the video scope: {ex.Message}");
+            StatusText.Text = $"Could not update the video scope for {Path.GetFileName(clip.SourcePath)}: {ex.Message}";
+        }
+    }
+
+    private void SetVideoScopeUnavailable(string message)
+    {
+        if (_videoRgbHistogram is null && VideoScopeStatus.Text == message)
+        {
+            return;
+        }
+
+        _videoRgbHistogram = null;
+        VideoScopeStatus.Text = message;
+        VideoRgbHistogramSurface.Invalidate();
+    }
+
+    private void DisposeVideoScopeSampleTarget()
+    {
+        _videoScopeSampleTarget?.Dispose();
+        _videoScopeSampleTarget = null;
+        _lastVideoScopeSampleMilliseconds = 0;
     }
 
     private void RequestOverlayBitmap(CanvasControl canvas, string path)
@@ -483,10 +788,32 @@ public sealed partial class MainWindow
         _overlayBitmaps.Clear();
     }
 
+    private void DisposePreviewVideoFrameSources()
+    {
+        _previewVideoFrameSource?.Dispose();
+        _previewVideoFrameSource = null;
+        _previewVideoFrameSourcePath = null;
+        DisposeTransitionVideoFrameSource();
+    }
+
+    private void DisposeTransitionVideoFrameSource()
+    {
+        _transitionVideoFrameSource?.Dispose();
+        _transitionVideoFrameSource = null;
+        _transitionVideoFrameSourcePath = null;
+        foreach (VideoColourGradingEffect effect in _previewColourGradingEffects.Values)
+        {
+            effect.Dispose();
+        }
+        _previewColourGradingEffects.Clear();
+    }
+
     private void DisposeVideoTimeline()
     {
         DisposeSourceMonitor();
         ClearPreviewSource();
+        DisposePreviewVideoFrameSources();
+        DisposeVideoScopeSampleTarget();
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
         _previewMediaPlayer.Dispose();
@@ -673,6 +1000,16 @@ public sealed partial class MainWindow
             session.DrawLine(x1 - (float)(clip.FadeOutSeconds * _timelinePixelsPerSecond), top + 2, x1, bottom, fadeColour);
         }
 
+        if (track.Kind == TimelineTrackKind.Video && clip.TransitionInSeconds > 0)
+        {
+            float transitionWidth = (float)(clip.TransitionInSeconds * _timelinePixelsPerSecond);
+            float transitionStart = x0 - transitionWidth / 2;
+            session.FillRectangle(transitionStart, top + 2, transitionWidth, TimelineLaneHeight - 4,
+                Color.FromArgb(100, 0xFF, 0xCB, 0x66));
+            session.DrawLine(transitionStart, bottom, x0 + transitionWidth / 2, top + 2,
+                Color.FromArgb(220, 0xFF, 0xE0, 0xA3), 2);
+        }
+
         if (clip.Id == _selectedTimelineClipId)
         {
             session.DrawRoundedRectangle(bounds, 3, 3, Color.FromArgb(255, 0xF2, 0xF4, 0xF8), 2);
@@ -707,9 +1044,18 @@ public sealed partial class MainWindow
         destination.StartFrame = source.StartFrame;
         destination.SourceInSeconds = source.SourceInSeconds;
         destination.SourceOutSeconds = source.SourceOutSeconds;
+        destination.PlaybackSpeed = source.PlaybackSpeed;
+        destination.IsReversed = source.IsReversed;
+        destination.ReverseEmbeddedAudio = source.ReverseEmbeddedAudio;
         destination.DurationSeconds = source.DurationSeconds;
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
+        destination.TransitionInSeconds = source.TransitionInSeconds;
+        destination.CropLeftPercent = source.CropLeftPercent;
+        destination.CropTopPercent = source.CropTopPercent;
+        destination.CropRightPercent = source.CropRightPercent;
+        destination.CropBottomPercent = source.CropBottomPercent;
+        destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
 
     private static float LaneTop(int index) => TimelineRulerHeight + (index * (TimelineLaneHeight + TimelineLaneSpacing));
@@ -998,24 +1344,29 @@ public sealed partial class MainWindow
         bool moved = false;
         if (!ReferenceEquals(target, drag.Track))
         {
-            int previousStart = drag.Clip.StartFrame;
-            drag.Clip.StartFrame = startFrame;
-            moved = VideoTimelineEditing.TryMoveToTrack(drag.Track, target, drag.Clip, _frameRate);
+            moved = LinkedAudioVideoEditing.TryMoveVideoToTrack(
+                drag.Track,
+                target,
+                drag.Clip,
+                startFrame,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate);
             if (moved)
             {
                 drag.Track = target;
                 _selectedTimelineTrackId = target.Id;
                 RefreshVideoTrackHeaders();
             }
-            else
-            {
-                drag.Clip.StartFrame = previousStart;
-            }
         }
 
         if (!moved)
         {
-            moved = VideoTimelineEditing.TryMove(drag.Track, drag.Clip, startFrame, _frameRate);
+            moved = LinkedAudioVideoEditing.TryMoveVideo(
+                drag.Track,
+                drag.Clip,
+                startFrame,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate);
         }
 
         drag.Blocked = !moved;
@@ -1057,6 +1408,12 @@ public sealed partial class MainWindow
         if (drag.Moved)
         {
             SeekToCurrentFrame();
+            if (_audioTracks.Any(audio => audio.Project.LinkedVideoClipId == drag.Clip.Id))
+            {
+                RefreshAudioTracks();
+                UpdateSelectedAudioTrack();
+            }
+
             CompositionSurface.Invalidate();
             UpdateVideoInspector();
         }
@@ -1486,10 +1843,20 @@ public sealed partial class MainWindow
             : "The replacement source is unavailable or shorter than the clip's source range.";
     }
 
-    private void MoveClipToPlayhead_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.TryMove(location.Track, location.Clip, PlayheadFrameNumber, _frameRate),
-        "Moved the clip to the playhead.",
-        "The clip would overlap another clip at the playhead.");
+    private void MoveClipToPlayhead_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyClipAction(
+            location => LinkedAudioVideoEditing.TryMoveVideo(
+                location.Track,
+                location.Clip,
+                PlayheadFrameNumber,
+                _audioTracks.Select(audio => audio.Project).ToArray(),
+                _frameRate),
+            "Moved the clip and any linked audio to the playhead.",
+            "The clip would overlap another clip at the playhead.");
+        RefreshAudioTracks();
+        UpdateSelectedAudioTrack();
+    }
 
     private void CloseGapBeforeClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location => VideoEditTools.CloseGapBefore(location.Track, location.Clip, _frameRate),
@@ -1517,6 +1884,7 @@ public sealed partial class MainWindow
         _isRestoringProject = true;
         TimelineTrackProject? track = SelectedTimelineTrack;
         int trackIndex = track is null ? -1 : _videoTracks.IndexOf(track);
+        UpdateAudioVideoLinkControls();
         if (TimelineTrackNameBox.FocusState == FocusState.Unfocused)
         {
             TimelineTrackNameBox.Text = track?.Name ?? string.Empty;
@@ -1552,7 +1920,14 @@ public sealed partial class MainWindow
         bool isVideo = kind == TimelineTrackKind.Video;
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
+        bool supportsTransform = isVideo || isImage;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipColourGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
         RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
@@ -1562,17 +1937,25 @@ public sealed partial class MainWindow
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
             : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipReverseAudioCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipPlaybackHintText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipDurationBox.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)ClipFontSizeBox.Parent).Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
-        ClipScaleSlider.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
-        ClipRotationBox.Visibility = isImage ? Visibility.Visible : Visibility.Collapsed;
-        ClipXSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
-        ClipYSlider.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
+        ClipScaleSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipRotationBox.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipXSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipYSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
 
         ClipOpacitySlider.Value = clip.Opacity;
         ClipVolumeSlider.Value = clip.Volume;
+        ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
+        ClipReverseVideoCheck.IsChecked = clip.IsReversed;
+        ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
+        ClipReverseAudioCheck.IsEnabled = isVideo && clip.IsReversed && !location.Track.IsLocked;
         ClipFadeInBox.Value = clip.FadeInSeconds;
         ClipFadeOutBox.Value = clip.FadeOutSeconds;
         ClipDurationBox.Value = clip.DurationSeconds;
@@ -1588,10 +1971,44 @@ public sealed partial class MainWindow
             .FirstOrDefault(item => item.Tag is string tag &&
                 uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint argb) &&
                 argb == clip.Colour);
-        ClipScaleSlider.Value = clip.Scale;
-        ClipRotationBox.Value = clip.RotationDegrees;
-        ClipXSlider.Value = clip.X;
-        ClipYSlider.Value = clip.Y;
+        VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        ClipScaleSlider.Value = transform.Scale;
+        ClipRotationBox.Value = transform.RotationDegrees;
+        ClipCropLeftBox.Value = clip.CropLeftPercent;
+        ClipCropRightBox.Value = clip.CropRightPercent;
+        ClipCropTopBox.Value = clip.CropTopPercent;
+        ClipCropBottomBox.Value = clip.CropBottomPercent;
+        ClipExposureBox.Value = clip.Exposure;
+        ClipContrastBox.Value = clip.Contrast;
+        ClipWhiteBalanceTemperatureBox.Value = clip.WhiteBalanceTemperature;
+        ClipWhiteBalanceTintBox.Value = clip.WhiteBalanceTint;
+        ClipSaturationBox.Value = clip.Saturation;
+        ClipColourLutLabel.Text = string.IsNullOrWhiteSpace(clip.ColourLutPath)
+            ? "No 3D LUT selected"
+            : $"3D LUT: {Path.GetFileName(clip.ColourLutPath)}";
+        ToolTipService.SetToolTip(ClipColourLutLabel, clip.ColourLutPath);
+        RemoveClipColourLutButton.IsEnabled = !location.Track.IsLocked &&
+            !string.IsNullOrWhiteSpace(clip.ColourLutPath);
+        ClipCurveCanvas.Invalidate();
+        ClipXSlider.Value = transform.X;
+        ClipYSlider.Value = transform.Y;
+        if (supportsTransform)
+        {
+            int frameOffset = VideoTransformKeyframes.GetFrameOffset(
+                clip, _playheadFramePosition / _frameRate, _frameRate);
+            bool playheadInside = VideoTransformKeyframes.CanSetAtFrame(clip, kind, frameOffset, _frameRate);
+            SetTransformKeyframeButton.IsEnabled = playheadInside;
+            RemoveTransformKeyframeButton.IsEnabled =
+                playheadInside && VideoTransformKeyframes.IsKeyframeAt(clip, frameOffset);
+            PreviousTransformKeyframeButton.IsEnabled =
+                VideoTransformKeyframes.FindAdjacentFrame(clip, frameOffset, next: false) is not null;
+            NextTransformKeyframeButton.IsEnabled =
+                VideoTransformKeyframes.FindAdjacentFrame(clip, frameOffset, next: true) is not null;
+            TransformKeyframeStateText.Text = clip.TransformKeyframes.Count == 0
+                ? "No transform keyframes. Add one to animate this clip."
+                : $"{clip.TransformKeyframes.Count} transform keyframe(s); playhead frame {frameOffset + 1}.";
+        }
         _isRestoringProject = wasRestoring;
     }
 
@@ -1631,25 +2048,31 @@ public sealed partial class MainWindow
         }
 
         TimelineClipProject clip = location.Clip;
-        if (sender == ClipOpacitySlider)
+        if (ReferenceEquals(sender, ClipOpacitySlider))
         {
             clip.Opacity = Math.Clamp(e.NewValue, 0, 1);
         }
-        else if (sender == ClipVolumeSlider)
+        else if (ReferenceEquals(sender, ClipVolumeSlider))
         {
             clip.Volume = Math.Clamp(e.NewValue, 0, 1);
         }
-        else if (sender == ClipScaleSlider)
+        else if (ReferenceEquals(sender, ClipScaleSlider) ||
+            ReferenceEquals(sender, ClipXSlider) ||
+            ReferenceEquals(sender, ClipYSlider))
         {
-            clip.Scale = Math.Clamp(e.NewValue, VideoTimelineEditing.MinimumScale, VideoTimelineEditing.MaximumScale);
-        }
-        else if (sender == ClipXSlider)
-        {
-            clip.X = Math.Clamp(e.NewValue, 0, 1);
-        }
-        else if (sender == ClipYSlider)
-        {
-            clip.Y = Math.Clamp(e.NewValue, 0, 1);
+            VideoTransformValue current = VideoTransformKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate);
+            VideoTransformValue updated = ReferenceEquals(sender, ClipScaleSlider)
+                ? current with { Scale = Math.Clamp(e.NewValue, VideoTimelineEditing.MinimumScale, VideoTimelineEditing.MaximumScale) }
+                : ReferenceEquals(sender, ClipXSlider)
+                    ? current with { X = Math.Clamp(e.NewValue, 0, 1) }
+                    : current with { Y = Math.Clamp(e.NewValue, 0, 1) };
+            if (!VideoTransformKeyframes.SetValueAtTime(clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, updated))
+            {
+                CommitEdit();
+                StatusText.Text = "Move the playhead inside the selected clip to edit its transform keyframes.";
+                UpdateVideoInspector();
+                return;
+            }
         }
 
         ApplyClipPreview();
@@ -1669,17 +2092,576 @@ public sealed partial class MainWindow
         }
         if (!double.IsFinite(args.NewValue) || args.NewValue is < -180 or > 180)
         {
-            StatusText.Text = "Image rotation must be a finite angle from -180 to 180 degrees.";
+            StatusText.Text = "Clip rotation must be a finite angle from -180 to 180 degrees.";
             UpdateVideoInspector();
             return;
         }
-        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Image } selected ||
-            selected.Clip.RotationDegrees == args.NewValue || !TryBeginClipPropertyEdit(out var location))
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            VideoTransformKeyframes.GetValueAtTime(selected.Clip, CurrentPlaybackSeconds, _frameRate).RotationDegrees == args.NewValue ||
+            !TryBeginClipPropertyEdit(out var location))
         {
             return;
         }
-        location.Clip.RotationDegrees = args.NewValue;
+        VideoTransformValue current = VideoTransformKeyframes.GetValueAtTime(location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (!VideoTransformKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate,
+            current with { RotationDegrees = args.NewValue }))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected clip to edit its transform keyframes.";
+            UpdateVideoInspector();
+            return;
+        }
         ApplyClipPreview();
+    }
+
+    private void ClipCrop_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject || !double.IsFinite(args.NewValue) ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        TimelineClipProject clip = location.Clip;
+        double left = clip.CropLeftPercent;
+        double right = clip.CropRightPercent;
+        double top = clip.CropTopPercent;
+        double bottom = clip.CropBottomPercent;
+        if (ReferenceEquals(sender, ClipCropLeftBox))
+        {
+            left = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropRightBox))
+        {
+            right = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropTopBox))
+        {
+            top = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipCropBottomBox))
+        {
+            bottom = args.NewValue;
+        }
+        else
+        {
+            CommitEdit();
+            return;
+        }
+
+        var candidate = VideoTimelineEditing.Clone(clip);
+        candidate.CropLeftPercent = left;
+        candidate.CropRightPercent = right;
+        candidate.CropTopPercent = top;
+        candidate.CropBottomPercent = bottom;
+        if (left == clip.CropLeftPercent && right == clip.CropRightPercent &&
+            top == clip.CropTopPercent && bottom == clip.CropBottomPercent)
+        {
+            CommitEdit();
+            return;
+        }
+
+        if (VideoCrop.Validate(candidate, location.Track.Kind) is string error)
+        {
+            CommitEdit();
+            StatusText.Text = error;
+            UpdateVideoInspector();
+            return;
+        }
+
+        clip.CropLeftPercent = left;
+        clip.CropRightPercent = right;
+        clip.CropTopPercent = top;
+        clip.CropBottomPercent = bottom;
+        ApplyClipPreview();
+    }
+
+    private void ClipColourGrading_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject || !double.IsFinite(args.NewValue) ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        TimelineClipProject clip = location.Clip;
+        double exposure = clip.Exposure;
+        double contrast = clip.Contrast;
+        double temperature = clip.WhiteBalanceTemperature;
+        double tint = clip.WhiteBalanceTint;
+        double saturation = clip.Saturation;
+        if (ReferenceEquals(sender, ClipExposureBox))
+        {
+            exposure = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipContrastBox))
+        {
+            contrast = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipWhiteBalanceTemperatureBox))
+        {
+            temperature = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipWhiteBalanceTintBox))
+        {
+            tint = args.NewValue;
+        }
+        else if (ReferenceEquals(sender, ClipSaturationBox))
+        {
+            saturation = args.NewValue;
+        }
+        else
+        {
+            CommitEdit();
+            return;
+        }
+
+        var candidate = VideoTimelineEditing.Clone(clip);
+        candidate.Exposure = exposure;
+        candidate.Contrast = contrast;
+        candidate.WhiteBalanceTemperature = temperature;
+        candidate.WhiteBalanceTint = tint;
+        candidate.Saturation = saturation;
+        if (VideoColourGrading.Validate(candidate, location.Track.Kind) is string error)
+        {
+            CommitEdit();
+            StatusText.Text = error;
+            UpdateVideoInspector();
+            return;
+        }
+
+        if (VideoColourGrading.IsNeutral(candidate) == VideoColourGrading.IsNeutral(clip) &&
+            exposure == clip.Exposure &&
+            contrast == clip.Contrast &&
+            temperature == clip.WhiteBalanceTemperature &&
+            tint == clip.WhiteBalanceTint &&
+            saturation == clip.Saturation)
+        {
+            CommitEdit();
+            return;
+        }
+
+        clip.Exposure = exposure;
+        clip.Contrast = contrast;
+        clip.WhiteBalanceTemperature = temperature;
+        clip.WhiteBalanceTint = tint;
+        clip.Saturation = saturation;
+        ApplyClipPreview();
+    }
+
+    private async void LoadClipColourLut_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        string clipId = selected.Clip.Id;
+        StorageFile? file = await PickTimelineFileAsync([".cube"]);
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string content = await FileIO.ReadTextAsync(file);
+            _ = VideoColourLutData.Parse(content, file.Name);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            StatusText.Text = $"Could not load LUT {file.Name}: {ex.Message}";
+            return;
+        }
+
+        TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
+        if (current is null || current.Track.IsLocked)
+        {
+            StatusText.Text = "The selected clip is no longer available; no LUT was applied.";
+            return;
+        }
+
+        FinishActiveEdit();
+        if (!TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        location.Clip.ColourLutPath = file.Path;
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = $"Applied 3D LUT {file.Name} to the selected clip.";
+    }
+
+    private void RemoveClipColourLut_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            string.IsNullOrWhiteSpace(selected.Clip.ColourLutPath) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        location.Clip.ColourLutPath = null;
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = "Removed the selected clip's 3D LUT.";
+    }
+
+    private void ClipCurveCanvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        CanvasDrawingSession session = args.DrawingSession;
+        session.Clear(Color.FromArgb(255, 24, 28, 35));
+        Rect plot = GetClipCurvePlotBounds(sender.ActualWidth, sender.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        Color grid = Color.FromArgb(100, 150, 160, 175);
+        for (int division = 0; division <= 4; division++)
+        {
+            float x = (float)(plot.X + (plot.Width * division / 4));
+            float y = (float)(plot.Y + (plot.Height * division / 4));
+            session.DrawLine(x, (float)plot.Y, x, (float)(plot.Y + plot.Height), grid);
+            session.DrawLine((float)plot.X, y, (float)(plot.X + plot.Width), y, grid);
+        }
+
+        session.DrawLine((float)plot.X, (float)(plot.Y + plot.Height),
+            (float)(plot.X + plot.Width), (float)plot.Y, Color.FromArgb(110, 190, 195, 205));
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            VideoColourGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { Count: >= 2 } curve)
+        {
+            return;
+        }
+
+        Color channelColour = GetSelectedCurveChannel() switch
+        {
+            VideoColourCurveChannel.Red => Color.FromArgb(255, 255, 100, 100),
+            VideoColourCurveChannel.Green => Color.FromArgb(255, 100, 230, 135),
+            VideoColourCurveChannel.Blue => Color.FromArgb(255, 115, 175, 255),
+            _ => Color.FromArgb(255, 245, 245, 250),
+        };
+        for (int index = 1; index < curve.Count; index++)
+        {
+            Point previous = CurvePointToCanvas(curve[index - 1], plot);
+            Point current = CurvePointToCanvas(curve[index], plot);
+            session.DrawLine((float)previous.X, (float)previous.Y, (float)current.X, (float)current.Y, channelColour, 2);
+        }
+
+        foreach (VideoColourCurvePoint point in curve)
+        {
+            Point position = CurvePointToCanvas(point, plot);
+            session.FillCircle((float)position.X, (float)position.Y, 5, channelColour);
+        }
+    }
+
+    private void ClipCurveChannel_Changed(object sender, SelectionChangedEventArgs e) =>
+        ClipCurveCanvas?.Invalidate();
+
+    private void ClipCurveCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not CanvasControl canvas ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        Microsoft.UI.Input.PointerPoint pointer = e.GetCurrentPoint(canvas);
+        bool isRightClick = pointer.Properties.IsRightButtonPressed;
+        if (!isRightClick && !pointer.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        VideoColourCurveChannel channel = GetSelectedCurveChannel();
+        List<VideoColourCurvePoint>? curve = VideoColourGrading.GetCurve(selected.Clip, channel);
+        if (curve is null)
+        {
+            StatusText.Text = "The selected clip has invalid curve data.";
+            return;
+        }
+
+        Rect plot = GetClipCurvePlotBounds(canvas.ActualWidth, canvas.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        Point position = pointer.Position;
+        int nearest = FindNearestCurvePoint(curve, position, plot);
+        if (isRightClick)
+        {
+            if (nearest <= 0 || nearest >= curve.Count - 1)
+            {
+                return;
+            }
+
+            if (TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                VideoColourGrading.GetCurve(location.Clip, channel)!.RemoveAt(nearest);
+                ApplyClipPreview();
+                CommitEdit();
+                canvas.Invalidate();
+                e.Handled = true;
+            }
+
+            return;
+        }
+
+        if (nearest >= 0)
+        {
+            if (nearest == 0 || nearest == curve.Count - 1 ||
+                !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                return;
+            }
+
+            _draggedCurveClip = location.Clip;
+            _draggedCurveChannel = channel;
+            _draggedCurvePointIndex = nearest;
+        }
+        else
+        {
+            if (curve.Count >= VideoColourGrading.MaximumCurvePoints ||
+                !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+            {
+                StatusText.Text = curve.Count >= VideoColourGrading.MaximumCurvePoints
+                    ? $"A curve can contain at most {VideoColourGrading.MaximumCurvePoints} points."
+                    : StatusText.Text;
+                return;
+            }
+
+            curve = VideoColourGrading.GetCurve(location.Clip, channel)!;
+            (double input, double output) = CanvasToCurvePoint(position, plot);
+            int insertionIndex = curve.FindIndex(point => point.Input > input);
+            if (insertionIndex < 1)
+            {
+                insertionIndex = 1;
+            }
+
+            double minimumInput = curve[insertionIndex - 1].Input + 0.005;
+            double maximumInput = curve[insertionIndex].Input - 0.005;
+            if (minimumInput > maximumInput)
+            {
+                CommitEdit();
+                return;
+            }
+
+            curve.Insert(insertionIndex, new VideoColourCurvePoint(
+                Math.Clamp(input, minimumInput, maximumInput), output));
+            _draggedCurveClip = location.Clip;
+            _draggedCurveChannel = channel;
+            _draggedCurvePointIndex = insertionIndex;
+            ApplyClipPreview();
+        }
+
+        _curveDragPointerId = e.Pointer.PointerId;
+        canvas.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void ClipCurveCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not CanvasControl canvas ||
+            _draggedCurveClip is not TimelineClipProject clip ||
+            _draggedCurvePointIndex < 1 ||
+            _curveDragPointerId != e.Pointer.PointerId)
+        {
+            return;
+        }
+
+        List<VideoColourCurvePoint>? curve = VideoColourGrading.GetCurve(clip, _draggedCurveChannel);
+        if (curve is null || _draggedCurvePointIndex >= curve.Count - 1)
+        {
+            return;
+        }
+
+        Rect plot = GetClipCurvePlotBounds(canvas.ActualWidth, canvas.ActualHeight);
+        if (plot.Width <= 0 || plot.Height <= 0)
+        {
+            return;
+        }
+
+        (double input, double output) = CanvasToCurvePoint(e.GetCurrentPoint(canvas).Position, plot);
+        double minimumInput = curve[_draggedCurvePointIndex - 1].Input + 0.005;
+        double maximumInput = curve[_draggedCurvePointIndex + 1].Input - 0.005;
+        if (minimumInput > maximumInput)
+        {
+            return;
+        }
+
+        curve[_draggedCurvePointIndex] = new VideoColourCurvePoint(
+            Math.Clamp(input, minimumInput, maximumInput), output);
+        ApplyClipPreview();
+        canvas.Invalidate();
+    }
+
+    private void ClipCurveCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is CanvasControl canvas && _draggedCurvePointIndex >= 0 &&
+            _curveDragPointerId == e.Pointer.PointerId)
+        {
+            _draggedCurveClip = null;
+            _draggedCurvePointIndex = -1;
+            _curveDragPointerId = null;
+            canvas.ReleasePointerCapture(e.Pointer);
+            CommitEdit();
+            canvas.Invalidate();
+        }
+    }
+
+    private void ClipCurveCanvas_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (_draggedCurvePointIndex >= 0 && _curveDragPointerId == e.Pointer.PointerId)
+        {
+            _draggedCurveClip = null;
+            _draggedCurvePointIndex = -1;
+            _curveDragPointerId = null;
+            CommitEdit();
+        }
+    }
+
+    private void ResetClipCurve_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            VideoColourGrading.GetCurve(selected.Clip, GetSelectedCurveChannel()) is not { } curve ||
+            VideoColourGrading.IsNeutralCurve(curve) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        VideoColourGrading.SetCurve(location.Clip, GetSelectedCurveChannel(), [new(0, 0), new(1, 1)]);
+        ApplyClipPreview();
+        CommitEdit();
+        ClipCurveCanvas.Invalidate();
+    }
+
+    private VideoColourCurveChannel GetSelectedCurveChannel() =>
+        ClipCurveChannelSelector?.SelectedItem is ComboBoxItem { Tag: string tag } &&
+        Enum.TryParse(tag, ignoreCase: true, out VideoColourCurveChannel channel)
+            ? channel
+            : VideoColourCurveChannel.Master;
+
+    private static Rect GetClipCurvePlotBounds(double width, double height) =>
+        new(16, 12, Math.Max(0, width - 32), Math.Max(0, height - 24));
+
+    private static Point CurvePointToCanvas(VideoColourCurvePoint point, Rect plot) =>
+        new(plot.X + (point.Input * plot.Width), plot.Y + ((1 - point.Output) * plot.Height));
+
+    private static (double Input, double Output) CanvasToCurvePoint(Point position, Rect plot) =>
+        (Math.Clamp((position.X - plot.X) / plot.Width, 0, 1),
+            Math.Clamp(1 - ((position.Y - plot.Y) / plot.Height), 0, 1));
+
+    private static int FindNearestCurvePoint(
+        IReadOnlyList<VideoColourCurvePoint> curve,
+        Point position,
+        Rect plot)
+    {
+        int nearest = -1;
+        double distance = 14;
+        for (int index = 0; index < curve.Count; index++)
+        {
+            Point point = CurvePointToCanvas(curve[index], plot);
+            double candidate = Math.Sqrt(Math.Pow(position.X - point.X, 2) + Math.Pow(position.Y - point.Y, 2));
+            if (candidate < distance)
+            {
+                nearest = index;
+                distance = candidate;
+            }
+        }
+
+        return nearest;
+    }
+
+    private void SetTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoTransformKeyframes.TrySetAtFrame(selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Transform keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected clip to add a transform keyframe.";
+    }
+
+    private void RemoveTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoTransformKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Transform keyframe removed." : "There is no keyframe at the playhead.";
+    }
+
+    private void NavigateTransformKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            sender is not Button { Tag: string direction })
+        {
+            return;
+        }
+
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int? target = VideoTransformKeyframes.FindAdjacentFrame(selected.Clip, frameOffset, next: direction == "next");
+        if (target is null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -1725,6 +2707,65 @@ public sealed partial class MainWindow
         else if (sender == ClipFontSizeBox)
         {
             clip.FontSize = Math.Clamp(value, VideoTimelineEditing.MinimumFontSize, VideoTimelineEditing.MaximumFontSize);
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
+    private void ClipPlaybackSpeed_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            !double.IsFinite(args.NewValue) || Math.Abs(args.NewValue - selected.Clip.PlaybackSpeed) < 1e-9 ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (!VideoTimelineEditing.TrySetPlaybackSpeed(location.Track, location.Clip, args.NewValue, _frameRate))
+        {
+            CommitEdit();
+            UpdateVideoInspector();
+            StatusText.Text = "That playback speed would overlap another clip on this track.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
+    private void ClipPlaybackOption_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(sender, ClipReverseVideoCheck))
+        {
+            bool reversed = ClipReverseVideoCheck.IsChecked == true;
+            if (!VideoTimelineEditing.TrySetReversed(location.Track, location.Clip, reversed, _frameRate))
+            {
+                CommitEdit();
+                UpdateVideoInspector();
+                return;
+            }
+        }
+        else if (ReferenceEquals(sender, ClipReverseAudioCheck))
+        {
+            location.Clip.ReverseEmbeddedAudio = ClipReverseAudioCheck.IsChecked == true;
+        }
+        else
+        {
+            CommitEdit();
+            return;
         }
 
         ApplyClipPreview();

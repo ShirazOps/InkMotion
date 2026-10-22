@@ -51,20 +51,33 @@ public static class TimelineCompositor
         double x,
         double y,
         float opacity,
-        double rotationDegrees = 0)
+        double rotationDegrees = 0,
+        TimelineClipProject? colourGrade = null,
+        VideoColourGradingEffect? colourGradeEffect = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
         {
             Matrix3x2 previous = session.Transform;
+            VideoColourGradingEffect? temporaryColourGradeEffect = null;
             try
             {
                 session.Transform = Matrix3x2.CreateRotation((float)(rotationDegrees * Math.PI / 180),
                     new Vector2((float)(x * width), (float)(y * height))) * previous;
-                session.DrawImage(bitmap, destination, sourceRect, opacity);
+                if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade))
+                {
+                    session.DrawImage(bitmap, destination, sourceRect, opacity);
+                }
+                else
+                {
+                    VideoColourGradingEffect effect = colourGradeEffect ??
+                        (temporaryColourGradeEffect = new VideoColourGradingEffect());
+                    session.DrawImage(effect.GetOutput(bitmap, colourGrade), destination, sourceRect, opacity);
+                }
             }
             finally
             {
+                temporaryColourGradeEffect?.Dispose();
                 session.Transform = previous;
             }
         }

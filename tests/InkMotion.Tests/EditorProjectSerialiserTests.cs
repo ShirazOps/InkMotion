@@ -38,6 +38,133 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionEighteenProject_MigratesWithoutAudioVideoLinks()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":18,"AudioTracks":[{"AudioPath":"C:\\Media\\music.wav"}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Null(Assert.Single(restored.AudioTracks).LinkedVideoClipId);
+    }
+
+    [Fact]
+    public void Deserialise_VersionNineteenProject_MigratesWithNoTransitions()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":19,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(0, Assert.Single(Assert.Single(restored.VideoTracks).Clips).TransitionInSeconds);
+    }
+
+    [Fact]
+    public void Deserialise_VersionTwentyProject_MigratesWithNoTransformKeyframes()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":20,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Empty(Assert.Single(Assert.Single(restored.VideoTracks).Clips).TransformKeyframes);
+    }
+
+    [Fact]
+    public void Deserialise_VersionTwentyOneProject_MigratesWithNoCrop()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":21,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal((0, 0, 0, 0),
+            (clip.CropLeftPercent, clip.CropTopPercent, clip.CropRightPercent, clip.CropBottomPercent));
+    }
+
+    [Fact]
+    public void Deserialise_VersionTwentyTwoProject_DefaultsToNormalPlayback()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":22,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(1, clip.PlaybackSpeed);
+        Assert.False(clip.IsReversed);
+        Assert.True(clip.ReverseEmbeddedAudio);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsVideoPlaybackSettings()
+    {
+        var project = new EditorProject
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips =
+                    [
+                        new TimelineClipProject
+                        {
+                            SourcePath = @"C:\Media\scene.mp4",
+                            SourceDurationSeconds = 10,
+                            SourceOutSeconds = 4,
+                            PlaybackSpeed = 2.5,
+                            IsReversed = true,
+                            ReverseEmbeddedAudio = false,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        TimelineClipProject restored = Assert.Single(
+            Assert.Single(EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project)).VideoTracks).Clips);
+
+        Assert.Equal(2.5, restored.PlaybackSpeed);
+        Assert.True(restored.IsReversed);
+        Assert.False(restored.ReverseEmbeddedAudio);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsCrossDissolveTransition()
+    {
+        TimelineTrackProject track = new()
+        {
+            Kind = TimelineTrackKind.Video,
+            Clips =
+            [
+                new TimelineClipProject
+                {
+                    Id = "outgoing",
+                    StartFrame = 1,
+                    SourcePath = @"C:\Media\outgoing.mp4",
+                    SourceOutSeconds = 5,
+                    SourceDurationSeconds = 6,
+                },
+                new TimelineClipProject
+                {
+                    Id = "incoming",
+                    StartFrame = 121,
+                    SourcePath = @"C:\Media\incoming.mp4",
+                    SourceInSeconds = 1,
+                    SourceOutSeconds = 6,
+                    SourceDurationSeconds = 6,
+                    TransitionInSeconds = 1,
+                },
+            ],
+        };
+        EditorProject original = new() { VideoTracks = [track] };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(original));
+
+        TimelineClipProject[] clips = Assert.Single(restored.VideoTracks).Clips.ToArray();
+        Assert.Equal("outgoing", clips[0].Id);
+        Assert.Equal("incoming", clips[1].Id);
+        Assert.Equal(1, clips[1].TransitionInSeconds);
+    }
+
+    [Fact]
     public void RoundTrip_PreservesVideoFramesInkAndKeyframes()
     {
         var original = new EditorProject
@@ -478,6 +605,45 @@ public sealed class EditorProjectSerialiserTests
         Assert.Equal(125, track.TempoPercent);
         Assert.Equal(-3.5, track.PitchSemitones);
         Assert.Equal(AudioChannelLayout.Surround121, restored.AudioMixLayout);
+    }
+
+    [Fact]
+    public void Serialise_RoundTripsLinkedAudioVideoClip()
+    {
+        var project = new EditorProject
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips =
+                    [
+                        new TimelineClipProject
+                        {
+                            Id = "video-clip",
+                            SourcePath = @"C:\Media\scene.mp4",
+                            SourceDurationSeconds = 10,
+                            SourceOutSeconds = 4,
+                        },
+                    ],
+                },
+            ],
+            AudioTracks =
+            [
+                new AudioTrackProject
+                {
+                    AudioPath = @"C:\Media\dialog.wav",
+                    LinkedVideoClipId = "video-clip",
+                    StartFrame = 12,
+                },
+            ],
+        };
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+
+        Assert.Equal("video-clip", Assert.Single(restored.AudioTracks).LinkedVideoClipId);
+        Assert.Equal(12, Assert.Single(restored.AudioTracks).StartFrame);
     }
 
     [Fact]

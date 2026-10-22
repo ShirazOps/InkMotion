@@ -120,6 +120,8 @@
                     </UserControl>
                     <Button Content="Copy clip" Click="CopyVideoClip_Click" />
                     <Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" />
+                    <Button x:Name="LinkAudioVideoButton" Content="Link selected audio" Click="LinkSelectedAudioVideo_Click" IsEnabled="False" />
+                    <Button x:Name="UnlinkAudioVideoButton" Content="Unlink selected audio" Click="UnlinkSelectedAudioVideo_Click" IsEnabled="False" />
                     <TextBlock Text="Clip and track tools in the inspector →" VerticalAlignment="Center" Style="{StaticResource HintTextStyle}" />
                 </StackPanel>
                 <StackPanel x:Name="AudioActionBar" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
@@ -258,6 +260,16 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="14">
                         <TextBlock Text="Video Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="VIDEO SCOPES" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <canvas:CanvasControl x:Name="VideoRgbHistogramSurface" Height="130" MinHeight="110"
+                            Draw="VideoRgbHistogram_Draw"
+                            AutomationProperties.Name="RGB histogram for the active video source after clip colour grading" />
+                        <TextBlock x:Name="VideoScopeStatus" Text="Switch to Modified preview to view the active clip's RGB distribution."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Horizontal: channel value (0-255) · vertical: square-root-scaled pixel frequency."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Active video source after clip colour grading; crop, transform, opacity, cross-dissolves and overlays are excluded."
+                            TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="TIMELINE MARKERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Content="Add" Click="AddMarker_Click" />
@@ -417,6 +429,10 @@
                             </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <NumberBox x:Name="ClipPlaybackSpeedBox" Header="Playback speed (0.25x–4x)" Minimum="0.25" Maximum="4" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipPlaybackSpeed_Changed" />
+                            <CheckBox x:Name="ClipReverseVideoCheck" Content="Reverse video" Click="ClipPlaybackOption_Click" />
+                            <CheckBox x:Name="ClipReverseAudioCheck" Content="Reverse embedded audio (when reversed)" Click="ClipPlaybackOption_Click" />
+                            <TextBlock x:Name="ClipPlaybackHintText" Text="Reverse audio is included in exports when enabled; embedded audio is muted during reverse preview." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <Grid ColumnSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -425,6 +441,80 @@
                                 <NumberBox x:Name="ClipFadeInBox" Header="Fade in (s)" Minimum="0" Maximum="3600" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                                 <NumberBox x:Name="ClipFadeOutBox" Grid.Column="1" Header="Fade out (s)" Minimum="0" Maximum="3600" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             </Grid>
+                            <StackPanel x:Name="VideoTransitionActions" Spacing="6">
+                                <NumberBox x:Name="CrossDissolveDurationBox" Header="Cross-dissolve duration (s)" Minimum="0.084" Maximum="30" Value="1" SmallChange="0.25" SpinButtonPlacementMode="Compact" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Apply cross-dissolve" Click="ApplyCrossDissolve_Click" />
+                                    <Button Content="Remove transition" Click="RemoveCrossDissolve_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Transitions span the cut without moving either clip. Both sources need unused footage before/after their selected ranges; transition opacity requires both clip opacities at 100%. This is a video-only dissolve; audio timing and volume are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
+                            <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
+                                <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetTransformKeyframeButton" Content="Add/update keyframe" Click="SetTransformKeyframe_Click" />
+                                    <Button x:Name="RemoveTransformKeyframeButton" Content="Remove keyframe" Click="RemoveTransformKeyframe_Click" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="PreviousTransformKeyframeButton" Content="Previous keyframe" Click="NavigateTransformKeyframe_Click" Tag="previous" />
+                                    <Button x:Name="NextTransformKeyframeButton" Content="Next keyframe" Click="NavigateTransformKeyframe_Click" Tag="next" />
+                                </StackPanel>
+                                <TextBlock Text="Transform keyframes interpolate linearly. Once enabled, changing position, scale or rotation creates or updates a keyframe at the playhead." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
+                            <TextBlock x:Name="ClipCropLabel" Text="Crop each source edge by a percentage. Crop is non-destructive and stays with the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            <Grid x:Name="ClipCropGrid" ColumnSpacing="6" RowSpacing="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <NumberBox x:Name="ClipCropLeftBox" Header="Crop left (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropRightBox" Grid.Column="1" Header="Crop right (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropTopBox" Grid.Row="1" Header="Crop top (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
+                                <NumberBox x:Name="ClipCropBottomBox" Grid.Row="1" Grid.Column="1" Header="Crop bottom (%)" Minimum="0" Maximum="49" SmallChange="1" ValueChanged="ClipCrop_Changed" />
+                            </Grid>
+                            <StackPanel x:Name="ClipColourGradingControls" Spacing="6">
+                                <TextBlock Text="COLOUR" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <Grid ColumnSpacing="6" RowSpacing="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <NumberBox x:Name="ClipExposureBox" Header="Exposure (EV)" Minimum="-2" Maximum="2" Value="0" SmallChange="0.1" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipContrastBox" Grid.Column="1" Header="Contrast (-1 to +1)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipWhiteBalanceTemperatureBox" Grid.Row="1" Header="Temperature (-1 cool, +1 warm)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipWhiteBalanceTintBox" Grid.Row="1" Grid.Column="1" Header="Tint (-1 green, +1 magenta)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                    <NumberBox x:Name="ClipSaturationBox" Grid.Row="2" Header="Saturation" Minimum="0" Maximum="2" Value="1" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
+                                </Grid>
+                                <TextBlock Text="Colour changes apply to the video or image clip in live preview and export. Neutral values are Exposure 0 EV, Contrast 0, Temperature/Tint 0 and Saturation 1." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <ComboBox x:Name="ClipCurveChannelSelector" Header="Curve channel" SelectedIndex="0" SelectionChanged="ClipCurveChannel_Changed">
+                                    <ComboBoxItem Content="Master" Tag="Master" />
+                                    <ComboBoxItem Content="Red" Tag="Red" />
+                                    <ComboBoxItem Content="Green" Tag="Green" />
+                                    <ComboBoxItem Content="Blue" Tag="Blue" />
+                                </ComboBox>
+                                <canvas:CanvasControl x:Name="ClipCurveCanvas" Height="180" MinHeight="180"
+                                                      Draw="ClipCurveCanvas_Draw"
+                                                      PointerPressed="ClipCurveCanvas_PointerPressed"
+                                                      PointerMoved="ClipCurveCanvas_PointerMoved"
+                                                      PointerReleased="ClipCurveCanvas_PointerReleased"
+                                                      PointerCaptureLost="ClipCurveCanvas_PointerCaptureLost" />
+                                <Button Content="Reset selected curve" Click="ResetClipCurve_Click" />
+                                <TextBlock Text="Click the graph to add a point, drag points to shape the curve, or right-click a point to remove it. Endpoints stay fixed." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock x:Name="ClipColourLutLabel" Text="No 3D LUT selected" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button Content="Load 3D LUT (.cube)..." Click="LoadClipColourLut_Click" />
+                                    <Button x:Name="RemoveClipColourLutButton" Content="Remove LUT" Click="RemoveClipColourLut_Click" />
+                                </StackPanel>
+                            </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
                             <ComboBox x:Name="ClipFontSelector" Header="Font" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">

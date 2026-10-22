@@ -39,7 +39,11 @@ public static class VideoClipJoining
         double rightDuration = VideoTimelineEditing.GetDurationSeconds(right, track.Kind);
         if (left.SourceDurationSeconds <= 0 || right.SourceDurationSeconds <= 0 ||
             left.SourceDurationSeconds != right.SourceDurationSeconds ||
-            Math.Abs(leftEnd - right.SourceInSeconds) > 1e-7 ||
+            left.PlaybackSpeed != right.PlaybackSpeed || left.IsReversed != right.IsReversed ||
+            left.ReverseEmbeddedAudio != right.ReverseEmbeddedAudio ||
+            (left.IsReversed
+                ? Math.Abs(left.SourceInSeconds - rightEnd) > 1e-7
+                : Math.Abs(leftEnd - right.SourceInSeconds) > 1e-7) ||
             Math.Abs(VideoTimelineEditing.GetEndSeconds(left, track.Kind, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(right, frameRate)) > 1e-7)
         {
@@ -47,21 +51,42 @@ public static class VideoClipJoining
         }
 
         if (left.FadeOutSeconds != 0 || right.FadeInSeconds != 0 ||
-            left.FadeInSeconds > leftDuration || right.FadeOutSeconds > rightDuration)
+            left.FadeInSeconds > leftDuration || right.FadeOutSeconds > rightDuration ||
+            right.TransitionInSeconds > 0)
         {
-            throw new InvalidOperationException("Remove fades at the join boundary and keep outer fades within their original clips before joining.");
+            throw new InvalidOperationException("Remove transitions or fades at the join boundary and keep outer fades within their original clips before joining.");
+        }
+
+        if (left.TransformKeyframes.Count != 0 || right.TransformKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove transform keyframes before joining; keyframed motion cannot be combined without changing its timing.");
         }
 
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
+            left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
+            left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
+            left.Saturation != right.Saturation ||
+            !left.MasterCurve.SequenceEqual(right.MasterCurve) ||
+            !left.RedCurve.SequenceEqual(right.RedCurve) ||
+            !left.GreenCurve.SequenceEqual(right.GreenCurve) ||
+            !left.BlueCurve.SequenceEqual(right.BlueCurve) ||
+            !string.Equals(left.ColourLutPath, right.ColourLutPath, StringComparison.OrdinalIgnoreCase) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {
-            throw new InvalidOperationException("Match the clip opacity, volume, transform, text and styling before joining; no clip properties will be discarded.");
+            throw new InvalidOperationException("Match the clip opacity, volume, transform, colour, text and styling before joining; no clip properties will be discarded.");
         }
 
         TimelineClipProject joined = VideoTimelineEditing.Clone(left);
-        joined.SourceOutSeconds = rightEnd;
+        if (left.IsReversed)
+        {
+            joined.SourceInSeconds = right.SourceInSeconds;
+        }
+        else
+        {
+            joined.SourceOutSeconds = rightEnd;
+        }
         joined.FadeOutSeconds = right.FadeOutSeconds;
         return joined;
     }

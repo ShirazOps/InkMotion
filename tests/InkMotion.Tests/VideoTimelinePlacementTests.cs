@@ -82,6 +82,37 @@ public sealed class VideoTimelinePlacementTests
     }
 
     [Fact]
+    public void ReverseOverwriteSplitsTheSourceRangeInPlaybackOrder()
+    {
+        var original = new TimelineClipProject
+        {
+            Id = "original",
+            SourcePath = "old.mp4",
+            SourceOutSeconds = 10,
+            SourceDurationSeconds = 10,
+            PlaybackSpeed = 2,
+            IsReversed = true,
+        };
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [original] };
+        var inserted = new TimelineClipProject
+        {
+            Id = "inserted",
+            SourcePath = "new.mp4",
+            SourceDurationSeconds = 2,
+            PlaybackSpeed = 2,
+        };
+
+        Assert.True(VideoTimelinePlacement.TryPlace(track, inserted, 49, 24, VideoClipPlacementMode.Overwrite));
+
+        TimelineClipProject left = track.Clips.Single(clip => clip.Id == "original");
+        TimelineClipProject right = track.Clips.Single(clip => clip.Id != "original" && clip.Id != "inserted");
+        Assert.Equal((6d, 10d), (left.SourceInSeconds, left.SourceOutSeconds));
+        Assert.Equal((0d, 4d), (right.SourceInSeconds, right.SourceOutSeconds));
+        Assert.Equal(73, right.StartFrame);
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+    }
+
+    [Fact]
     public void OverwriteCanRemoveFullyCoveredClip()
     {
         var original = new TimelineClipProject
