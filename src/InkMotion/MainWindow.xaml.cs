@@ -1684,6 +1684,8 @@ public sealed partial class MainWindow : Window
     private void ExportResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         UpdateExportProfileReadout();
+        UpdateInkRulerReadout();
+        InkSurface?.Invalidate();
     }
 
     private void UpdateExportProfileReadout()
@@ -2014,6 +2016,7 @@ public sealed partial class MainWindow : Window
         }
 
         DrawInkSelection(args.DrawingSession, width, height);
+        DrawInkRulers(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);

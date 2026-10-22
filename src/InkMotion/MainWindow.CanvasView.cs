@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Text;
 using Windows.Foundation;
 
 namespace InkMotion;
@@ -46,6 +48,60 @@ public sealed partial class MainWindow
         }
     }
 
+    private void UpdateInkRulerReadout()
+    {
+        if (InkRulerReadout is not null &&
+            ExportResolutionSelector?.SelectedItem is ComboBoxItem { Tag: string name } &&
+            Enum.TryParse(name, out ExportResolution resolution))
+        {
+            VideoExportProfile profile = VideoExportProfile.Create(resolution, 24);
+            InkRulerReadout.Text = $"Ruler calibration: {profile.Width:N0} x {profile.Height:N0} output pixels. Change resolution on Export.";
+        }
+    }
+
+    private void DrawInkRulers(CanvasDrawingSession session, float width, float height)
+    {
+        if (_workspace != "Ink" || _isPlaying || IsOriginalPreview ||
+            InkRulersToggle?.IsChecked != true || width <= 0 || height <= 0 ||
+            ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string name } ||
+            !Enum.TryParse(name, out ExportResolution resolution))
+        {
+            return;
+        }
+
+        VideoExportProfile profile = VideoExportProfile.Create(resolution, 24);
+        double zoom = PreviewCanvasTransform.ScaleX;
+        float unit = (float)(1 / zoom);
+        float band = 20 * unit;
+        using var format = new CanvasTextFormat { FontSize = 10 * unit, WordWrapping = CanvasWordWrapping.NoWrap };
+        Windows.UI.Color colour = ToColour(0xFFDDE5EC);
+        session.FillRectangle(0, 0, width, band, ToColour(0xDD15202B));
+        session.FillRectangle(0, 0, band * 2, height, ToColour(0xDD15202B));
+        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(width, profile.Width, zoom))
+        {
+            float x = (float)tick.Position * width;
+            float length = (tick.IsMajor ? 7 : 3) * unit;
+            session.DrawLine(x, band - length, x, band, colour, unit);
+            if (tick.IsMajor)
+            {
+                session.DrawText(tick.Pixel.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Math.Clamp(x + 2 * unit, 0, Math.Max(0, width - 36 * unit)), 0, colour, format);
+            }
+        }
+
+        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(height, profile.Height, zoom))
+        {
+            float y = (float)tick.Position * height;
+            float length = (tick.IsMajor ? 7 : 3) * unit;
+            session.DrawLine(band * 2 - length, y, band * 2, y, colour, unit);
+            if (tick.IsMajor && tick.Pixel > 0)
+            {
+                session.DrawText(tick.Pixel.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    0, Math.Clamp(y + unit, band, Math.Max(band, height - 12 * unit)), colour, format);
+            }
+        }
+    }
+
     private void PreviewViewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         PreviewViewport.Clip = new RectangleGeometry { Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
@@ -81,6 +137,7 @@ public sealed partial class MainWindow
         PreviewCanvasTransform.TranslateX = enabled ? PreviewViewport.ActualWidth * x / 100 : 0;
         PreviewCanvasTransform.TranslateY = enabled ? PreviewViewport.ActualHeight * y / 100 : 0;
         InkSurface.Invalidate();
+        UpdateInkRulerReadout();
     }
 
     private void ResetInkCanvasView_Click(object sender, RoutedEventArgs e)
