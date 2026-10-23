@@ -82,12 +82,13 @@ public static class VideoTransitions
         {
             if (ReferenceEquals(location.Clip, transition.OutgoingClip))
             {
-                return transition.OutgoingClip.Opacity;
+                return VideoOpacityKeyframes.GetOpacityAtTime(transition.OutgoingClip, seconds, frameRate);
             }
 
             if (ReferenceEquals(location.Clip, transition.IncomingClip))
             {
-                return transition.IncomingClip.Opacity * transition.Progress;
+                return VideoOpacityKeyframes.GetOpacityAtTime(transition.IncomingClip, seconds, frameRate) *
+                    transition.Progress;
             }
         }
 

@@ -166,6 +166,7 @@ public sealed class TimelineClipProject
     /// <summary>Timeline length of image and text clips.</summary>
     public double DurationSeconds { get; set; } = VideoTimelineEditing.DefaultStillDurationSeconds;
     public double Opacity { get; set; } = 1;
+    public List<VideoOpacityKeyframe> OpacityKeyframes { get; set; } = [];
     public double Volume { get; set; } = 1;
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
@@ -439,6 +440,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoOpacityKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         clip.StartFrame = playheadFrame;
         ClampFades(clip, track.Kind);
         return true;
@@ -470,6 +472,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -489,6 +492,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoClipMask.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoOpacityKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
@@ -708,6 +712,7 @@ public static class VideoTimelineEditing
             VideoTransformKeyframes.TrimEnd(clip, retainedFrames);
             VideoCropKeyframes.TrimEnd(clip, retainedFrames);
             VideoClipMask.TrimEnd(clip, retainedFrames);
+            VideoOpacityKeyframes.TrimEnd(clip, retainedFrames);
         }
         VideoTransitions.ClearInvalid([track], frameRate);
         return true;
@@ -740,7 +745,7 @@ public static class VideoTimelineEditing
             return 0;
         }
 
-        double opacity = clip.Opacity;
+        double opacity = VideoOpacityKeyframes.GetOpacityAtTime(clip, timelineSeconds, frameRate);
         if (clip.FadeInSeconds > 0 && elapsed < clip.FadeInSeconds)
         {
             opacity *= elapsed / clip.FadeInSeconds;
@@ -801,6 +806,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoClipMask.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -838,6 +844,7 @@ public static class VideoTimelineEditing
                     .ToList();
                 VideoCropKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoClipMask.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
+                VideoOpacityKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 previousEnd = GetEndSeconds(clip, track.Kind, newFrameRate);
             }
         }
@@ -892,6 +899,7 @@ public static class VideoTimelineEditing
         ReverseEmbeddedAudio = clip.ReverseEmbeddedAudio,
         DurationSeconds = clip.DurationSeconds,
         Opacity = clip.Opacity,
+        OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(clip.OpacityKeyframes),
         Volume = clip.Volume,
         FadeInSeconds = clip.FadeInSeconds,
         FadeOutSeconds = clip.FadeOutSeconds,
@@ -986,6 +994,11 @@ public static class VideoTimelineEditing
                 if (VideoTransformKeyframes.Validate(clip, track.Kind, frameRate) is string keyframeError)
                 {
                     return keyframeError;
+                }
+
+                if (VideoOpacityKeyframes.Validate(clip, track.Kind, frameRate) is string opacityError)
+                {
+                    return opacityError;
                 }
 
                 if (VideoCrop.Validate(clip, track.Kind, frameRate) is string cropError)

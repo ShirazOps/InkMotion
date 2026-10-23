@@ -67,6 +67,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove crop keyframes before joining; animated crop cannot be combined without changing its timing.");
         }
 
+        if (left.OpacityKeyframes.Count != 0 || right.OpacityKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove opacity keyframes before joining; animated opacity cannot be combined without changing its timing.");
+        }
+
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.CropLeftPercent != right.CropLeftPercent || left.CropTopPercent != right.CropTopPercent ||

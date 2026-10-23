@@ -38,6 +38,18 @@ public sealed class EditorProjectSerialiserTests
     }
 
     [Fact]
+    public void Deserialise_VersionFortyFourProject_DefaultsToStaticOpacity()
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise(
+            """{"Version":44,"VideoTracks":[{"Id":"track","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"C:\\Media\\scene.mp4","SourceDurationSeconds":10,"Opacity":0.6}]}]}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(0.6, clip.Opacity);
+        Assert.Empty(clip.OpacityKeyframes);
+    }
+
+    [Fact]
     public void Deserialise_VersionEighteenProject_MigratesWithoutAudioVideoLinks()
     {
         EditorProject restored = EditorProjectSerialiser.Deserialise(

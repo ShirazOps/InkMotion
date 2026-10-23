@@ -44,6 +44,27 @@ public sealed class VideoTransitionsTests
     }
 
     [Fact]
+    public void GetOpacity_AppliesAnimatedOpacityToBothSidesOfDissolve()
+    {
+        TimelineTrackProject track = CreateAdjacentTrack();
+        TimelineClipProject outgoing = track.Clips[0];
+        TimelineClipProject incoming = track.Clips[1];
+        outgoing.OpacityKeyframes =
+        [
+            new() { FrameOffset = 0, Opacity = 0.8 },
+            new() { FrameOffset = 119, Opacity = 0.4 },
+        ];
+        incoming.OpacityKeyframes = [new() { FrameOffset = 0, Opacity = 0.25 }];
+        Assert.True(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));
+        double cut = VideoTimelineEditing.GetStartSeconds(incoming, FrameRate);
+
+        Assert.Equal(0.4, VideoTimelineEditing.GetOpacity(
+            new TimelineClipLocation(track, outgoing), cut, FrameRate), 6);
+        Assert.Equal(0.125, VideoTimelineEditing.GetOpacity(
+            new TimelineClipLocation(track, incoming), cut, FrameRate), 6);
+    }
+
+    [Fact]
     public void AudioCrossDissolve_UsesLinearGainsAndReadsTheSameSourceHandlesAsVideo()
     {
         TimelineTrackProject track = CreateAdjacentTrack();

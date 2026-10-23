@@ -1652,6 +1652,8 @@ public sealed partial class MainWindow
         destination.IsReversed = source.IsReversed;
         destination.ReverseEmbeddedAudio = source.ReverseEmbeddedAudio;
         destination.DurationSeconds = source.DurationSeconds;
+        destination.Opacity = source.Opacity;
+        destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2556,6 +2558,7 @@ public sealed partial class MainWindow
                 ? "The configured proxy is unavailable; preview and export are using the original source."
                 : "Choose whether preview and export decode the generated proxy or the original source.");
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        OpacityKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         VideoStabilisationActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         StabiliseVideoButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
         ClearRollingShutterButton.IsEnabled = isVideo && !location.Track.IsLocked &&
@@ -2588,7 +2591,19 @@ public sealed partial class MainWindow
         ClipYSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropKeyframeActions.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
 
-        ClipOpacitySlider.Value = clip.Opacity;
+        double opacitySeconds = _playheadFramePosition / _frameRate;
+        int opacityFrameOffset = VideoOpacityKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool opacityPlayheadInside = VideoOpacityKeyframes.CanSetAtFrame(
+            clip, kind, opacityFrameOffset, _frameRate);
+        ClipOpacitySlider.Maximum = clip.OpacityKeyframes.Count == 0 ? 1 : clip.Opacity;
+        ClipOpacitySlider.Value = VideoOpacityKeyframes.GetOpacityAtTime(clip, opacitySeconds, _frameRate);
+        ClipOpacitySlider.IsEnabled = clip.OpacityKeyframes.Count == 0 || opacityPlayheadInside;
+        SetOpacityKeyframeButton.IsEnabled = opacityPlayheadInside && !location.Track.IsLocked;
+        RemoveOpacityKeyframeButton.IsEnabled = opacityPlayheadInside && !location.Track.IsLocked &&
+            VideoOpacityKeyframes.IsKeyframeAt(clip, opacityFrameOffset);
+        OpacityKeyframeStateText.Text = clip.OpacityKeyframes.Count == 0
+            ? "No opacity keyframes. Opacity applies to the whole clip."
+            : $"{clip.OpacityKeyframes.Count} opacity keyframe(s); values interpolate at the playhead.";
         ClipVolumeSlider.Value = clip.Volume;
         ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
         ClipReverseVideoCheck.IsChecked = clip.IsReversed;
@@ -2737,7 +2752,13 @@ public sealed partial class MainWindow
         TimelineClipProject clip = location.Clip;
         if (ReferenceEquals(sender, ClipOpacitySlider))
         {
-            clip.Opacity = Math.Clamp(e.NewValue, 0, 1);
+            if (!VideoOpacityKeyframes.SetValueAtTime(
+                clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, Math.Clamp(e.NewValue, 0, 1)))
+            {
+                CommitEdit();
+                UpdateVideoInspector();
+                return;
+            }
         }
         else if (ReferenceEquals(sender, ClipVolumeSlider))
         {
@@ -3526,6 +3547,61 @@ public sealed partial class MainWindow
         StatusText.Text = set
             ? $"Transform keyframe set at clip frame {frameOffset + 1}."
             : "Move the playhead inside the selected clip to add a transform keyframe.";
+    }
+
+    private void SetOpacityKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoOpacityKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoOpacityKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Opacity keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected clip to add an opacity keyframe.";
+    }
+
+    private void RemoveOpacityKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoOpacityKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoOpacityKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Opacity keyframe removed." : "There is no opacity keyframe at the playhead.";
     }
 
     private void RemoveTransformKeyframe_Click(object sender, RoutedEventArgs e)

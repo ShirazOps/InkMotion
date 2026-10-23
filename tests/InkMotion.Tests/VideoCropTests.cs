@@ -162,9 +162,9 @@ public sealed class VideoCropTests
         Assert.NotNull(VideoTimelineEditing.Validate(
             [new TimelineTrackProject { Kind = TimelineTrackKind.Image, Clips = [clip] }], 24));
 
-        string json = EditorProjectSerialiser.Serialise(new EditorProject { Version = 44 });
+        string json = EditorProjectSerialiser.Serialise(new EditorProject { Version = EditorProject.CurrentVersion });
         EditorProject migrated = EditorProjectSerialiser.Deserialise(
-            json.Replace("\"Version\": 44", "\"Version\": 43", StringComparison.Ordinal));
+            json.Replace($"\"Version\": {EditorProject.CurrentVersion}", "\"Version\": 43", StringComparison.Ordinal));
         Assert.Equal(EditorProject.CurrentVersion, migrated.Version);
     }
 

@@ -304,6 +304,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("transform")]
     [InlineData("crop")]
     [InlineData("crop-keyframes")]
+    [InlineData("opacity-keyframes")]
     [InlineData("colour")]
     [InlineData("style")]
     [InlineData("locked")]
@@ -336,6 +337,7 @@ public sealed class VideoClipJoiningTests
             case "transform": right.X = 0.6; break;
             case "crop": right.CropLeftPercent = 10; break;
             case "crop-keyframes": right.CropKeyframes = [new() { FrameOffset = 0, Left = 10 }]; break;
+            case "opacity-keyframes": right.OpacityKeyframes = [new() { FrameOffset = 0, Opacity = 0.5 }]; break;
             case "colour": right.Exposure = 1; break;
             case "style": right.Colour = 0xFF123456; break;
             case "locked": track.IsLocked = true; break;

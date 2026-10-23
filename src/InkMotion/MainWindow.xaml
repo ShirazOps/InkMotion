@@ -464,6 +464,13 @@
                               <TextBlock Text="Ripple changes sequence length and shifts all later clips on this track, keeping gaps. Ripple start keeps this clip's timeline start fixed; +1 removes a source frame, -1 includes an earlier one. Other tracks, added audio, markers and ink are not linked or moved." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <Slider x:Name="ClipOpacitySlider" Header="Opacity" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <StackPanel x:Name="OpacityKeyframeActions" Spacing="6">
+                                <TextBlock x:Name="OpacityKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetOpacityKeyframeButton" Content="Add/update opacity keyframe" Click="SetOpacityKeyframe_Click" />
+                                    <Button x:Name="RemoveOpacityKeyframeButton" Content="Remove opacity keyframe" Click="RemoveOpacityKeyframe_Click" />
+                                </StackPanel>
+                            </StackPanel>
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <NumberBox x:Name="ClipPlaybackSpeedBox" Header="Playback speed (0.25x–4x)" Minimum="0.25" Maximum="4" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipPlaybackSpeed_Changed" />
                             <CheckBox x:Name="ClipReverseVideoCheck" Content="Reverse video" Click="ClipPlaybackOption_Click" />
