@@ -138,6 +138,45 @@ public sealed class VideoTransformKeyframesTests
     }
 
     [Fact]
+    public void TitleKeyframes_ValidatePersistAndFollowSplitAndTrim()
+    {
+        TimelineClipProject clip = new()
+        {
+            Text = "Animated title",
+            DurationSeconds = 4,
+            StartFrame = 121,
+            TransformKeyframes =
+            [
+                new() { FrameOffset = 0, X = 0.2, Y = 0.3, Scale = 0.5, RotationDegrees = -30 },
+                new() { FrameOffset = 48, X = 0.8, Y = 0.7, Scale = 2.5, RotationDegrees = 30 },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Text, Clips = [clip] };
+
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+        Assert.True(VideoTransformKeyframes.TrySetAtFrame(clip, track.Kind, 24, 24));
+        Assert.Equal(new VideoTransformValue(0.5, 0.5, 1.5, 0), VideoTransformKeyframes.GetValue(clip, 24));
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(
+            new EditorProject { VideoTracks = [track] }));
+        TimelineClipProject restoredClip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(3, restoredClip.TransformKeyframes.Count);
+        Assert.Equal(0, restoredClip.TransformKeyframes[0].FrameOffset);
+        Assert.Equal(24, restoredClip.TransformKeyframes[1].FrameOffset);
+
+        TimelineTrackProject restoredTrack = Assert.Single(restored.VideoTracks);
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(restoredTrack, restoredClip, 145, 24));
+        Assert.Null(VideoTimelineEditing.Validate([restoredTrack], 24));
+        Assert.Equal(0, right.TransformKeyframes[0].FrameOffset);
+        Assert.Equal(1.5, right.TransformKeyframes[0].Scale);
+        Assert.True(VideoTimelineEditing.TryTrimStart(restoredTrack, right, 157, 24));
+        Assert.Equal(0, right.TransformKeyframes[0].FrameOffset);
+        Assert.Equal(2, right.TransformKeyframes[0].Scale, 6);
+        Assert.Null(VideoTimelineEditing.Validate([restoredTrack], 24));
+    }
+
+    [Fact]
     public void RescaleFrameRate_PreservesKeyframeTimesWithinTheClip()
     {
         TimelineTrackProject track = new()

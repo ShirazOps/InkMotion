@@ -181,14 +181,38 @@ public static class TimelineCompositor
         TimelineClipProject clip,
         float width,
         float height,
-        float opacity)
+        float opacity,
+        VideoTransformValue transform)
     {
-        float fontSize = (float)(clip.FontSize * height / TitleReferenceHeight);
+        float fontSize = (float)(clip.FontSize * transform.Scale * height / TitleReferenceHeight);
         if (fontSize < 1 || string.IsNullOrWhiteSpace(clip.Text))
         {
             return;
         }
 
+        Matrix3x2 previous = session.Transform;
+        try
+        {
+            session.Transform = Matrix3x2.CreateRotation(
+                (float)(transform.RotationDegrees * Math.PI / 180),
+                new Vector2((float)(transform.X * width), (float)(transform.Y * height))) * previous;
+            DrawTitleText(session, clip, width, height, opacity, fontSize, transform);
+        }
+        finally
+        {
+            session.Transform = previous;
+        }
+    }
+
+    private static void DrawTitleText(
+        CanvasDrawingSession session,
+        TimelineClipProject clip,
+        float width,
+        float height,
+        float opacity,
+        float fontSize,
+        VideoTransformValue transform)
+    {
         using var format = new CanvasTextFormat
         {
             FontFamily = clip.FontFamily,
@@ -197,9 +221,12 @@ public static class TimelineCompositor
             VerticalAlignment = CanvasVerticalAlignment.Center,
             WordWrapping = CanvasWordWrapping.WholeWord,
         };
-        float boxWidth = width * 0.9f;
-        using var layout = new CanvasTextLayout(session, clip.Text, format, boxWidth, height);
-        var origin = new Vector2((float)(clip.X * width) - (boxWidth / 2), (float)(clip.Y * height) - (height / 2));
+        float boxWidth = width * 0.9f * (float)transform.Scale;
+        float boxHeight = height * (float)transform.Scale;
+        using var layout = new CanvasTextLayout(session, clip.Text, format, boxWidth, boxHeight);
+        var origin = new Vector2(
+            (float)(transform.X * width) - (boxWidth / 2),
+            (float)(transform.Y * height) - (boxHeight / 2));
         Color colour = ToColour(clip.Colour);
         byte alpha = (byte)(colour.A * Math.Clamp(opacity, 0, 1));
         float shadowOffset = Math.Max(1, fontSize * 0.04f);

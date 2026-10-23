@@ -499,7 +499,7 @@
                                     <Button x:Name="PreviousTransformKeyframeButton" Content="Previous keyframe" Click="NavigateTransformKeyframe_Click" Tag="previous" />
                                     <Button x:Name="NextTransformKeyframeButton" Content="Next keyframe" Click="NavigateTransformKeyframe_Click" Tag="next" />
                                 </StackPanel>
-                                <TextBlock Text="Transform keyframes interpolate linearly. Once enabled, changing position, scale or rotation creates or updates a keyframe at the playhead." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Video, image and title transforms interpolate linearly. Once keyframes exist, changing position, scale or rotation creates or updates a keyframe at the playhead." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <TextBlock x:Name="ClipCropLabel" Text="Crop each source edge by a percentage. Crop is non-destructive and stays with the clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             <Grid x:Name="ClipCropGrid" ColumnSpacing="6" RowSpacing="4">
@@ -624,7 +624,7 @@
                                 </ComboBox>
                             </Grid>
                             <Slider x:Name="ClipScaleSlider" Header="Scale" Minimum="0.05" Maximum="4" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
-                            <NumberBox x:Name="ClipRotationBox" Header="Image rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <NumberBox x:Name="ClipRotationBox" Header="Rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipYSlider" Header="Vertical position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                         </StackPanel>

@@ -923,7 +923,9 @@ public sealed partial class MainWindow
                     DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
                     break;
                 case TimelineTrackKind.Text:
-                    TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
+                    TimelineCompositor.DrawTitle(
+                        session, layer.Clip, width, height, opacity,
+                        VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate));
                     break;
             }
         }
@@ -2521,7 +2523,8 @@ public sealed partial class MainWindow
         bool isVideo = kind == TimelineTrackKind.Video;
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind == TimelineTrackKind.Text;
-        bool supportsTransform = isVideo || isImage;
+        bool supportsTransform = isVideo || isImage || isTitle;
+        bool supportsMediaTransform = isVideo || isImage;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         VideoTransitionActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         CreateMulticamGroupButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -2550,9 +2553,9 @@ public sealed partial class MainWindow
         StabiliseVideoButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
         ClearRollingShutterButton.IsEnabled = isVideo && !location.Track.IsLocked &&
             !_isStabilisationRunning && clip.RollingShutterProfile.Count > 0;
-        ClipCropGrid.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
-        ClipCropLabel.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
-        ClipColourGradingControls.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropGrid.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropLabel.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipColourGradingControls.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
@@ -2756,7 +2759,7 @@ public sealed partial class MainWindow
             return;
         }
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text) ||
             VideoTransformKeyframes.GetValueAtTime(selected.Clip, CurrentPlaybackSeconds, _frameRate).RotationDegrees == args.NewValue ||
             !TryBeginClipPropertyEdit(out var location))
         {
@@ -3417,7 +3420,6 @@ public sealed partial class MainWindow
     private void SetTransformKeyframe_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
             selected.Track.IsLocked)
         {
             return;
@@ -3446,7 +3448,6 @@ public sealed partial class MainWindow
     private void RemoveTransformKeyframe_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
             selected.Track.IsLocked)
         {
             return;

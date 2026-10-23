@@ -293,6 +293,62 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_InterpolatesTitleTransformKeyframes()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-title-transform-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var title = new TimelineClipProject
+            {
+                Text = "INK",
+                FontFamily = "Arial",
+                FontSize = 160,
+                Colour = 0xFFFF0000,
+                DurationSeconds = 1,
+                TransformKeyframes =
+                [
+                    new() { FrameOffset = 0, X = 0.25, Y = 0.5, Scale = 0.75, RotationDegrees = 0 },
+                    new() { FrameOffset = 23, X = 0.75, Y = 0.5, Scale = 1.5, RotationDegrees = 25 },
+                ],
+            };
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Text, Clips = [title] }],
+            };
+
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+            Assert.Empty(result.Warnings);
+
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            int earlyLeft = CountRedPixels(video, 40, 600, 250, 470);
+            int earlyRight = CountRedPixels(video, 680, 1240, 250, 470);
+            Assert.True(earlyLeft > 100 && earlyRight == 0,
+                $"Expected the title to start on the left; got {earlyLeft} left and {earlyRight} right red pixels.");
+
+            Assert.True(video.TryGetFrame(0.9));
+            int lateLeft = CountRedPixels(video, 40, 600, 250, 470);
+            int lateRight = CountRedPixels(video, 680, 1240, 250, 470);
+            Assert.True(lateRight > earlyLeft && lateLeft == 0,
+                $"Expected the enlarged, rotated title to move right; got {lateLeft} left and {lateRight} right red pixels.");
+        }
+        finally
+        {
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Export_CropsVideoSourceBeforeFittingItToTheFrame()
     {
         if (!HasH264Encoder)
@@ -878,6 +934,24 @@ public sealed class VideoExportTests
     {
         int index = ((y * reader.Width) + x) * 4;
         return (reader.Pixels[index], reader.Pixels[index + 1], reader.Pixels[index + 2]);
+    }
+
+    private static int CountRedPixels(MediaFoundationVideoReader reader, int left, int right, int top, int bottom)
+    {
+        int count = 0;
+        for (int y = top; y < bottom; y++)
+        {
+            for (int x = left; x < right; x++)
+            {
+                (byte b, byte g, byte r) = GetPixel(reader, x, y);
+                if (r > 80 && r > g * 1.5 && r > b * 1.5)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return count;
     }
 
     private static string WriteToneWave(int channels, double seconds, float amplitude)

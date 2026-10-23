@@ -174,7 +174,7 @@ public static class VideoTransformKeyframes
 
         if (!IsSupportedKind(kind) && clip.TransformKeyframes.Count != 0)
         {
-            return "Only video and image clips can have transform keyframes.";
+            return "Only video, image, and title clips can have transform keyframes.";
         }
 
         int previousFrame = -1;
@@ -318,7 +318,7 @@ public static class VideoTransformKeyframes
     }
 
     private static bool IsSupportedKind(TimelineTrackKind kind) =>
-        kind is TimelineTrackKind.Video or TimelineTrackKind.Image;
+        kind is TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text;
 
     private static bool IsValidValue(VideoTransformValue value) =>
         double.IsFinite(value.X) && value.X is >= 0 and <= 1 &&

@@ -339,7 +339,9 @@ public static class VideoExporter
                                 GetSharpenEffect(layer.Clip));
                             break;
                         case TimelineTrackKind.Text:
-                            TimelineCompositor.DrawTitle(session, layer.Clip, width, height, opacity);
+                            TimelineCompositor.DrawTitle(
+                                session, layer.Clip, width, height, opacity,
+                                VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
                             break;
                     }
                 }

@@ -49,7 +49,8 @@ public sealed class InkColourSamplingTests
         {
             TimelineCompositor.DrawFitted(session, image, image.Bounds, width, height,
                 0.5, 0.6, 0.4, 0.5f, rotationDegrees: 25);
-            TimelineCompositor.DrawTitle(session, clip, width, height, 1);
+            TimelineCompositor.DrawTitle(
+                session, clip, width, height, 1, VideoTransformKeyframes.GetValue(clip, 0));
         }
 
         using var target = new CanvasRenderTarget(device, 100, 100, 96);
