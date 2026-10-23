@@ -794,12 +794,16 @@ public sealed partial class MainWindow
         VideoTransformValue value = clip is null
             ? new VideoTransformValue(0.5, 0.5, 1, 0)
             : VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+        VideoCropValue crop = clip is null
+            ? default
+            : VideoCropKeyframes.GetValueAtTime(clip, seconds, _frameRate);
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         VideoPreviewTransform preview = VideoCrop.GetPreviewTransform(
             new Size(element.ActualWidth, element.ActualHeight),
             new Size(session.NaturalVideoWidth, session.NaturalVideoHeight),
             clip ?? new TimelineClipProject(),
-            value);
+            value,
+            crop);
         transform.CenterX = preview.PivotX;
         transform.CenterY = preview.PivotY;
         transform.ScaleX = transform.ScaleY = preview.Scale;
@@ -1016,13 +1020,14 @@ public sealed partial class MainWindow
 
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+            VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
             if (opacity > 0)
             {
                 TimelineCompositor.DrawFitted(
                     session,
                     bitmap,
-                    VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), clip),
+                    VideoCrop.GetSourceRect(new Rect(x, y, sourceWidth, sourceHeight), crop),
                     width,
                     height,
                     transform.Scale,
@@ -1091,9 +1096,10 @@ public sealed partial class MainWindow
         }
 
         VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
+        VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
         try
         {
-            TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, clip), width, height,
+            TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
                 GetPreviewColourGradingEffect(clip), GetPreviewChromaKeyEffect(clip),
                 GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip),
@@ -1653,6 +1659,7 @@ public sealed partial class MainWindow
         destination.CropTopPercent = source.CropTopPercent;
         destination.CropRightPercent = source.CropRightPercent;
         destination.CropBottomPercent = source.CropBottomPercent;
+        destination.CropKeyframes = VideoCropKeyframes.CloneKeys(source.CropKeyframes);
         destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
 
@@ -2578,6 +2585,7 @@ public sealed partial class MainWindow
         ClipRotationBox.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipXSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipYSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipCropKeyframeActions.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
 
         ClipOpacitySlider.Value = clip.Opacity;
         ClipVolumeSlider.Value = clip.Volume;
@@ -2604,10 +2612,22 @@ public sealed partial class MainWindow
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipScaleSlider.Value = transform.Scale;
         ClipRotationBox.Value = transform.RotationDegrees;
-        ClipCropLeftBox.Value = clip.CropLeftPercent;
-        ClipCropRightBox.Value = clip.CropRightPercent;
-        ClipCropTopBox.Value = clip.CropTopPercent;
-        ClipCropBottomBox.Value = clip.CropBottomPercent;
+        VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        ClipCropLeftBox.Value = crop.Left;
+        ClipCropRightBox.Value = crop.Right;
+        ClipCropTopBox.Value = crop.Top;
+        ClipCropBottomBox.Value = crop.Bottom;
+        int cropFrameOffset = VideoTransformKeyframes.GetFrameOffset(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        bool cropPlayheadInside = VideoCropKeyframes.CanSetAtFrame(
+            clip, kind, cropFrameOffset, _frameRate);
+        SetCropKeyframeButton.IsEnabled = cropPlayheadInside;
+        RemoveCropKeyframeButton.IsEnabled = cropPlayheadInside &&
+            VideoCropKeyframes.IsKeyframeAt(clip, cropFrameOffset);
+        CropKeyframeStateText.Text = clip.CropKeyframes.Count == 0
+            ? "No crop keyframes. Crop values apply to the whole clip."
+            : $"{clip.CropKeyframes.Count} crop keyframe(s); values interpolate at the playhead.";
         ClipExposureBox.Value = clip.Exposure;
         ClipContrastBox.Value = clip.Contrast;
         ClipWhiteBalanceTemperatureBox.Value = clip.WhiteBalanceTemperature;
@@ -2789,10 +2809,11 @@ public sealed partial class MainWindow
         }
 
         TimelineClipProject clip = location.Clip;
-        double left = clip.CropLeftPercent;
-        double right = clip.CropRightPercent;
-        double top = clip.CropTopPercent;
-        double bottom = clip.CropBottomPercent;
+        VideoCropValue current = VideoCropKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate);
+        double left = current.Left;
+        double right = current.Right;
+        double top = current.Top;
+        double bottom = current.Bottom;
         if (ReferenceEquals(sender, ClipCropLeftBox))
         {
             left = args.NewValue;
@@ -2815,19 +2836,23 @@ public sealed partial class MainWindow
             return;
         }
 
-        var candidate = VideoTimelineEditing.Clone(clip);
-        candidate.CropLeftPercent = left;
-        candidate.CropRightPercent = right;
-        candidate.CropTopPercent = top;
-        candidate.CropBottomPercent = bottom;
-        if (left == clip.CropLeftPercent && right == clip.CropRightPercent &&
-            top == clip.CropTopPercent && bottom == clip.CropBottomPercent)
+        VideoCropValue updated = new(left, top, right, bottom);
+        if (updated == current)
         {
             CommitEdit();
             return;
         }
 
-        if (VideoCrop.Validate(candidate, location.Track.Kind) is string error)
+        TimelineClipProject candidate = VideoTimelineEditing.Clone(clip);
+        if (!VideoCropKeyframes.SetValueAtTime(
+            candidate, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, updated))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected clip to edit its crop keyframes.";
+            UpdateVideoInspector();
+            return;
+        }
+        if (VideoCrop.Validate(candidate, location.Track.Kind, _frameRate) is string error)
         {
             CommitEdit();
             StatusText.Text = error;
@@ -2835,11 +2860,64 @@ public sealed partial class MainWindow
             return;
         }
 
-        clip.CropLeftPercent = left;
-        clip.CropRightPercent = right;
-        clip.CropTopPercent = top;
-        clip.CropBottomPercent = bottom;
+        clip.CropLeftPercent = candidate.CropLeftPercent;
+        clip.CropRightPercent = candidate.CropRightPercent;
+        clip.CropTopPercent = candidate.CropTopPercent;
+        clip.CropBottomPercent = candidate.CropBottomPercent;
+        clip.CropKeyframes = candidate.CropKeyframes;
         ApplyClipPreview();
+    }
+
+    private void SetCropKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected || selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoCropKeyframes.TrySetAtFrame(selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Crop keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a crop keyframe.";
+    }
+
+    private void RemoveCropKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected || selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoCropKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Crop keyframe removed." : "There is no crop keyframe at the playhead.";
     }
 
     private void ClipChromaKey_Changed(object sender, RoutedEventArgs e) =>

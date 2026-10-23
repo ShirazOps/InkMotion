@@ -62,8 +62,15 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove transform keyframes before joining; keyframed motion cannot be combined without changing its timing.");
         }
 
+        if (left.CropKeyframes.Count != 0 || right.CropKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove crop keyframes before joining; animated crop cannot be combined without changing its timing.");
+        }
+
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
+            left.CropLeftPercent != right.CropLeftPercent || left.CropTopPercent != right.CropTopPercent ||
+            left.CropRightPercent != right.CropRightPercent || left.CropBottomPercent != right.CropBottomPercent ||
             left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
             left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
             left.Saturation != right.Saturation ||

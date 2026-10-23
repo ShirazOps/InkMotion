@@ -331,7 +331,9 @@ public static class VideoExporter
                         case TimelineTrackKind.Image when GetImage(layer.Clip.SourcePath) is CanvasBitmap image:
                             VideoTransformValue imageTransform = VideoTransformKeyframes.GetValueAtTime(
                                 layer.Clip, seconds, _project.FrameRate);
-                            TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, layer.Clip), width, height,
+                            VideoCropValue imageCrop = VideoCropKeyframes.GetValueAtTime(
+                                layer.Clip, seconds, _project.FrameRate);
+                            TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, imageCrop), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
                                 imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip),
                                 GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip), GetVignetteEffect(layer.Clip),
@@ -426,7 +428,8 @@ public static class VideoExporter
             {
                 (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
-                TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), clip), width, height,
+                VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
+                TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), crop), width, height,
                     transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
                     GetColourGradingEffect(clip), GetChromaKeyEffect(clip), GetBlurEffect(clip), GetVignetteEffect(clip),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _project.FrameRate),

@@ -394,6 +394,58 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void Export_InterpolatesAnimatedVideoCrop()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string source = Path.Combine(Path.GetTempPath(), $"inkmotion-crop-key-source-{Guid.NewGuid():N}.mp4");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-crop-key-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            WriteInkColourVideo(source, 0xFFFF0000);
+            var clip = new TimelineClipProject
+            {
+                SourcePath = source,
+                SourceOutSeconds = 1,
+                SourceDurationSeconds = 1,
+                CropKeyframes =
+                [
+                    new() { FrameOffset = 0, Left = 0 },
+                    new() { FrameOffset = 23, Left = 40 },
+                ],
+            };
+            var project = new EditorProject
+            {
+                FrameRate = 24,
+                VideoTracks = [new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+            };
+
+            VideoExportResult result = VideoExporter.Export(
+                new(project, VideoExportProfile.Create(ExportResolution.P720, 24), VideoExportCodec.H264, output, 720,
+                    PreferHardware: false),
+                null,
+                CancellationToken.None);
+            Assert.Empty(result.Warnings);
+
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0.1));
+            int earlyRight = CountRedPixels(video, 800, 1000, 470, 540);
+            Assert.True(earlyRight > 0, $"Expected the early uncropped line on the right; got {earlyRight} pixels.");
+            Assert.True(video.TryGetFrame(0.9));
+            int lateRight = CountRedPixels(video, 800, 1000, 470, 540);
+            Assert.Equal(0, lateRight);
+        }
+        finally
+        {
+            File.Delete(source);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void Quality_ChangesTheTargetBitRate()
     {
         var profile = VideoExportProfile.Create(ExportResolution.P1080, 24);

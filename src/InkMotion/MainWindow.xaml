@@ -516,6 +516,13 @@
                                 <NumberBox x:Name="ClipCropTopBox" Grid.Row="1" Header="Crop top (%)" Minimum="0" Maximum="49" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipCrop_Changed" />
                                 <NumberBox x:Name="ClipCropBottomBox" Grid.Row="1" Grid.Column="1" Header="Crop bottom (%)" Minimum="0" Maximum="49" SmallChange="1" ValueChanged="ClipCrop_Changed" />
                             </Grid>
+                            <StackPanel x:Name="ClipCropKeyframeActions" Spacing="6">
+                                <TextBlock x:Name="CropKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetCropKeyframeButton" Content="Add/update crop keyframe" Click="SetCropKeyframe_Click" />
+                                    <Button x:Name="RemoveCropKeyframeButton" Content="Remove crop keyframe" Click="RemoveCropKeyframe_Click" />
+                                </StackPanel>
+                            </StackPanel>
                             <StackPanel x:Name="ClipColourGradingControls" Spacing="6">
                                 <TextBlock Text="COLOUR" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <Grid ColumnSpacing="6" RowSpacing="4">

@@ -2389,6 +2389,7 @@ public sealed partial class MainWindow : Window
         LinkedAudioVideoEditing.ClearMissingLinks(_videoTracks, _audioTracks.Select(track => track.Project));
         VideoTransitions.ClearInvalid(_videoTracks, _frameRate);
         VideoTransformKeyframes.ClearInvalid(_videoTracks, _frameRate);
+        VideoCropKeyframes.ClearInvalid(_videoTracks, _frameRate);
         ClearAudioMasterAnalysis();
         _pendingEditChanged = true;
         UnsavedIndicator.Visibility = Visibility.Visible;

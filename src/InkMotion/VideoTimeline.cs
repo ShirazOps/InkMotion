@@ -174,6 +174,7 @@ public sealed class TimelineClipProject
     public double CropTopPercent { get; set; }
     public double CropRightPercent { get; set; }
     public double CropBottomPercent { get; set; }
+    public List<VideoCropKeyframe> CropKeyframes { get; set; } = [];
     public double Exposure { get; set; }
     public double Contrast { get; set; }
     public double WhiteBalanceTemperature { get; set; }
@@ -436,6 +437,7 @@ public static class VideoTimelineEditing
         }
 
         VideoTransformKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoCropKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         clip.StartFrame = playheadFrame;
         ClampFades(clip, track.Kind);
         return true;
@@ -465,6 +467,7 @@ public static class VideoTimelineEditing
         }
 
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoCropKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -482,6 +485,7 @@ public static class VideoTimelineEditing
         right.StartFrame = playheadFrame;
         right.TransitionInSeconds = 0;
         VideoTransformKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoCropKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
@@ -699,6 +703,7 @@ public static class VideoTimelineEditing
         {
             int retainedFrames = (int)Math.Clamp(Math.Ceiling(newDuration * frameRate - Tolerance), 1, int.MaxValue);
             VideoTransformKeyframes.TrimEnd(clip, retainedFrames);
+            VideoCropKeyframes.TrimEnd(clip, retainedFrames);
         }
         VideoTransitions.ClearInvalid([track], frameRate);
         return true;
@@ -790,6 +795,7 @@ public static class VideoTimelineEditing
 
         clip.DurationSeconds = seconds;
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoCropKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -825,6 +831,7 @@ public static class VideoTimelineEditing
                     .GroupBy(keyframe => keyframe.FrameOffset)
                     .Select(group => group.Last())
                     .ToList();
+                VideoCropKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 previousEnd = GetEndSeconds(clip, track.Kind, newFrameRate);
             }
         }
@@ -887,6 +894,7 @@ public static class VideoTimelineEditing
         CropTopPercent = clip.CropTopPercent,
         CropRightPercent = clip.CropRightPercent,
         CropBottomPercent = clip.CropBottomPercent,
+        CropKeyframes = VideoCropKeyframes.CloneKeys(clip.CropKeyframes),
         Exposure = clip.Exposure,
         Contrast = clip.Contrast,
         WhiteBalanceTemperature = clip.WhiteBalanceTemperature,
@@ -974,7 +982,7 @@ public static class VideoTimelineEditing
                     return keyframeError;
                 }
 
-                if (VideoCrop.Validate(clip, track.Kind) is string cropError)
+                if (VideoCrop.Validate(clip, track.Kind, frameRate) is string cropError)
                 {
                     return cropError;
                 }

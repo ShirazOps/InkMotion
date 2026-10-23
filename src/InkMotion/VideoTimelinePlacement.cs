@@ -125,6 +125,9 @@ public static class VideoTimelinePlacement
                 VideoTransformKeyframes.TrimEnd(
                     left,
                     (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoCropKeyframes.TrimEnd(
+                    left,
+                    (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
                 VideoTimelineEditing.ClampFades(left, track.Kind);
                 track.Clips.Add(left);
@@ -146,6 +149,9 @@ public static class VideoTimelinePlacement
                     right.SourceInSeconds = sourceBoundary;
                 }
                 VideoTransformKeyframes.TrimStart(
+                    right,
+                    (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoCropKeyframes.TrimStart(
                     right,
                     (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
@@ -174,6 +180,7 @@ public static class VideoTimelinePlacement
                 existing.FadeInSeconds = candidate.FadeInSeconds;
                 existing.FadeOutSeconds = candidate.FadeOutSeconds;
                 existing.TransformKeyframes = VideoTransformKeyframes.CloneKeys(candidate.TransformKeyframes);
+                existing.CropKeyframes = VideoCropKeyframes.CloneKeys(candidate.CropKeyframes);
                 result.Add(existing);
             }
             else
