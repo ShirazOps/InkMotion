@@ -128,6 +128,7 @@ public static class VideoTimelinePlacement
                 VideoCropKeyframes.TrimEnd(
                     left,
                     (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoClipMask.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
                 VideoTimelineEditing.ClampFades(left, track.Kind);
                 track.Clips.Add(left);
@@ -154,6 +155,7 @@ public static class VideoTimelinePlacement
                 VideoCropKeyframes.TrimStart(
                     right,
                     (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoClipMask.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
                 VideoTimelineEditing.ClampFades(right, track.Kind);
                 track.Clips.Add(right);

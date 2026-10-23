@@ -487,10 +487,18 @@
                             </StackPanel>
                             <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                                <Button x:Name="StabiliseVideoButton" Content="Stabilise + correct rolling shutter" Click="StabiliseVideo_Click" />
-                                <Button x:Name="ClearRollingShutterButton" Content="Clear rolling-shutter correction" Click="ClearRollingShutter_Click" />
-                                <TextBlock Text="Analyses translation, small-angle rotation and six horizontal image bands to compensate changing camera motion across the sensor readout. The saved per-source-time row-warp profile is applied before crop/colour effects in preview and export, with row shifts capped at 25% of each frame dimension. It may create transparent edges; inspect the result and clear the profile when artefacts appear. Clearing the profile preserves global transform stabilisation. Large rolling distortion, moving subjects, low-detail footage and parallax can defeat analysis; it does not deblur or guarantee correction." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                                <Button x:Name="SetMaskKeyframeButton" Content="Add/update mask tracking keyframe" Click="SetMaskKeyframe_Click" />
+                                <StackPanel x:Name="VideoStabilisationActions" Spacing="6">
+                                    <Button x:Name="StabiliseVideoButton" Content="Stabilise + correct rolling shutter" Click="StabiliseVideo_Click" />
+                                    <Button x:Name="ClearRollingShutterButton" Content="Clear rolling-shutter correction" Click="ClearRollingShutter_Click" />
+                                    <TextBlock Text="Analyses translation, small-angle rotation and six horizontal image bands to compensate changing camera motion across the sensor readout. The saved per-source-time row-warp profile is applied before crop/colour effects in preview and export, with row shifts capped at 25% of each frame dimension. It may create transparent edges; inspect the result and clear the profile when artefacts appear. Clearing the profile preserves global transform stabilisation. Large rolling distortion, moving subjects, low-detail footage and parallax can defeat analysis; it does not deblur or guarantee correction." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                </StackPanel>
+                                <StackPanel x:Name="ClipMaskControls" Spacing="6">
+                                    <TextBlock x:Name="MaskKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button x:Name="SetMaskKeyframeButton" Content="Add/update mask keyframe" Click="SetMaskKeyframe_Click" />
+                                        <Button x:Name="RemoveMaskKeyframeButton" Content="Remove mask keyframe" Click="RemoveMaskKeyframe_Click" />
+                                    </StackPanel>
+                                </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetTransformKeyframeButton" Content="Add/update keyframe" Click="SetTransformKeyframe_Click" />
                                     <Button x:Name="RemoveTransformKeyframeButton" Content="Remove keyframe" Click="RemoveTransformKeyframe_Click" />
@@ -603,7 +611,7 @@
                                     <NumberBox x:Name="ClipMaskWidthBox" Grid.Row="1" Header="Width (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                     <NumberBox x:Name="ClipMaskHeightBox" Grid.Row="1" Grid.Column="1" Header="Height (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                 </Grid>
-                                <TextBlock Text="Hard-edged rectangle/ellipse masks composite with other layers. On video clips, add mask keyframes at selected playhead positions to animate the mask manually; automatic subject tracking and feathered/inverted masks are not included." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Rectangle/ellipse masks can be keyframed on video and image clips; geometry interpolates between keys. Automatic subject tracking is available for video clips only." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />

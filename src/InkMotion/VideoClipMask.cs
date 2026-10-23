@@ -25,14 +25,16 @@ public sealed record VideoMaskKeyframe
 
 public static class VideoClipMask
 {
-    public static string? Validate(TimelineClipProject clip, TimelineTrackKind kind)
+    public static string? Validate(TimelineClipProject clip, TimelineTrackKind kind, double frameRate = 24)
     {
         ArgumentNullException.ThrowIfNull(clip);
         if (!Enum.IsDefined(clip.MaskShape) ||
             !IsValid(clip.MaskX, clip.MaskY, clip.MaskWidth, clip.MaskHeight) ||
             !double.IsFinite(clip.MaskFeather) || clip.MaskFeather is < 0 or > 0.25 ||
-            clip.MaskKeyframes.Any(key => key.FrameOffset < 0 ||
-                !IsValid(key.X, key.Y, key.Width, key.Height)))
+            clip.MaskKeyframes is null || clip.MaskKeyframes.Any(key => key is null ||
+                key.FrameOffset < 0 ||
+                !IsValid(key.X, key.Y, key.Width, key.Height) ||
+                !IsInClip(clip, kind, key.FrameOffset, frameRate)))
         {
             return "Video mask geometry or keyframes are not valid.";
         }
@@ -94,8 +96,8 @@ public static class VideoClipMask
         VideoMaskValue? requestedValue = null)
     {
         ArgumentNullException.ThrowIfNull(clip);
-        if (kind != TimelineTrackKind.Video || !double.IsFinite(frameRate) || frameRate <= 0 ||
-            !VideoTransformKeyframes.CanSetAtFrame(clip, kind, frameOffset, frameRate) ||
+        if (kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) || !double.IsFinite(frameRate) || frameRate <= 0 ||
+            !IsInClip(clip, kind, frameOffset, frameRate) ||
             clip.MaskShape == VideoMaskShape.None)
         {
             return false;
@@ -119,6 +121,141 @@ public static class VideoClipMask
         existing.Height = value.Height;
         clip.MaskKeyframes.Sort((left, right) => left.FrameOffset.CompareTo(right.FrameOffset));
         return true;
+    }
+
+    public static bool CanSetKeyframe(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate) =>
+        (kind is TimelineTrackKind.Video or TimelineTrackKind.Image) &&
+        double.IsFinite(frameRate) && frameRate > 0 &&
+        clip.MaskShape != VideoMaskShape.None && IsInClip(clip, kind, frameOffset, frameRate);
+
+    public static bool IsKeyframeAt(TimelineClipProject clip, int frameOffset) =>
+        clip.MaskKeyframes.Any(key => key.FrameOffset == frameOffset);
+
+    public static bool TryRemoveKeyframe(TimelineClipProject clip, int frameOffset)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        int index = clip.MaskKeyframes.FindIndex(key => key.FrameOffset == frameOffset);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        if (clip.MaskKeyframes.Count == 1)
+        {
+            VideoMaskValue value = GetValue(clip, frameOffset);
+            clip.MaskX = value.X;
+            clip.MaskY = value.Y;
+            clip.MaskWidth = value.Width;
+            clip.MaskHeight = value.Height;
+        }
+
+        clip.MaskKeyframes.RemoveAt(index);
+        return true;
+    }
+
+    public static void Split(TimelineClipProject left, TimelineClipProject right, int splitFrameOffset)
+    {
+        if (left.MaskKeyframes.Count == 0)
+        {
+            return;
+        }
+
+        VideoMaskValue splitValue = GetValue(left, splitFrameOffset);
+        VideoMaskValue startValue = GetValue(left, 0);
+        int leftEndFrame = Math.Max(0, splitFrameOffset - 1);
+        VideoMaskValue leftEndValue = GetValue(left, leftEndFrame);
+        List<VideoMaskKeyframe> original = left.MaskKeyframes;
+        left.MaskKeyframes = original.Where(key => key.FrameOffset < splitFrameOffset)
+            .Select(key => CloneKey(key)).ToList();
+        if (!left.MaskKeyframes.Any(key => key.FrameOffset == 0))
+        {
+            left.MaskKeyframes.Add(ToKeyframe(0, startValue));
+        }
+        if (!left.MaskKeyframes.Any(key => key.FrameOffset == leftEndFrame))
+        {
+            left.MaskKeyframes.Add(ToKeyframe(leftEndFrame, leftEndValue));
+        }
+        left.MaskKeyframes.Sort((first, second) => first.FrameOffset.CompareTo(second.FrameOffset));
+        right.MaskKeyframes = original.Where(key => key.FrameOffset >= splitFrameOffset)
+            .Select(key => CloneKey(key, key.FrameOffset - splitFrameOffset)).ToList();
+        if (right.MaskKeyframes.Count == 0 || right.MaskKeyframes[0].FrameOffset != 0)
+        {
+            right.MaskKeyframes.Insert(0, ToKeyframe(0, splitValue));
+        }
+    }
+
+    public static void TrimStart(TimelineClipProject clip, int removedFrames)
+    {
+        if (clip.MaskKeyframes.Count == 0 || removedFrames <= 0)
+        {
+            return;
+        }
+
+        VideoMaskValue startValue = GetValue(clip, removedFrames);
+        clip.MaskKeyframes = clip.MaskKeyframes.Where(key => key.FrameOffset > removedFrames)
+            .Select(key => CloneKey(key, key.FrameOffset - removedFrames)).ToList();
+        clip.MaskKeyframes.Insert(0, ToKeyframe(0, startValue));
+    }
+
+    public static void TrimEnd(TimelineClipProject clip, int retainedFrames)
+    {
+        if (clip.MaskKeyframes.Count == 0)
+        {
+            return;
+        }
+
+        if (retainedFrames <= 0)
+        {
+            clip.MaskKeyframes.Clear();
+            return;
+        }
+
+        VideoMaskValue startValue = GetValue(clip, 0);
+        int endFrame = retainedFrames - 1;
+        VideoMaskValue endValue = GetValue(clip, endFrame);
+        clip.MaskKeyframes = clip.MaskKeyframes.Where(key => key.FrameOffset < retainedFrames)
+            .Select(key => CloneKey(key)).ToList();
+        if (clip.MaskKeyframes.Count == 0 || clip.MaskKeyframes[0].FrameOffset != 0)
+        {
+            clip.MaskKeyframes.Insert(0, ToKeyframe(0, startValue));
+        }
+        if (!clip.MaskKeyframes.Any(key => key.FrameOffset == endFrame))
+        {
+            clip.MaskKeyframes.Add(ToKeyframe(endFrame, endValue));
+            clip.MaskKeyframes.Sort((first, second) => first.FrameOffset.CompareTo(second.FrameOffset));
+        }
+    }
+
+    public static void RescaleFrameRate(TimelineClipProject clip, double oldFrameRate, double newFrameRate)
+    {
+        foreach (VideoMaskKeyframe keyframe in clip.MaskKeyframes)
+        {
+            keyframe.FrameOffset = (int)Math.Round(keyframe.FrameOffset * newFrameRate / oldFrameRate);
+        }
+        clip.MaskKeyframes = clip.MaskKeyframes.OrderBy(key => key.FrameOffset)
+            .GroupBy(key => key.FrameOffset).Select(group => group.Last()).ToList();
+    }
+
+    public static void ClearInvalid(IReadOnlyList<TimelineTrackProject> tracks, double frameRate)
+    {
+        foreach (TimelineTrackProject track in tracks)
+        {
+            foreach (TimelineClipProject clip in track.Clips)
+            {
+                clip.MaskKeyframes ??= [];
+                if (track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+                {
+                    clip.MaskKeyframes.Clear();
+                    continue;
+                }
+
+                clip.MaskKeyframes.RemoveAll(key => key.FrameOffset < 0 ||
+                    !IsInClip(clip, track.Kind, key.FrameOffset, frameRate) ||
+                    !IsValid(key.X, key.Y, key.Width, key.Height));
+                clip.MaskKeyframes = clip.MaskKeyframes.OrderBy(key => key.FrameOffset)
+                    .GroupBy(key => key.FrameOffset).Select(group => group.Last()).ToList();
+            }
+        }
     }
 
     public static CanvasGeometry CreateGeometry(
@@ -223,6 +360,36 @@ public static class VideoClipMask
     }
 
     private static VideoMaskValue ToValue(VideoMaskKeyframe key) => new(key.X, key.Y, key.Width, key.Height);
+
+    private static bool IsInClip(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate)
+    {
+        if (frameOffset < 0 || !double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            return false;
+        }
+
+        double duration = VideoTimelineEditing.GetDurationSeconds(clip, kind);
+        return double.IsFinite(duration) && duration > 0 &&
+            frameOffset < Math.Ceiling(duration * frameRate - 1e-6);
+    }
+
+    private static VideoMaskKeyframe ToKeyframe(int frameOffset, VideoMaskValue value) => new()
+    {
+        FrameOffset = frameOffset,
+        X = value.X,
+        Y = value.Y,
+        Width = value.Width,
+        Height = value.Height,
+    };
+
+    private static VideoMaskKeyframe CloneKey(VideoMaskKeyframe key, int? frameOffset = null) => new()
+    {
+        FrameOffset = frameOffset ?? key.FrameOffset,
+        X = key.X,
+        Y = key.Y,
+        Width = key.Width,
+        Height = key.Height,
+    };
 
     private static bool IsValid(double x, double y, double width, double height) =>
         double.IsFinite(x) && double.IsFinite(y) && double.IsFinite(width) && double.IsFinite(height) &&

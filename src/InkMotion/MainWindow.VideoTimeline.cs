@@ -2556,13 +2556,14 @@ public sealed partial class MainWindow
                 ? "The configured proxy is unavailable; preview and export are using the original source."
                 : "Choose whether preview and export decode the generated proxy or the original source.");
         TransformKeyframeActions.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
-        StabiliseVideoButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        VideoStabilisationActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         StabiliseVideoButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
         ClearRollingShutterButton.IsEnabled = isVideo && !location.Track.IsLocked &&
             !_isStabilisationRunning && clip.RollingShutterProfile.Count > 0;
         ClipCropGrid.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropLabel.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipColourGradingControls.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipMaskControls.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
@@ -2663,12 +2664,16 @@ public sealed partial class MainWindow
         ClipMaskYBox.Value = mask.Y;
         ClipMaskWidthBox.Value = mask.Width;
         ClipMaskHeightBox.Value = mask.Height;
-        SetMaskKeyframeButton.IsEnabled = isVideo && !location.Track.IsLocked &&
-            clip.MaskShape != VideoMaskShape.None &&
-            VideoTransformKeyframes.CanSetAtFrame(
-                clip, kind,
-                VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
-                _frameRate);
+        int maskFrameOffset = VideoTransformKeyframes.GetFrameOffset(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        bool maskPlayheadInside = VideoClipMask.CanSetKeyframe(
+            clip, kind, maskFrameOffset, _frameRate);
+        SetMaskKeyframeButton.IsEnabled = maskPlayheadInside && !location.Track.IsLocked;
+        RemoveMaskKeyframeButton.IsEnabled = maskPlayheadInside && !location.Track.IsLocked &&
+            VideoClipMask.IsKeyframeAt(clip, maskFrameOffset);
+        MaskKeyframeStateText.Text = clip.MaskKeyframes.Count == 0
+            ? "Mask values apply to the whole clip. Add a keyframe to animate the mask."
+            : $"{clip.MaskKeyframes.Count} mask keyframe(s); geometry interpolates at the playhead.";
         TrackMaskSubjectButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         TrackMaskSubjectButton.IsEnabled = isVideo && !location.Track.IsLocked &&
             clip.MaskShape != VideoMaskShape.None && !_isMaskTrackingRunning;
@@ -3693,8 +3698,7 @@ public sealed partial class MainWindow
         clip.MaskShape = shape;
         clip.MaskInverted = inverted;
         clip.MaskFeather = feather;
-        if (shape != VideoMaskShape.None && location.Track.Kind == TimelineTrackKind.Video &&
-            clip.MaskKeyframes.Count > 0)
+        if (shape != VideoMaskShape.None && clip.MaskKeyframes.Count > 0)
         {
             VideoClipMask.SetKeyframe(clip, location.Track.Kind, currentFrameOffset, _frameRate, newMask);
         }
@@ -3768,7 +3772,8 @@ public sealed partial class MainWindow
     private void SetMaskKeyframe_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind != TimelineTrackKind.Video || selected.Track.IsLocked)
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
         {
             return;
         }
@@ -3786,8 +3791,35 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = added
-            ? $"Mask tracking keyframe set at clip frame {frameOffset + 1}."
-            : "Choose a rectangle or ellipse mask and move the playhead inside the video clip.";
+            ? $"Mask keyframe set at clip frame {frameOffset + 1}."
+            : "Choose a rectangle or ellipse mask and move the playhead inside the video or image clip.";
+    }
+
+    private void RemoveMaskKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoClipMask.TryRemoveKeyframe(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Mask keyframe removed." : "There is no mask keyframe at the playhead.";
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
