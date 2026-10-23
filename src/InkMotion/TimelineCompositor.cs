@@ -60,7 +60,8 @@ public static class TimelineCompositor
         VideoVignetteCanvasEffect? vignetteEffect = null,
         int clipFrameOffset = 0,
         VideoSharpenCanvasEffect? sharpenEffect = null,
-        VideoColourGradingValue? animatedColourGrade = null)
+        VideoColourGradingValue? animatedColourGrade = null,
+        double? animatedVignetteAmount = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -75,6 +76,7 @@ public static class TimelineCompositor
                     (colourGrade is null
                         ? new VideoColourGradingValue(0, 0, 0, 0, 1)
                         : VideoColourGradingKeyframes.GetStaticValue(colourGrade));
+                double vignetteAmount = animatedVignetteAmount ?? colourGrade?.VignetteAmount ?? 0;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
@@ -99,11 +101,11 @@ public static class TimelineCompositor
                             .GetOutput(output, colourGrade);
                     }
 
-                    if (colourGrade is not null && colourGrade.VignetteAmount > 0)
+                    if (colourGrade is not null && vignetteAmount > 0)
                     {
                         output = (vignetteEffect ??
                             throw new InvalidOperationException("The active vignette effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, vignetteAmount);
                     }
 
                     if (colourGrade is not null && colourGrade.SharpenAmount > 0)
@@ -134,11 +136,11 @@ public static class TimelineCompositor
                             .GetOutput(output, colourGrade);
                     }
 
-                    if (colourGrade.VignetteAmount > 0)
+                    if (vignetteAmount > 0)
                     {
                         output = (vignetteEffect ??
                             throw new InvalidOperationException("The active vignette effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, vignetteAmount);
                     }
 
                     if (colourGrade.SharpenAmount > 0)

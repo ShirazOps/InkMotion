@@ -33,10 +33,10 @@ public sealed class VideoVignetteCanvasEffect : IDisposable
         Color = Color.FromArgb(255, 0, 0, 0),
     };
 
-    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip)
+    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip, double? animatedAmount = null)
     {
         _effect.Source = source;
-        _effect.Amount = (float)clip.VignetteAmount;
+        _effect.Amount = (float)(animatedAmount ?? clip.VignetteAmount);
         return _effect;
     }
 

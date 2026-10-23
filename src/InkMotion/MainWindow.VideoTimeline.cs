@@ -1039,10 +1039,11 @@ public sealed partial class MainWindow
                     colourGradingEffect,
                     GetPreviewChromaKeyEffect(clip),
                     GetPreviewBlurEffect(clip),
-                    GetPreviewVignetteEffect(clip),
+                    GetPreviewVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
                     GetPreviewSharpenEffect(clip),
-                    VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1103,10 +1104,12 @@ public sealed partial class MainWindow
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
                 GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds), GetPreviewChromaKeyEffect(clip),
-                GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip),
+                GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip, CurrentPlaybackSeconds),
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
                 GetPreviewSharpenEffect(clip),
                 VideoColourGradingKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoVignetteKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1166,9 +1169,11 @@ public sealed partial class MainWindow
         return effect;
     }
 
-    private VideoVignetteCanvasEffect? GetPreviewVignetteEffect(TimelineClipProject clip)
+    private VideoVignetteCanvasEffect? GetPreviewVignetteEffect(TimelineClipProject clip, double? seconds = null)
     {
-        if (clip.VignetteAmount <= 0)
+        double amount = VideoVignetteKeyframes.GetValueAtTime(
+            clip, seconds ?? _playheadFramePosition / _frameRate, _frameRate);
+        if (amount <= 0)
         {
             return null;
         }
@@ -1663,6 +1668,7 @@ public sealed partial class MainWindow
         destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
         destination.ColourGradingKeyframes =
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
+        destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2686,7 +2692,17 @@ public sealed partial class MainWindow
         ClipChromaKeySpillBox.Value = clip.ChromaKeySpillSuppression;
         ClipBlurAmountBox.Value = clip.BlurAmount;
         ClipSharpenAmountBox.Value = clip.SharpenAmount;
-        ClipVignetteAmountBox.Value = clip.VignetteAmount;
+        ClipVignetteAmountBox.Value = VideoVignetteKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        int vignetteFrameOffset = VideoVignetteKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool vignettePlayheadInside = VideoVignetteKeyframes.CanSetAtFrame(
+            clip, kind, vignetteFrameOffset, _frameRate);
+        SetVignetteKeyframeButton.IsEnabled = vignettePlayheadInside && !location.Track.IsLocked;
+        RemoveVignetteKeyframeButton.IsEnabled = vignettePlayheadInside && !location.Track.IsLocked &&
+            VideoVignetteKeyframes.IsKeyframeAt(clip, vignetteFrameOffset);
+        VignetteKeyframeStateText.Text = clip.VignetteKeyframes.Count == 0
+            ? "No vignette keyframes. Vignette applies to the whole clip."
+            : $"{clip.VignetteKeyframes.Count} vignette keyframe(s); values interpolate at the playhead.";
         ClipMaskShapeSelector.SelectedItem = ClipMaskShapeSelector.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(item => item.Tag is string tag &&
                 Enum.TryParse(tag, out VideoMaskShape shape) && shape == clip.MaskShape);
@@ -3050,12 +3066,20 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (location.Clip.VignetteAmount == args.NewValue)
+        double current = VideoVignetteKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == args.NewValue)
         {
             return;
         }
 
-        location.Clip.VignetteAmount = args.NewValue;
+        if (!VideoVignetteKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, args.NewValue))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated vignette.";
+            return;
+        }
         ApplyClipPreview();
     }
 
@@ -3629,6 +3653,66 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Opacity keyframe removed." : "There is no opacity keyframe at the playhead.";
+    }
+
+    private void SetVignetteKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoVignetteKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoVignetteKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Vignette keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a vignette keyframe.";
+    }
+
+    private void RemoveVignetteKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoVignetteKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoVignetteKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Vignette keyframe removed."
+            : "There is no vignette keyframe at the playhead.";
     }
 
     private void SetColourGradingKeyframe_Click(object sender, RoutedEventArgs e)

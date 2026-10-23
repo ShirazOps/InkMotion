@@ -178,6 +178,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("blur")]
     [InlineData("vignette")]
     [InlineData("stabilised")]
+    [InlineData("vignette-keyframes")]
     public void Join_RejectsClipsWithDifferentVideoEffectSettings(string setting)
     {
         TimelineClipProject left = new()
@@ -216,12 +217,16 @@ public sealed class VideoClipJoiningTests
             case "stabilised":
                 right.TransformKeyframes = [new VideoTransformKeyframe { FrameOffset = 1, X = 0.45, Y = 0.5, Scale = 1.1 }];
                 break;
+            case "vignette-keyframes":
+                right.VignetteKeyframes = [new() { FrameOffset = 0, Amount = 0.5 }];
+                break;
         }
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(
             () => VideoClipJoining.Join(track, left, right, 24));
         Assert.Contains(
-            setting == "stabilised" ? "keyframes" : "styling",
+            setting == "stabilised" ? "keyframes" :
+                setting == "vignette-keyframes" ? "vignette" : "styling",
             error.Message,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -306,6 +311,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("crop-keyframes")]
     [InlineData("opacity-keyframes")]
     [InlineData("grading-keyframes")]
+    [InlineData("vignette-keyframes")]
     [InlineData("colour")]
     [InlineData("style")]
     [InlineData("locked")]
@@ -340,6 +346,7 @@ public sealed class VideoClipJoiningTests
             case "crop-keyframes": right.CropKeyframes = [new() { FrameOffset = 0, Left = 10 }]; break;
             case "opacity-keyframes": right.OpacityKeyframes = [new() { FrameOffset = 0, Opacity = 0.5 }]; break;
             case "grading-keyframes": right.ColourGradingKeyframes = [new() { FrameOffset = 0, Exposure = 0.5 }]; break;
+            case "vignette-keyframes": right.VignetteKeyframes = [new() { FrameOffset = 0, Amount = 0.5 }]; break;
             case "colour": right.Exposure = 1; break;
             case "style": right.Colour = 0xFF123456; break;
             case "locked": track.IsLocked = true; break;

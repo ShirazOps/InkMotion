@@ -602,6 +602,11 @@
                                 <TextBlock Text="Enhances source edges before compositing. Use modest values to avoid accentuating compression noise." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipVignetteAmountBox" Header="Vignette (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipVignetteAmount_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Darkens the edges of the video or image source. Zero leaves the source unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetVignetteKeyframeButton" Content="Add/update vignette keyframe" Click="SetVignetteKeyframe_Click" />
+                                    <Button x:Name="RemoveVignetteKeyframeButton" Content="Remove vignette keyframe" Click="RemoveVignetteKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="VignetteKeyframeStateText" Text="No vignette keyframes. Vignette applies to the whole clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <TextBlock Text="MASK" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <ComboBox x:Name="ClipMaskShapeSelector" Header="Mask shape" SelectedIndex="0" SelectionChanged="ClipMaskShape_Changed">
                                     <ComboBoxItem Content="None" Tag="None" />
