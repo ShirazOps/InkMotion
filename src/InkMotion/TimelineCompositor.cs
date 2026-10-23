@@ -59,7 +59,8 @@ public static class TimelineCompositor
         VideoBlurCanvasEffect? blurEffect = null,
         VideoVignetteCanvasEffect? vignetteEffect = null,
         int clipFrameOffset = 0,
-        VideoSharpenCanvasEffect? sharpenEffect = null)
+        VideoSharpenCanvasEffect? sharpenEffect = null,
+        VideoColourGradingValue? animatedColourGrade = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -70,14 +71,18 @@ public static class TimelineCompositor
             {
                 session.Transform = Matrix3x2.CreateRotation((float)(rotationDegrees * Math.PI / 180),
                     new Vector2((float)(x * width), (float)(y * height))) * previous;
-                if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade))
+                VideoColourGradingValue gradingValue = animatedColourGrade ??
+                    (colourGrade is null
+                        ? new VideoColourGradingValue(0, 0, 0, 0, 1)
+                        : VideoColourGradingKeyframes.GetStaticValue(colourGrade));
+                if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
                     if (colourGrade is not null && !string.IsNullOrWhiteSpace(colourGrade.ColourLutPath))
                     {
                         VideoColourGradingEffect effect = colourGradeEffect ??
                             (temporaryColourGradeEffect = new VideoColourGradingEffect());
-                        output = effect.GetOutput(bitmap, colourGrade);
+                        output = effect.GetOutput(bitmap, colourGrade, gradingValue);
                     }
 
                     if (colourGrade?.ChromaKeyEnabled == true)
@@ -114,7 +119,7 @@ public static class TimelineCompositor
                 {
                     VideoColourGradingEffect effect = colourGradeEffect ??
                         (temporaryColourGradeEffect = new VideoColourGradingEffect());
-                    ICanvasImage output = effect.GetOutput(bitmap, colourGrade);
+                    ICanvasImage output = effect.GetOutput(bitmap, colourGrade, gradingValue);
                     if (colourGrade.ChromaKeyEnabled)
                     {
                         output = (chromaKeyEffect ??

@@ -556,6 +556,13 @@
                                     <NumberBox x:Name="ClipWhiteBalanceTintBox" Grid.Row="1" Grid.Column="1" Header="Tint (-1 green, +1 magenta)" Minimum="-1" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
                                     <NumberBox x:Name="ClipSaturationBox" Grid.Row="2" Header="Saturation" Minimum="0" Maximum="2" Value="1" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipColourGrading_Changed" LostFocus="ClipProperty_LostFocus" />
                                 </Grid>
+                                <StackPanel x:Name="ColourGradingKeyframeActions" Spacing="6">
+                                    <TextBlock x:Name="ColourGradingKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button x:Name="SetColourGradingKeyframeButton" Content="Add/update grading keyframe" Click="SetColourGradingKeyframe_Click" />
+                                        <Button x:Name="RemoveColourGradingKeyframeButton" Content="Remove grading keyframe" Click="RemoveColourGradingKeyframe_Click" />
+                                    </StackPanel>
+                                </StackPanel>
                                 <TextBlock Text="Colour changes apply to the video or image clip in live preview and export. Neutral values are Exposure 0 EV, Contrast 0, Temperature/Tint 0 and Saturation 1." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ComboBox x:Name="ClipCurveChannelSelector" Header="Curve channel" SelectedIndex="0" SelectionChanged="ClipCurveChannel_Changed">
                                     <ComboBoxItem Content="Master" Tag="Master" />

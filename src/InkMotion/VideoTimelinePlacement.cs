@@ -130,6 +130,7 @@ public static class VideoTimelinePlacement
                     (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoClipMask.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoOpacityKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoColourGradingKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
                 VideoTimelineEditing.ClampFades(left, track.Kind);
                 track.Clips.Add(left);
@@ -158,6 +159,7 @@ public static class VideoTimelinePlacement
                     (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoClipMask.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoOpacityKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoColourGradingKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
                 VideoTimelineEditing.ClampFades(right, track.Kind);
                 track.Clips.Add(right);
@@ -186,6 +188,7 @@ public static class VideoTimelinePlacement
                 existing.TransformKeyframes = VideoTransformKeyframes.CloneKeys(candidate.TransformKeyframes);
                 existing.CropKeyframes = VideoCropKeyframes.CloneKeys(candidate.CropKeyframes);
                 existing.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(candidate.OpacityKeyframes);
+                existing.ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(candidate.ColourGradingKeyframes);
                 result.Add(existing);
             }
             else

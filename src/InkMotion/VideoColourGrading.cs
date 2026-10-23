@@ -28,11 +28,14 @@ public static class VideoColourGrading
     public const int CurveTableSize = 256;
 
     public static bool IsNeutral(TimelineClipProject clip) =>
-        clip.Exposure == 0 &&
-        clip.Contrast == 0 &&
-        clip.WhiteBalanceTemperature == 0 &&
-        clip.WhiteBalanceTint == 0 &&
-        clip.Saturation == 1 &&
+        IsNeutral(clip, VideoColourGradingKeyframes.GetStaticValue(clip));
+
+    public static bool IsNeutral(TimelineClipProject clip, VideoColourGradingValue value) =>
+        value.Exposure == 0 &&
+        value.Contrast == 0 &&
+        value.Temperature == 0 &&
+        value.Tint == 0 &&
+        value.Saturation == 1 &&
         string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
         IsNeutralCurve(clip.MasterCurve) &&
         IsNeutralCurve(clip.RedCurve) &&
@@ -163,17 +166,21 @@ public sealed class VideoColourGradingEffect : IDisposable
     private VideoColourCurvePoint[]? _greenCurve;
     private VideoColourCurvePoint[]? _blueCurve;
 
-    public ICanvasImage GetOutput(CanvasBitmap source, TimelineClipProject clip)
+    public ICanvasImage GetOutput(
+        CanvasBitmap source,
+        TimelineClipProject clip,
+        VideoColourGradingValue? animatedValue = null)
     {
+        VideoColourGradingValue value = animatedValue ?? VideoColourGradingKeyframes.GetStaticValue(clip);
         _exposure.Source = source;
-        _exposure.Exposure = (float)clip.Exposure;
+        _exposure.Exposure = (float)value.Exposure;
         _contrast.Source = _exposure;
-        _contrast.Contrast = (float)clip.Contrast;
+        _contrast.Contrast = (float)value.Contrast;
         _temperatureAndTint.Source = _contrast;
-        _temperatureAndTint.Temperature = (float)clip.WhiteBalanceTemperature;
-        _temperatureAndTint.Tint = (float)clip.WhiteBalanceTint;
+        _temperatureAndTint.Temperature = (float)value.Temperature;
+        _temperatureAndTint.Tint = (float)value.Tint;
         _saturation.Source = _temperatureAndTint;
-        _saturation.Saturation = (float)clip.Saturation;
+        _saturation.Saturation = (float)value.Saturation;
         _curves.Source = _saturation;
         UpdateCurveTables(clip);
         if (string.IsNullOrWhiteSpace(clip.ColourLutPath))

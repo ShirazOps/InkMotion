@@ -181,6 +181,7 @@ public sealed class TimelineClipProject
     public double WhiteBalanceTemperature { get; set; }
     public double WhiteBalanceTint { get; set; }
     public double Saturation { get; set; } = 1;
+    public List<VideoColourGradingKeyframe> ColourGradingKeyframes { get; set; } = [];
     public List<VideoColourCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
@@ -441,6 +442,7 @@ public static class VideoTimelineEditing
         VideoCropKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoColourGradingKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         clip.StartFrame = playheadFrame;
         ClampFades(clip, track.Kind);
         return true;
@@ -473,6 +475,7 @@ public static class VideoTimelineEditing
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -493,6 +496,7 @@ public static class VideoTimelineEditing
         VideoCropKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoClipMask.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoColourGradingKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
@@ -713,6 +717,7 @@ public static class VideoTimelineEditing
             VideoCropKeyframes.TrimEnd(clip, retainedFrames);
             VideoClipMask.TrimEnd(clip, retainedFrames);
             VideoOpacityKeyframes.TrimEnd(clip, retainedFrames);
+            VideoColourGradingKeyframes.TrimEnd(clip, retainedFrames);
         }
         VideoTransitions.ClearInvalid([track], frameRate);
         return true;
@@ -807,6 +812,7 @@ public static class VideoTimelineEditing
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoClipMask.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -845,6 +851,7 @@ public static class VideoTimelineEditing
                 VideoCropKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoClipMask.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoOpacityKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
+                VideoColourGradingKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 previousEnd = GetEndSeconds(clip, track.Kind, newFrameRate);
             }
         }
@@ -914,6 +921,7 @@ public static class VideoTimelineEditing
         WhiteBalanceTemperature = clip.WhiteBalanceTemperature,
         WhiteBalanceTint = clip.WhiteBalanceTint,
         Saturation = clip.Saturation,
+        ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(clip.ColourGradingKeyframes),
         MasterCurve = clip.MasterCurve?.ToList() ?? [],
         RedCurve = clip.RedCurve?.ToList() ?? [],
         GreenCurve = clip.GreenCurve?.ToList() ?? [],
@@ -999,6 +1007,11 @@ public static class VideoTimelineEditing
                 if (VideoOpacityKeyframes.Validate(clip, track.Kind, frameRate) is string opacityError)
                 {
                     return opacityError;
+                }
+
+                if (VideoColourGradingKeyframes.Validate(clip, track.Kind, frameRate) is string gradingKeyframeError)
+                {
+                    return gradingKeyframeError;
                 }
 
                 if (VideoCrop.Validate(clip, track.Kind, frameRate) is string cropError)

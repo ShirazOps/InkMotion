@@ -335,10 +335,11 @@ public static class VideoExporter
                                 layer.Clip, seconds, _project.FrameRate);
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, imageCrop), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
-                                imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip),
+                                imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip, seconds),
                                 GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip), GetVignetteEffect(layer.Clip),
                                 VideoTransformKeyframes.GetFrameOffset(layer.Clip, seconds, _project.FrameRate),
-                                GetSharpenEffect(layer.Clip));
+                                GetSharpenEffect(layer.Clip),
+                                VideoColourGradingKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
@@ -431,15 +432,18 @@ public static class VideoExporter
                 VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), crop), width, height,
                     transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
-                    GetColourGradingEffect(clip), GetChromaKeyEffect(clip), GetBlurEffect(clip), GetVignetteEffect(clip),
+                    GetColourGradingEffect(clip, seconds), GetChromaKeyEffect(clip), GetBlurEffect(clip), GetVignetteEffect(clip),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _project.FrameRate),
-                    GetSharpenEffect(clip));
+                    GetSharpenEffect(clip),
+                    VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
             }
         }
 
-        private VideoColourGradingEffect? GetColourGradingEffect(TimelineClipProject clip)
+        private VideoColourGradingEffect? GetColourGradingEffect(TimelineClipProject clip, double? seconds = null)
         {
-            if (VideoColourGrading.IsNeutral(clip))
+            VideoColourGradingValue value = VideoColourGradingKeyframes.GetValueAtTime(
+                clip, seconds ?? 0, _project.FrameRate);
+            if (VideoColourGrading.IsNeutral(clip, value))
             {
                 return null;
             }

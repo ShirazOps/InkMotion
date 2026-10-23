@@ -1021,7 +1021,7 @@ public sealed partial class MainWindow
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _frameRate);
-            VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip);
+            VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip, seconds);
             if (opacity > 0)
             {
                 TimelineCompositor.DrawFitted(
@@ -1041,7 +1041,8 @@ public sealed partial class MainWindow
                     GetPreviewBlurEffect(clip),
                     GetPreviewVignetteEffect(clip),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
-                    GetPreviewSharpenEffect(clip));
+                    GetPreviewSharpenEffect(clip),
+                    VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1101,10 +1102,12 @@ public sealed partial class MainWindow
         {
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
-                GetPreviewColourGradingEffect(clip), GetPreviewChromaKeyEffect(clip),
+                GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds), GetPreviewChromaKeyEffect(clip),
                 GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip),
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
-                GetPreviewSharpenEffect(clip));
+                GetPreviewSharpenEffect(clip),
+                VideoColourGradingKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException))
@@ -1113,9 +1116,11 @@ public sealed partial class MainWindow
         }
     }
 
-    private VideoColourGradingEffect? GetPreviewColourGradingEffect(TimelineClipProject clip)
+    private VideoColourGradingEffect? GetPreviewColourGradingEffect(TimelineClipProject clip, double? seconds = null)
     {
-        if (VideoColourGrading.IsNeutral(clip))
+        VideoColourGradingValue value = VideoColourGradingKeyframes.GetValueAtTime(
+            clip, seconds ?? _playheadFramePosition / _frameRate, _frameRate);
+        if (VideoColourGrading.IsNeutral(clip, value))
         {
             return null;
         }
@@ -1222,7 +1227,9 @@ public sealed partial class MainWindow
             using (CanvasDrawingSession sample = _videoScopeSampleTarget.CreateDrawingSession())
             {
                 sample.Clear(Color.FromArgb(0, 0, 0, 0));
-                ICanvasImage image = colourGradingEffect?.GetOutput(source, clip) ?? source;
+                VideoColourGradingValue value = VideoColourGradingKeyframes.GetValueAtTime(
+                    clip, CurrentPlaybackSeconds, _frameRate);
+                ICanvasImage image = colourGradingEffect?.GetOutput(source, clip, value) ?? source;
                 sample.DrawImage(image, new Rect(0, 0, 128, 72), source.Bounds, 1);
             }
 
@@ -1654,6 +1661,8 @@ public sealed partial class MainWindow
         destination.DurationSeconds = source.DurationSeconds;
         destination.Opacity = source.Opacity;
         destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
+        destination.ColourGradingKeyframes =
+            VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2644,11 +2653,22 @@ public sealed partial class MainWindow
         CropKeyframeStateText.Text = clip.CropKeyframes.Count == 0
             ? "No crop keyframes. Crop values apply to the whole clip."
             : $"{clip.CropKeyframes.Count} crop keyframe(s); values interpolate at the playhead.";
-        ClipExposureBox.Value = clip.Exposure;
-        ClipContrastBox.Value = clip.Contrast;
-        ClipWhiteBalanceTemperatureBox.Value = clip.WhiteBalanceTemperature;
-        ClipWhiteBalanceTintBox.Value = clip.WhiteBalanceTint;
-        ClipSaturationBox.Value = clip.Saturation;
+        VideoColourGradingValue grading = VideoColourGradingKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        ClipExposureBox.Value = grading.Exposure;
+        ClipContrastBox.Value = grading.Contrast;
+        ClipWhiteBalanceTemperatureBox.Value = grading.Temperature;
+        ClipWhiteBalanceTintBox.Value = grading.Tint;
+        ClipSaturationBox.Value = grading.Saturation;
+        int gradingFrameOffset = VideoColourGradingKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool gradingPlayheadInside = VideoColourGradingKeyframes.CanSetAtFrame(
+            clip, kind, gradingFrameOffset, _frameRate);
+        SetColourGradingKeyframeButton.IsEnabled = gradingPlayheadInside && !location.Track.IsLocked;
+        RemoveColourGradingKeyframeButton.IsEnabled = gradingPlayheadInside && !location.Track.IsLocked &&
+            VideoColourGradingKeyframes.IsKeyframeAt(clip, gradingFrameOffset);
+        ColourGradingKeyframeStateText.Text = clip.ColourGradingKeyframes.Count == 0
+            ? "No grading keyframes. Colour values apply to the whole clip."
+            : $"{clip.ColourGradingKeyframes.Count} grading keyframe(s); values interpolate at the playhead.";
         ClipColourLutLabel.Text = string.IsNullOrWhiteSpace(clip.ColourLutPath)
             ? "No 3D LUT selected"
             : $"3D LUT: {Path.GetFileName(clip.ColourLutPath)}";
@@ -3124,30 +3144,28 @@ public sealed partial class MainWindow
         }
 
         TimelineClipProject clip = location.Clip;
-        double exposure = clip.Exposure;
-        double contrast = clip.Contrast;
-        double temperature = clip.WhiteBalanceTemperature;
-        double tint = clip.WhiteBalanceTint;
-        double saturation = clip.Saturation;
+        VideoColourGradingValue current = VideoColourGradingKeyframes.GetValueAtTime(
+            clip, CurrentPlaybackSeconds, _frameRate);
+        VideoColourGradingValue updated = current;
         if (ReferenceEquals(sender, ClipExposureBox))
         {
-            exposure = args.NewValue;
+            updated = updated with { Exposure = args.NewValue };
         }
         else if (ReferenceEquals(sender, ClipContrastBox))
         {
-            contrast = args.NewValue;
+            updated = updated with { Contrast = args.NewValue };
         }
         else if (ReferenceEquals(sender, ClipWhiteBalanceTemperatureBox))
         {
-            temperature = args.NewValue;
+            updated = updated with { Temperature = args.NewValue };
         }
         else if (ReferenceEquals(sender, ClipWhiteBalanceTintBox))
         {
-            tint = args.NewValue;
+            updated = updated with { Tint = args.NewValue };
         }
         else if (ReferenceEquals(sender, ClipSaturationBox))
         {
-            saturation = args.NewValue;
+            updated = updated with { Saturation = args.NewValue };
         }
         else
         {
@@ -3156,11 +3174,11 @@ public sealed partial class MainWindow
         }
 
         var candidate = VideoTimelineEditing.Clone(clip);
-        candidate.Exposure = exposure;
-        candidate.Contrast = contrast;
-        candidate.WhiteBalanceTemperature = temperature;
-        candidate.WhiteBalanceTint = tint;
-        candidate.Saturation = saturation;
+        candidate.Exposure = updated.Exposure;
+        candidate.Contrast = updated.Contrast;
+        candidate.WhiteBalanceTemperature = updated.Temperature;
+        candidate.WhiteBalanceTint = updated.Tint;
+        candidate.Saturation = updated.Saturation;
         if (VideoColourGrading.Validate(candidate, location.Track.Kind) is string error)
         {
             CommitEdit();
@@ -3169,22 +3187,31 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (VideoColourGrading.IsNeutral(candidate) == VideoColourGrading.IsNeutral(clip) &&
-            exposure == clip.Exposure &&
-            contrast == clip.Contrast &&
-            temperature == clip.WhiteBalanceTemperature &&
-            tint == clip.WhiteBalanceTint &&
-            saturation == clip.Saturation)
+        if (updated == current)
         {
             CommitEdit();
             return;
         }
 
-        clip.Exposure = exposure;
-        clip.Contrast = contrast;
-        clip.WhiteBalanceTemperature = temperature;
-        clip.WhiteBalanceTint = tint;
-        clip.Saturation = saturation;
+        if (clip.ColourGradingKeyframes.Count > 0)
+        {
+            if (!VideoColourGradingKeyframes.SetValueAtTime(
+                clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, updated))
+            {
+                CommitEdit();
+                StatusText.Text = "Move the playhead inside the selected clip to edit animated colour values.";
+                UpdateVideoInspector();
+                return;
+            }
+        }
+        else
+        {
+            clip.Exposure = updated.Exposure;
+            clip.Contrast = updated.Contrast;
+            clip.WhiteBalanceTemperature = updated.Temperature;
+            clip.WhiteBalanceTint = updated.Tint;
+            clip.Saturation = updated.Saturation;
+        }
         ApplyClipPreview();
     }
 
@@ -3602,6 +3629,66 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Opacity keyframe removed." : "There is no opacity keyframe at the playhead.";
+    }
+
+    private void SetColourGradingKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoColourGradingKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoColourGradingKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Colour grading keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a grading keyframe.";
+    }
+
+    private void RemoveColourGradingKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoColourGradingKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoColourGradingKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Colour grading keyframe removed."
+            : "There is no colour grading keyframe at the playhead.";
     }
 
     private void RemoveTransformKeyframe_Click(object sender, RoutedEventArgs e)
