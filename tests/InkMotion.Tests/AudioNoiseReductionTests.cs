@@ -87,6 +87,46 @@ public sealed class AudioNoiseReductionTests
     }
 
     [Fact]
+    public void SpectralReduction_SmoothsGainRecoveryAfterTransientNoise()
+    {
+        const int firstLength = 8192;
+        const int noisyLength = 8192;
+        const int recoveryLength = 16384;
+        float[] input = Enumerable.Range(0, firstLength + noisyLength + recoveryLength)
+            .Select(index =>
+            {
+                double amplitude = index < firstLength ? 0.5 :
+                    index < firstLength + noisyLength ? 0.03 : 0.5;
+                return (float)(amplitude * Math.Sin(index * 2 * Math.PI * 440 / 48000));
+            })
+            .ToArray();
+
+        double[] magnitudes = new double[AudioNoiseProfile.DefaultFftSize / 2 + 1];
+        for (int bin = 8; bin <= 11; bin++)
+        {
+            magnitudes[bin] = 0.000001;
+        }
+        var noiseProfile = new AudioNoiseProfile(@"C:\Media\speech.wav", 48000, 1,
+            AudioNoiseProfile.DefaultFftSize, magnitudes);
+        float[] output = Process(input, noiseProfile, 24);
+        static double Rms(float[] samples, int first, int count) =>
+            Math.Sqrt(samples.Skip(first).Take(count).Average(value => (double)value * value));
+
+        double initialGain = Rms(output, 4096, 1024) / Rms(input, 4096, 1024);
+        double noiseGain = Rms(output, 12288, 1024) / Rms(input, 12288, 1024);
+        double earlyRecoveryGain = Rms(output, 16896, 1024) / Rms(input, 16896, 1024);
+        double settledGain = Rms(output, 28672, 1024) / Rms(input, 28672, 1024);
+
+        Assert.True(noiseGain < initialGain,
+            $"Transient noise was not attenuated: initial={initialGain}, noise={noiseGain}.");
+        Assert.True(earlyRecoveryGain > noiseGain + 0.01,
+            $"Gain did not recover smoothly after the noise: noise={noiseGain}, early recovery={earlyRecoveryGain}.");
+        Assert.True(earlyRecoveryGain < settledGain,
+            $"Gain recovery should continue over subsequent hops: early={earlyRecoveryGain}, settled={settledGain}.");
+        Assert.InRange(Math.Abs(settledGain - initialGain), 0, 0.08);
+    }
+
+    [Fact]
     public void SpectralReduction_SettingsAndSuppressionChangesPreserveStreamLength()
     {
         float[] input = Enumerable.Range(0, 8197)

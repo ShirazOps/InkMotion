@@ -130,6 +130,8 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
 {
     private const int FftSize = AudioNoiseProfile.DefaultFftSize;
     private const int HopSize = AudioNoiseProfile.HopSize;
+    private const double GainAttackSeconds = 0.02;
+    private const double GainReleaseSeconds = 0.12;
     private readonly ISampleProvider _source;
     private AudioNoiseProfile _profile;
     private double _subtraction;
@@ -142,6 +144,9 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
     private readonly Complex[] _fft = new Complex[FftSize];
     private readonly double[] _gains = new double[FftSize / 2 + 1];
     private readonly double[] _smoothedGains = new double[FftSize / 2 + 1];
+    private readonly double[] _temporalGains;
+    private readonly double _attackCoefficient;
+    private readonly double _releaseCoefficient;
     private int _pendingPosition;
     private int _pendingFrames;
     private int _currentHopFrames;
@@ -162,6 +167,10 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
         _subtraction = 1 - Math.Pow(10, -strengthDecibels / 20);
         _floor = Math.Pow(10, -strengthDecibels / 20);
         _channels = source.WaveFormat.Channels;
+        _temporalGains = Enumerable.Repeat(1d, _channels * (FftSize / 2 + 1)).ToArray();
+        double hopSeconds = (double)HopSize / source.WaveFormat.SampleRate;
+        _attackCoefficient = 1 - Math.Exp(-hopSeconds / GainAttackSeconds);
+        _releaseCoefficient = 1 - Math.Exp(-hopSeconds / GainReleaseSeconds);
         _previousHop = new float[HopSize * _channels];
         _currentHop = new float[HopSize * _channels];
         _overlap = new float[HopSize * _channels];
@@ -179,6 +188,10 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
         _profile = profile;
         _subtraction = 1 - Math.Pow(10, -strengthDecibels / 20);
         _floor = Math.Pow(10, -strengthDecibels / 20);
+        if (strengthDecibels == 0)
+        {
+            Array.Fill(_temporalGains, 1);
+        }
     }
 
     public void Reset()
@@ -187,6 +200,7 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
         Array.Clear(_currentHop);
         Array.Clear(_overlap);
         Array.Clear(_pending);
+        Array.Fill(_temporalGains, 1);
         _pendingPosition = 0;
         _pendingFrames = 0;
         _currentHopFrames = 0;
@@ -259,12 +273,19 @@ internal sealed class AudioNoiseReductionSampleProvider : ISampleProvider
                 double current = _gains[bin];
                 double next = _gains[Math.Min(FftSize / 2, bin + 1)];
                 _smoothedGains[bin] = (previous + (2 * current) + next) * 0.25;
+                int stateIndex = channel * (FftSize / 2 + 1) + bin;
+                double targetGain = _smoothedGains[bin];
+                double coefficient = targetGain < _temporalGains[stateIndex]
+                    ? _attackCoefficient
+                    : _releaseCoefficient;
+                _temporalGains[stateIndex] += (targetGain - _temporalGains[stateIndex]) * coefficient;
             }
 
             for (int bin = 0; bin < FftSize; bin++)
             {
                 int mirrored = bin <= FftSize / 2 ? bin : FftSize - bin;
-                double gain = _smoothedGains[mirrored];
+                int stateIndex = channel * (FftSize / 2 + 1) + mirrored;
+                double gain = _subtraction == 0 ? 1 : _temporalGains[stateIndex];
                 _fft[bin].X = (float)(_fft[bin].X * gain);
                 _fft[bin].Y = (float)(_fft[bin].Y * gain);
             }
