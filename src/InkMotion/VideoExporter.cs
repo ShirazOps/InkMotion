@@ -336,12 +336,13 @@ public static class VideoExporter
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, imageCrop), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
                                 imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip, seconds),
-                                GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip),
+                                GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip, seconds),
                                 GetVignetteEffect(layer.Clip, seconds),
                                 VideoTransformKeyframes.GetFrameOffset(layer.Clip, seconds, _project.FrameRate),
                                 GetSharpenEffect(layer.Clip),
                                 VideoColourGradingKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
-                                VideoVignetteKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
+                                VideoVignetteKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
+                                VideoBlurKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
@@ -434,12 +435,13 @@ public static class VideoExporter
                 VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), crop), width, height,
                     transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
-                    GetColourGradingEffect(clip, seconds), GetChromaKeyEffect(clip), GetBlurEffect(clip),
+                    GetColourGradingEffect(clip, seconds), GetChromaKeyEffect(clip), GetBlurEffect(clip, seconds),
                     GetVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _project.FrameRate),
                     GetSharpenEffect(clip),
                     VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
-                    VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
+                    VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
+                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
             }
         }
 
@@ -477,9 +479,9 @@ public static class VideoExporter
             return effect;
         }
 
-        private VideoBlurCanvasEffect? GetBlurEffect(TimelineClipProject clip)
+        private VideoBlurCanvasEffect? GetBlurEffect(TimelineClipProject clip, double seconds)
         {
-            if (clip.BlurAmount <= 0)
+            if (VideoBlurKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate) <= 0)
             {
                 return null;
             }

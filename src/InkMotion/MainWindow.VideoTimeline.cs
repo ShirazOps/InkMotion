@@ -1038,12 +1038,13 @@ public sealed partial class MainWindow
                     clip,
                     colourGradingEffect,
                     GetPreviewChromaKeyEffect(clip),
-                    GetPreviewBlurEffect(clip),
+                    GetPreviewBlurEffect(clip, seconds),
                     GetPreviewVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
                     GetPreviewSharpenEffect(clip),
                     VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1104,12 +1105,14 @@ public sealed partial class MainWindow
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
                 GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds), GetPreviewChromaKeyEffect(clip),
-                GetPreviewBlurEffect(clip), GetPreviewVignetteEffect(clip, CurrentPlaybackSeconds),
+                GetPreviewBlurEffect(clip, CurrentPlaybackSeconds), GetPreviewVignetteEffect(clip, CurrentPlaybackSeconds),
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
                 GetPreviewSharpenEffect(clip),
                 VideoColourGradingKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoVignetteKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoBlurKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1153,9 +1156,10 @@ public sealed partial class MainWindow
         return effect;
     }
 
-    private VideoBlurCanvasEffect? GetPreviewBlurEffect(TimelineClipProject clip)
+    private VideoBlurCanvasEffect? GetPreviewBlurEffect(TimelineClipProject clip, double? seconds = null)
     {
-        if (clip.BlurAmount <= 0)
+        if (VideoBlurKeyframes.GetValueAtTime(
+            clip, seconds ?? _playheadFramePosition / _frameRate, _frameRate) <= 0)
         {
             return null;
         }
@@ -1669,6 +1673,7 @@ public sealed partial class MainWindow
         destination.ColourGradingKeyframes =
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
+        destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2690,7 +2695,15 @@ public sealed partial class MainWindow
         ClipChromaKeyToleranceBox.Value = clip.ChromaKeyTolerance;
         ClipChromaKeyFeather.IsChecked = clip.ChromaKeyFeather;
         ClipChromaKeySpillBox.Value = clip.ChromaKeySpillSuppression;
-        ClipBlurAmountBox.Value = clip.BlurAmount;
+        ClipBlurAmountBox.Value = VideoBlurKeyframes.GetValueAtTime(clip, opacitySeconds, _frameRate);
+        int blurFrameOffset = VideoBlurKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool blurPlayheadInside = VideoBlurKeyframes.CanSetAtFrame(clip, kind, blurFrameOffset, _frameRate);
+        SetBlurKeyframeButton.IsEnabled = blurPlayheadInside && !location.Track.IsLocked;
+        RemoveBlurKeyframeButton.IsEnabled = blurPlayheadInside && !location.Track.IsLocked &&
+            VideoBlurKeyframes.IsKeyframeAt(clip, blurFrameOffset);
+        BlurKeyframeStateText.Text = clip.BlurKeyframes.Count == 0
+            ? "No blur keyframes. Blur applies to the whole clip."
+            : $"{clip.BlurKeyframes.Count} blur keyframe(s); values interpolate at the playhead.";
         ClipSharpenAmountBox.Value = clip.SharpenAmount;
         ClipVignetteAmountBox.Value = VideoVignetteKeyframes.GetValueAtTime(
             clip, opacitySeconds, _frameRate);
@@ -3036,12 +3049,20 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (location.Clip.BlurAmount == args.NewValue)
+        double current = VideoBlurKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == args.NewValue)
         {
             return;
         }
 
-        location.Clip.BlurAmount = args.NewValue;
+        if (!VideoBlurKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, args.NewValue))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated blur.";
+            return;
+        }
         ApplyClipPreview();
     }
 
@@ -3653,6 +3674,66 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Opacity keyframe removed." : "There is no opacity keyframe at the playhead.";
+    }
+
+    private void SetBlurKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoBlurKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoBlurKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Blur keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a blur keyframe.";
+    }
+
+    private void RemoveBlurKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoBlurKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoBlurKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Blur keyframe removed."
+            : "There is no blur keyframe at the playhead.";
     }
 
     private void SetVignetteKeyframe_Click(object sender, RoutedEventArgs e)

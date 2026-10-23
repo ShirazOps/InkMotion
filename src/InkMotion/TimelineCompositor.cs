@@ -61,7 +61,8 @@ public static class TimelineCompositor
         int clipFrameOffset = 0,
         VideoSharpenCanvasEffect? sharpenEffect = null,
         VideoColourGradingValue? animatedColourGrade = null,
-        double? animatedVignetteAmount = null)
+        double? animatedVignetteAmount = null,
+        double? animatedBlurAmount = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -77,6 +78,7 @@ public static class TimelineCompositor
                         ? new VideoColourGradingValue(0, 0, 0, 0, 1)
                         : VideoColourGradingKeyframes.GetStaticValue(colourGrade));
                 double vignetteAmount = animatedVignetteAmount ?? colourGrade?.VignetteAmount ?? 0;
+                double blurAmount = animatedBlurAmount ?? colourGrade?.BlurAmount ?? 0;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
@@ -94,11 +96,11 @@ public static class TimelineCompositor
                             .GetOutput(output, colourGrade);
                     }
 
-                    if (colourGrade is not null && colourGrade.BlurAmount > 0)
+                    if (colourGrade is not null && blurAmount > 0)
                     {
                         output = (blurEffect ??
                             throw new InvalidOperationException("The active blur effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, blurAmount);
                     }
 
                     if (colourGrade is not null && vignetteAmount > 0)
@@ -129,11 +131,11 @@ public static class TimelineCompositor
                             .GetOutput(output, colourGrade);
                     }
 
-                    if (colourGrade.BlurAmount > 0)
+                    if (blurAmount > 0)
                     {
                         output = (blurEffect ??
                             throw new InvalidOperationException("The active blur effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, blurAmount);
                     }
 
                     if (vignetteAmount > 0)

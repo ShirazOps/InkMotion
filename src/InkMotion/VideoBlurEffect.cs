@@ -32,10 +32,10 @@ public sealed class VideoBlurCanvasEffect : IDisposable
         Optimization = EffectOptimization.Balanced,
     };
 
-    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip)
+    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip, double? animatedAmount = null)
     {
         _effect.Source = source;
-        _effect.BlurAmount = (float)clip.BlurAmount;
+        _effect.BlurAmount = (float)(animatedAmount ?? clip.BlurAmount);
         return _effect;
     }
 

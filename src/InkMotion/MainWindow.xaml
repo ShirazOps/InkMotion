@@ -598,6 +598,11 @@
                                 <TextBlock Text="BLUR" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <NumberBox x:Name="ClipBlurAmountBox" Header="Gaussian blur (0-20)" Minimum="0" Maximum="20" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipBlurAmount_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Softens the video or image source before it is composited. Zero leaves the source unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetBlurKeyframeButton" Content="Add/update blur keyframe" Click="SetBlurKeyframe_Click" />
+                                    <Button x:Name="RemoveBlurKeyframeButton" Content="Remove blur keyframe" Click="RemoveBlurKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="BlurKeyframeStateText" Text="No blur keyframes. Blur applies to the whole clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipSharpenAmountBox" Header="Sharpen (0-10)" Minimum="0" Maximum="10" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipSharpenAmount_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Enhances source edges before compositing. Use modest values to avoid accentuating compression noise." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipVignetteAmountBox" Header="Vignette (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipVignetteAmount_Changed" LostFocus="ClipProperty_LostFocus" />

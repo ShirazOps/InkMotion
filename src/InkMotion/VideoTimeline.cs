@@ -193,6 +193,7 @@ public sealed class TimelineClipProject
     public bool ChromaKeyFeather { get; set; } = true;
     public double ChromaKeySpillSuppression { get; set; }
     public double BlurAmount { get; set; }
+    public List<VideoBlurKeyframe> BlurKeyframes { get; set; } = [];
     public double SharpenAmount { get; set; }
     public List<VideoRollingShutterKeyframe> RollingShutterProfile { get; set; } = [];
     public double VignetteAmount { get; set; }
@@ -445,6 +446,7 @@ public static class VideoTimelineEditing
         VideoOpacityKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoBlurKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         clip.StartFrame = playheadFrame;
         ClampFades(clip, track.Kind);
         return true;
@@ -479,6 +481,7 @@ public static class VideoTimelineEditing
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoBlurKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -501,6 +504,7 @@ public static class VideoTimelineEditing
         VideoOpacityKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoBlurKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
@@ -723,6 +727,7 @@ public static class VideoTimelineEditing
             VideoOpacityKeyframes.TrimEnd(clip, retainedFrames);
             VideoColourGradingKeyframes.TrimEnd(clip, retainedFrames);
             VideoVignetteKeyframes.TrimEnd(clip, retainedFrames);
+            VideoBlurKeyframes.TrimEnd(clip, retainedFrames);
         }
         VideoTransitions.ClearInvalid([track], frameRate);
         return true;
@@ -819,6 +824,7 @@ public static class VideoTimelineEditing
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoVignetteKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoBlurKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         ClampFades(clip, track.Kind);
         return true;
     }
@@ -859,6 +865,7 @@ public static class VideoTimelineEditing
                 VideoOpacityKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoColourGradingKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoVignetteKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
+                VideoBlurKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 previousEnd = GetEndSeconds(clip, track.Kind, newFrameRate);
             }
         }
@@ -940,6 +947,7 @@ public static class VideoTimelineEditing
         ChromaKeyFeather = clip.ChromaKeyFeather,
         ChromaKeySpillSuppression = clip.ChromaKeySpillSuppression,
         BlurAmount = clip.BlurAmount,
+        BlurKeyframes = VideoBlurKeyframes.CloneKeys(clip.BlurKeyframes),
         SharpenAmount = clip.SharpenAmount,
         RollingShutterProfile = VideoRollingShutter.CloneProfile(clip.RollingShutterProfile),
         VignetteAmount = clip.VignetteAmount,
@@ -1025,6 +1033,11 @@ public static class VideoTimelineEditing
                 if (VideoVignetteKeyframes.Validate(clip, track.Kind, frameRate) is string vignetteKeyframeError)
                 {
                     return vignetteKeyframeError;
+                }
+
+                if (VideoBlurKeyframes.Validate(clip, track.Kind, frameRate) is string blurKeyframeError)
+                {
+                    return blurKeyframeError;
                 }
 
                 if (VideoCrop.Validate(clip, track.Kind, frameRate) is string cropError)
