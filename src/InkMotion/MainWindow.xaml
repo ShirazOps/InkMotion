@@ -483,7 +483,7 @@
                                     <Button Content="Apply cross-dissolve" Click="ApplyCrossDissolve_Click" />
                                     <Button Content="Remove transition" Click="RemoveCrossDissolve_Click" />
                                 </StackPanel>
-                                <TextBlock Text="Transitions span the cut without moving either clip. Both sources need unused footage before/after their selected ranges; transition opacity requires both clip opacities at 100%. This is a video-only dissolve; audio timing and volume are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Transitions span the cut without moving either clip. Both sources need unused footage before/after their selected ranges; transition opacity requires both clip opacities at 100%. Embedded audio uses the same source handles and a matching linear gain crossfade in Modified preview and export; Original preview bypasses the transition. Linear gains can dip with unrelated or out-of-phase audio." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

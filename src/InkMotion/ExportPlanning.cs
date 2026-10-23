@@ -162,24 +162,54 @@ public static class ExportPlanning
     /// the clip ends. Muted tracks contribute nothing.
     /// </summary>
     public static double GetVideoClipAudioGain(TimelineClipProject clip, double clipElapsedSeconds)
+        => GetVideoClipAudioGain(clip, clipElapsedSeconds, default);
+
+    public static double GetVideoClipAudioGain(
+        TimelineClipProject clip,
+        double clipElapsedSeconds,
+        VideoAudioTransition transition)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return clip.Volume * GetVideoClipAudioEnvelope(clip, clipElapsedSeconds, transition);
+    }
+
+    public static double GetVideoClipAudioEnvelope(
+        TimelineClipProject clip,
+        double clipElapsedSeconds,
+        VideoAudioTransition transition)
     {
         ArgumentNullException.ThrowIfNull(clip);
         double duration = VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video);
         double remaining = duration - clipElapsedSeconds;
-        if (clipElapsedSeconds < 0 || remaining <= 0)
+        double incomingHalf = transition.InSeconds / 2;
+        double outgoingHalf = transition.OutSeconds / 2;
+        if (duration <= 0 ||
+            (transition.InSeconds <= 0 && clipElapsedSeconds < 0) ||
+            (transition.OutSeconds <= 0 && remaining <= 0) ||
+            clipElapsedSeconds < -incomingHalf || remaining < -outgoingHalf)
         {
             return 0;
         }
 
-        double gain = clip.Volume;
-        if (clip.FadeInSeconds > 0 && clipElapsedSeconds < clip.FadeInSeconds)
+        double gain = 1;
+        if (clip.FadeInSeconds > 0 && clipElapsedSeconds >= 0 && clipElapsedSeconds < clip.FadeInSeconds)
         {
             gain *= clipElapsedSeconds / clip.FadeInSeconds;
         }
 
-        if (clip.FadeOutSeconds > 0 && remaining < clip.FadeOutSeconds)
+        if (clip.FadeOutSeconds > 0 && remaining >= 0 && remaining < clip.FadeOutSeconds)
         {
             gain *= remaining / clip.FadeOutSeconds;
+        }
+
+        if (transition.InSeconds > 0 && clipElapsedSeconds < incomingHalf)
+        {
+            gain *= Math.Clamp((clipElapsedSeconds + incomingHalf) / transition.InSeconds, 0, 1);
+        }
+
+        if (transition.OutSeconds > 0 && clipElapsedSeconds > duration - outgoingHalf)
+        {
+            gain *= Math.Clamp((remaining + outgoingHalf) / transition.OutSeconds, 0, 1);
         }
 
         return Math.Max(0, gain);

@@ -9,13 +9,15 @@ public sealed class AudioClipSampleProvider : ISampleProvider
     private readonly double _sourceDurationSeconds;
     private readonly object _sync = new();
     private AudioClipGainSettings _settings;
+    private Func<double, double>? _gainEnvelope;
     private long _framePosition;
 
     public AudioClipSampleProvider(
         ISampleProvider source,
         double sourceDurationSeconds,
         AudioClipGainSettings settings,
-        Action<double>? seekSource = null)
+        Action<double>? seekSource = null,
+        Func<double, double>? gainEnvelope = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(settings);
@@ -23,6 +25,7 @@ public sealed class AudioClipSampleProvider : ISampleProvider
         _sourceDurationSeconds = sourceDurationSeconds;
         _settings = settings;
         _seekSource = seekSource;
+        _gainEnvelope = gainEnvelope;
     }
 
     public WaveFormat WaveFormat => _source.WaveFormat;
@@ -43,6 +46,9 @@ public sealed class AudioClipSampleProvider : ISampleProvider
         ArgumentNullException.ThrowIfNull(settings);
         Volatile.Write(ref _settings, settings);
     }
+
+    public void UpdateGainEnvelope(Func<double, double>? gainEnvelope) =>
+        Volatile.Write(ref _gainEnvelope, gainEnvelope);
 
     public void Seek(double sourceSeconds)
     {
@@ -75,9 +81,12 @@ public sealed class AudioClipSampleProvider : ISampleProvider
 
             Array.Clear(buffer, offset + read, requested - read);
             AudioClipGainSettings settings = Volatile.Read(ref _settings);
+            Func<double, double>? gainEnvelope = Volatile.Read(ref _gainEnvelope);
             for (int sample = 0; sample < requested; sample += channels, _framePosition++)
             {
-                float gain = (float)settings.GetGain((double)_framePosition / sampleRate, _sourceDurationSeconds);
+                double sourceSeconds = (double)_framePosition / sampleRate;
+                float gain = (float)(settings.GetGain(sourceSeconds, _sourceDurationSeconds) *
+                    (gainEnvelope?.Invoke(sourceSeconds) ?? 1));
                 for (int channel = 0; channel < channels; channel++)
                 {
                     int index = offset + sample + channel;
@@ -112,7 +121,8 @@ public sealed class AudioClipPlayer : IDisposable
         string audioPath,
         AudioTrackProject project,
         AudioChannelLayout mixLayout,
-        AudioPreviewBus previewBus)
+        AudioPreviewBus previewBus,
+        Func<double, double>? gainEnvelope = null)
     {
         ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
@@ -127,7 +137,8 @@ public sealed class AudioClipPlayer : IDisposable
                 _reader,
                 DurationSeconds,
                 _gainSettings,
-                seconds => AudioSourcePosition.Seek(_reader, seconds));
+                seconds => AudioSourcePosition.Seek(_reader, seconds),
+                gainEnvelope);
             _stretch = new TimeStretchSampleProvider(_clip, _clip.Seek);
             _tempoRatio = AudioClipEditing.GetTempoRatio(project);
             _pitchSemitones = project.PitchSemitones;
@@ -190,6 +201,9 @@ public sealed class AudioClipPlayer : IDisposable
         _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
             project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
     }
+
+    public void UpdateGainEnvelope(Func<double, double>? gainEnvelope) =>
+        _clip.UpdateGainEnvelope(gainEnvelope);
 
     public void SetSoloSuppressed(bool suppressed)
     {

@@ -2,6 +2,13 @@ namespace InkMotion;
 
 public sealed record VideoCrossDissolve(TimelineClipProject OutgoingClip, TimelineClipProject IncomingClip, double Progress);
 
+public readonly record struct VideoAudioTransition(double InSeconds, double OutSeconds);
+
+public readonly record struct VideoAudioSourceRange(double StartSeconds, double EndSeconds)
+{
+    public double DurationSeconds(double playbackSpeed) => (EndSeconds - StartSeconds) / playbackSpeed;
+}
+
 public static class VideoTransitions
 {
     private const double Tolerance = 1e-6;
@@ -85,6 +92,57 @@ public static class VideoTransitions
         }
 
         return VideoTimelineEditing.GetOpacity(location.Clip, location.Track.Kind, seconds, frameRate);
+    }
+
+    public static VideoAudioTransition GetAudioTransition(
+        TimelineTrackProject track,
+        TimelineClipProject clip,
+        double frameRate)
+    {
+        if (track.Kind != TimelineTrackKind.Video || !double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            return default;
+        }
+
+        TimelineClipProject[] clips = track.Clips.OrderBy(item => item.StartFrame).ToArray();
+        int index = Array.IndexOf(clips, clip);
+        if (index < 0)
+        {
+            return default;
+        }
+
+        double incoming = index > 0 &&
+            IsValidIncomingTransition(track, clip, clips[index - 1], clip.TransitionInSeconds, frameRate)
+                ? clip.TransitionInSeconds
+                : 0;
+        double outgoing = index + 1 < clips.Length &&
+            IsValidIncomingTransition(track, clips[index + 1], clip, clips[index + 1].TransitionInSeconds, frameRate)
+                ? clips[index + 1].TransitionInSeconds
+                : 0;
+        return new VideoAudioTransition(incoming, outgoing);
+    }
+
+    public static VideoAudioSourceRange GetAudioSourceRange(
+        TimelineClipProject clip,
+        VideoAudioTransition transition)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+        double incomingHandle = transition.InSeconds / 2 * clip.PlaybackSpeed;
+        double outgoingHandle = transition.OutSeconds / 2 * clip.PlaybackSpeed;
+        double start = clip.IsReversed
+            ? clip.SourceInSeconds - outgoingHandle
+            : clip.SourceInSeconds - incomingHandle;
+        double end = clip.IsReversed
+            ? sourceEnd + incomingHandle
+            : sourceEnd + outgoingHandle;
+        start = Math.Max(0, start);
+        if (clip.SourceDurationSeconds > 0)
+        {
+            end = Math.Min(clip.SourceDurationSeconds, end);
+        }
+
+        return new VideoAudioSourceRange(start, Math.Max(start, end));
     }
 
     public static string? Validate(TimelineTrackProject track, double frameRate)

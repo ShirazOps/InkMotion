@@ -131,6 +131,23 @@ public sealed class AudioClipEditingTests
     }
 
     [Fact]
+    public void SampleProvider_AppliesAdditionalSourceTimeGainEnvelope()
+    {
+        var source = new ConstantSampleProvider(sampleRate: 4, channels: 1, value: 0.5f, frames: 4);
+        var clip = new AudioClipSampleProvider(
+            source,
+            sourceDurationSeconds: 1,
+            new AudioClipGainSettings(0, null, 0, 0, 1),
+            gainEnvelope: sourceSeconds => sourceSeconds);
+        var buffer = new float[4];
+
+        int read = clip.Read(buffer, 0, buffer.Length);
+
+        Assert.Equal(4, read);
+        Assert.Equal(new[] { 0, 0.125f, 0.25f, 0.375f }, buffer);
+    }
+
+    [Fact]
     public void SampleProvider_SeekUpdatesPositionAndCallsSource()
     {
         double? sought = null;

@@ -44,6 +44,31 @@ public sealed class VideoTransitionsTests
     }
 
     [Fact]
+    public void AudioCrossDissolve_UsesLinearGainsAndReadsTheSameSourceHandlesAsVideo()
+    {
+        TimelineTrackProject track = CreateAdjacentTrack();
+        TimelineClipProject outgoing = track.Clips[0];
+        TimelineClipProject incoming = track.Clips[1];
+        Assert.True(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));
+
+        VideoAudioTransition outgoingTransition = VideoTransitions.GetAudioTransition(track, outgoing, FrameRate);
+        VideoAudioTransition incomingTransition = VideoTransitions.GetAudioTransition(track, incoming, FrameRate);
+        VideoAudioSourceRange outgoingRange = VideoTransitions.GetAudioSourceRange(outgoing, outgoingTransition);
+        VideoAudioSourceRange incomingRange = VideoTransitions.GetAudioSourceRange(incoming, incomingTransition);
+
+        Assert.Equal(new VideoAudioTransition(0, 1), outgoingTransition);
+        Assert.Equal(new VideoAudioTransition(1, 0), incomingTransition);
+        Assert.Equal((0, 5.5), (outgoingRange.StartSeconds, outgoingRange.EndSeconds));
+        Assert.Equal((0.5, 6), (incomingRange.StartSeconds, incomingRange.EndSeconds));
+        Assert.Equal(1, ExportPlanning.GetVideoClipAudioGain(outgoing, 4.5, outgoingTransition), 6);
+        Assert.Equal(0.5, ExportPlanning.GetVideoClipAudioGain(outgoing, 5, outgoingTransition), 6);
+        Assert.Equal(0, ExportPlanning.GetVideoClipAudioGain(outgoing, 5.5, outgoingTransition), 6);
+        Assert.Equal(0, ExportPlanning.GetVideoClipAudioGain(incoming, -0.5, incomingTransition), 6);
+        Assert.Equal(0.5, ExportPlanning.GetVideoClipAudioGain(incoming, 0, incomingTransition), 6);
+        Assert.Equal(1, ExportPlanning.GetVideoClipAudioGain(incoming, 0.5, incomingTransition), 6);
+    }
+
+    [Fact]
     public void TrySetCrossDissolve_RejectsMissingHandlesFadesAndNonAdjacentClipsWithoutMutation()
     {
         TimelineTrackProject track = CreateAdjacentTrack();
@@ -80,6 +105,14 @@ public sealed class VideoTransitionsTests
         incoming.SourceOutSeconds = 5;
 
         Assert.True(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));
+        VideoAudioSourceRange outgoingAudio = VideoTransitions.GetAudioSourceRange(
+            outgoing, VideoTransitions.GetAudioTransition(track, outgoing, FrameRate));
+        VideoAudioSourceRange incomingAudio = VideoTransitions.GetAudioSourceRange(
+            incoming, VideoTransitions.GetAudioTransition(track, incoming, FrameRate));
+        Assert.Equal(0, outgoingAudio.StartSeconds);
+        Assert.Equal(6, outgoingAudio.EndSeconds);
+        Assert.Equal(1, incomingAudio.StartSeconds);
+        Assert.Equal(6, incomingAudio.EndSeconds);
 
         incoming.SourceOutSeconds = 5.9;
         Assert.False(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, FrameRate));

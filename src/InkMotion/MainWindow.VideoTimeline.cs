@@ -22,6 +22,41 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private sealed class VideoAudioPreviewState
+    {
+        public AudioClipPlayer? Player { get; set; }
+        public AudioTrackProject? Settings { get; set; }
+        public string? ClipId { get; set; }
+        public string? Path { get; set; }
+        public string? FailedClipId { get; set; }
+        public string? FailedPath { get; set; }
+        public VideoAudioEnvelopeKey? EnvelopeKey { get; set; }
+        public bool FallbackActive { get; set; }
+
+        public void Clear()
+        {
+            Player?.Dispose();
+            Player = null;
+            Settings = null;
+            ClipId = null;
+            Path = null;
+            FailedClipId = null;
+            FailedPath = null;
+            EnvelopeKey = null;
+            FallbackActive = false;
+        }
+    }
+
+    private readonly record struct VideoAudioEnvelopeKey(
+        double Volume,
+        double FadeInSeconds,
+        double FadeOutSeconds,
+        double PlaybackSpeed,
+        bool IsReversed,
+        double SourceInSeconds,
+        double SourceOutSeconds,
+        VideoAudioTransition Transition);
+
     private const float TimelineRulerHeight = 22;
     private const float TimelineLaneHeight = 34;
     private const float TimelineLaneSpacing = 2;
@@ -41,13 +76,10 @@ public sealed partial class MainWindow
     private bool _isStabilisationRunning;
     private bool _isMaskTrackingRunning;
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
-    private AudioClipPlayer? _videoAudioPlayer;
-    private AudioTrackProject? _videoAudioPlayerSettings;
-    private string? _videoAudioPlayerClipId;
-    private string? _videoAudioPlayerPath;
-    private string? _videoAudioFailedClipId;
-    private string? _videoAudioFailedPath;
-    private bool _videoAudioFallbackActive;
+    private readonly VideoAudioPreviewState _videoAudioPreview = new();
+    private readonly VideoAudioPreviewState _transitionVideoAudioPreview = new();
+    private bool _videoAudioFallbackActive =>
+        _videoAudioPreview.FallbackActive || _transitionVideoAudioPreview.FallbackActive;
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
     private CanvasBitmap? _videoLumaWaveformBitmap;
@@ -483,14 +515,46 @@ public sealed partial class MainWindow
             bool incomingIsMain = transition.Progress >= 0.5;
             TimelineClipProject mainClip = incomingIsMain ? transition.IncomingClip : transition.OutgoingClip;
             TimelineClipLocation main = new(active.Track, mainClip);
-            SyncMainVideoPreview(main, seconds, forceSeek);
+            if (!SyncMainVideoPreview(main, seconds, forceSeek, synchronizeAudio: false,
+                    preserveAudioOnSourceChange: true))
+            {
+                return;
+            }
+
+            var outgoing = new TimelineClipLocation(active.Track, transition.OutgoingClip);
+            var incoming = new TimelineClipLocation(active.Track, transition.IncomingClip);
+            VideoAudioTransition outgoingEnvelope = VideoTransitions.GetAudioTransition(
+                active.Track, transition.OutgoingClip, _frameRate);
+            VideoAudioTransition incomingEnvelope = VideoTransitions.GetAudioTransition(
+                active.Track, transition.IncomingClip, _frameRate);
+            bool outgoingRouted = SyncVideoAudioPreview(
+                _videoAudioPreview,
+                outgoing,
+                VideoTimelineEditing.GetSourceSeconds(transition.OutgoingClip, seconds, _frameRate),
+                forceSeek,
+                outgoingEnvelope);
+            bool incomingRouted = SyncVideoAudioPreview(
+                _transitionVideoAudioPreview,
+                incoming,
+                VideoTimelineEditing.GetSourceSeconds(transition.IncomingClip, seconds, _frameRate),
+                forceSeek,
+                incomingEnvelope);
+            _previewMediaPlayer.Volume = mainClip.Volume;
+            _previewMediaPlayer.IsMuted = mainClip.IsReversed || outgoingRouted || incomingRouted ||
+                active.Track.IsMuted || HasSoloAudio;
             return;
         }
 
+        _transitionVideoAudioPreview.Clear();
         SyncMainVideoPreview(active, seconds, forceSeek);
     }
 
-    private bool SyncMainVideoPreview(TimelineClipLocation? active, double seconds, bool forceSeek)
+    private bool SyncMainVideoPreview(
+        TimelineClipLocation? active,
+        double seconds,
+        bool forceSeek,
+        bool synchronizeAudio = true,
+        bool preserveAudioOnSourceChange = false)
     {
         ApplyVideoPreviewTransform(
             _previewVideoTransform,
@@ -512,7 +576,10 @@ public sealed partial class MainWindow
         if (!string.Equals(_previewSourcePath, file.Path, StringComparison.OrdinalIgnoreCase))
         {
             _previewMediaPlayer.Pause();
-            ClearVideoAudioPlayer();
+            if (!preserveAudioOnSourceChange)
+            {
+                ClearVideoAudioPlayer();
+            }
             _previewMediaPlayer.IsMuted = true;
             MediaSource? previous = _previewMediaSource;
             _previewSourcePath = file.Path;
@@ -527,14 +594,19 @@ public sealed partial class MainWindow
 
         if (!_previewReady)
         {
-            _videoAudioPlayer?.Pause();
+            if (!preserveAudioOnSourceChange)
+            {
+                PauseVideoAudioPlayers();
+            }
             return false;
         }
 
         TimelineClipProject clip = active.Clip;
         MediaPlaybackSession session = _previewMediaPlayer.PlaybackSession;
         double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);
-        bool videoAudioRouted = SyncVideoAudioPreview(active, sourceSeconds, forceSeek);
+        bool videoAudioRouted = synchronizeAudio
+            ? SyncVideoAudioPreview(_videoAudioPreview, active, sourceSeconds, forceSeek, null)
+            : false;
         _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
         _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
             (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
@@ -563,56 +635,110 @@ public sealed partial class MainWindow
         return true;
     }
 
-    private bool SyncVideoAudioPreview(TimelineClipLocation active, double sourceSeconds, bool forceSeek)
+    private bool SyncVideoAudioPreview(
+        VideoAudioPreviewState state,
+        TimelineClipLocation active,
+        double sourceSeconds,
+        bool forceSeek,
+        VideoAudioTransition? transition)
     {
         TimelineClipProject clip = active.Clip;
         string? path = clip.SourcePath;
         if (string.IsNullOrWhiteSpace(path))
         {
-            ClearVideoAudioPlayer();
+            state.Clear();
             return false;
         }
 
         AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio);
-        bool shouldHear = !project.Muted;
-        if (string.Equals(_videoAudioFailedClipId, clip.Id, StringComparison.Ordinal) &&
-            string.Equals(_videoAudioFailedPath, path, StringComparison.OrdinalIgnoreCase))
+        Func<double, double>? gainEnvelope = null;
+        VideoAudioEnvelopeKey? envelopeKey = null;
+        if (!IsOriginalPreview && transition is { } audioTransition &&
+            (audioTransition.InSeconds > 0 || audioTransition.OutSeconds > 0))
         {
-            _videoAudioFallbackActive = shouldHear;
+            VideoAudioSourceRange sourceRange = VideoTransitions.GetAudioSourceRange(clip, audioTransition);
+            project.SourceInSeconds = sourceRange.StartSeconds;
+            project.SourceOutSeconds = sourceRange.EndSeconds;
+            project.FadeInSeconds = 0;
+            project.FadeOutSeconds = 0;
+            double sourceIn = clip.SourceInSeconds;
+            double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+            double playbackSpeed = clip.PlaybackSpeed;
+            bool reversed = clip.IsReversed;
+            var envelopeClip = new TimelineClipProject
+            {
+                SourceInSeconds = sourceIn,
+                SourceOutSeconds = sourceOut,
+                SourceDurationSeconds = clip.SourceDurationSeconds,
+                PlaybackSpeed = playbackSpeed,
+                Volume = clip.Volume,
+                FadeInSeconds = clip.FadeInSeconds,
+                FadeOutSeconds = clip.FadeOutSeconds,
+            };
+            envelopeKey = new VideoAudioEnvelopeKey(
+                clip.Volume,
+                clip.FadeInSeconds,
+                clip.FadeOutSeconds,
+                playbackSpeed,
+                reversed,
+                sourceIn,
+                sourceOut,
+                audioTransition);
+            gainEnvelope = sourcePosition =>
+            {
+                double clipElapsed = reversed
+                    ? (sourceOut - sourcePosition) / playbackSpeed
+                    : (sourcePosition - sourceIn) / playbackSpeed;
+                return ExportPlanning.GetVideoClipAudioEnvelope(envelopeClip, clipElapsed, audioTransition);
+            };
+        }
+
+        bool shouldHear = !project.Muted;
+        if (string.Equals(state.FailedClipId, clip.Id, StringComparison.Ordinal) &&
+            string.Equals(state.FailedPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            state.FallbackActive = shouldHear;
             return false;
         }
 
-        if (!string.Equals(_videoAudioPlayerClipId, clip.Id, StringComparison.Ordinal) ||
-            !string.Equals(_videoAudioPlayerPath, path, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(state.ClipId, clip.Id, StringComparison.Ordinal) ||
+            !string.Equals(state.Path, path, StringComparison.OrdinalIgnoreCase))
         {
-            ClearVideoAudioPlayer();
-            _videoAudioPlayerClipId = clip.Id;
-            _videoAudioPlayerPath = path;
+            state.Clear();
+            state.ClipId = clip.Id;
+            state.Path = path;
             try
             {
-                _videoAudioPlayer = new AudioClipPlayer(path, project, _audioMixLayout, _audioPreviewBus);
+                state.Player = new AudioClipPlayer(path, project, _audioMixLayout, _audioPreviewBus, gainEnvelope);
+                state.EnvelopeKey = envelopeKey;
             }
             catch (Exception ex) when (
                 IsFileAccessException(ex) ||
                 ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
             {
-                _videoAudioFailedClipId = clip.Id;
-                _videoAudioFailedPath = path;
-                _videoAudioFallbackActive = shouldHear;
+                state.FailedClipId = clip.Id;
+                state.FailedPath = path;
+                state.FallbackActive = shouldHear;
                 return false;
             }
         }
 
-        if (_videoAudioPlayer is not AudioClipPlayer player)
+        if (state.Player is not AudioClipPlayer player)
         {
             return false;
         }
 
         bool routeAvailable = _audioPreviewBus.IsPlaying;
-        if (_videoAudioPlayerSettings is null || !VideoAudioSettingsEqual(_videoAudioPlayerSettings, project))
+        if (state.Settings is null || !VideoAudioSettingsEqual(state.Settings, project))
         {
             player.Update(project, _audioMixLayout);
-            _videoAudioPlayerSettings = project;
+            state.Settings = project;
+        }
+
+        if (state.EnvelopeKey != envelopeKey)
+        {
+            player.UpdateGainEnvelope(gainEnvelope);
+            state.EnvelopeKey = envelopeKey;
         }
 
         if (shouldHear && _isPlaying && routeAvailable)
@@ -633,8 +759,8 @@ public sealed partial class MainWindow
             }
         }
 
-        _videoAudioFallbackActive = shouldHear && _isPlaying && !routeAvailable;
-        return routeAvailable;
+        state.FallbackActive = shouldHear && _isPlaying && !routeAvailable;
+        return shouldHear && routeAvailable;
     }
 
     private static bool VideoAudioSettingsEqual(AudioTrackProject left, AudioTrackProject right) =>
@@ -649,14 +775,14 @@ public sealed partial class MainWindow
 
     private void ClearVideoAudioPlayer()
     {
-        _videoAudioPlayer?.Dispose();
-        _videoAudioPlayer = null;
-        _videoAudioPlayerSettings = null;
-        _videoAudioPlayerClipId = null;
-        _videoAudioPlayerPath = null;
-        _videoAudioFailedClipId = null;
-        _videoAudioFailedPath = null;
-        _videoAudioFallbackActive = false;
+        _videoAudioPreview.Clear();
+        _transitionVideoAudioPreview.Clear();
+    }
+
+    private void PauseVideoAudioPlayers()
+    {
+        _videoAudioPreview.Player?.Pause();
+        _transitionVideoAudioPreview.Player?.Pause();
     }
 
     private void ApplyVideoPreviewTransform(

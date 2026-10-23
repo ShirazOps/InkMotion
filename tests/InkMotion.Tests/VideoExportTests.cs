@@ -534,6 +534,74 @@ public sealed class VideoExportTests
     }
 
     [Fact]
+    public void ExportAudioMixer_CrossfadesEmbeddedAudioAcrossTheVideoDissolve()
+    {
+        string path = WriteToneWave(channels: 1, seconds: 6, amplitude: 0.3f);
+        try
+        {
+            var outgoing = new TimelineClipProject
+            {
+                SourcePath = path,
+                SourceInSeconds = 0,
+                SourceOutSeconds = 5,
+                SourceDurationSeconds = 6,
+                StartFrame = 1,
+            };
+            var incoming = new TimelineClipProject
+            {
+                SourcePath = path,
+                SourceInSeconds = 1,
+                SourceOutSeconds = 6,
+                SourceDurationSeconds = 6,
+                StartFrame = 121,
+            };
+            var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [outgoing, incoming] };
+            Assert.True(VideoTransitions.TrySetCrossDissolve(track, incoming, 1, 24));
+            var project = new EditorProject { FrameRate = 24, VideoTracks = [track] };
+
+            using var mixer = new ExportAudioMixer(project, 48000);
+            float[] samples = new float[48000 * 10 * mixer.Channels];
+            int offset = 0;
+            while (offset < samples.Length)
+            {
+                int read = mixer.Read(samples, offset, Math.Min(2048, samples.Length - offset));
+                Assert.True(read > 0);
+                offset += read;
+            }
+
+            static double WindowRms(float[] interleaved, int channels, double startSeconds)
+            {
+                int startFrame = (int)(startSeconds * 48000);
+                int frameCount = 4800;
+                double total = 0;
+                for (int frame = startFrame; frame < startFrame + frameCount; frame++)
+                {
+                    for (int channel = 0; channel < channels; channel++)
+                    {
+                        double sample = interleaved[frame * channels + channel];
+                        total += sample * sample;
+                    }
+                }
+
+                return Math.Sqrt(total / (frameCount * channels));
+            }
+
+            double baselineRms = WindowRms(samples, mixer.Channels, 3);
+            Assert.Equal(2, mixer.SourceCount);
+            Assert.Empty(mixer.Warnings);
+            Assert.Equal(10, mixer.DurationSeconds, 6);
+            Assert.InRange(baselineRms, 0.14, 0.16);
+            Assert.InRange(Math.Abs(WindowRms(samples, mixer.Channels, 4.55) - baselineRms), 0, 0.01);
+            Assert.InRange(Math.Abs(WindowRms(samples, mixer.Channels, 4.95) - baselineRms), 0, 0.01);
+            Assert.InRange(Math.Abs(WindowRms(samples, mixer.Channels, 5.35) - baselineRms), 0, 0.01);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ExportAudioMixer_WarnsAboutMissingFiles()
     {
         var project = new EditorProject

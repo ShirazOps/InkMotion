@@ -49,7 +49,8 @@ public sealed class ExportAudioMixer : IDisposable
             {
                 foreach (TimelineClipProject clip in track.Clips)
                 {
-                    AddVideoClipAudio(clip);
+                    VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
+                    AddVideoClipAudio(clip, transition);
                 }
             }
         }
@@ -142,7 +143,7 @@ public sealed class ExportAudioMixer : IDisposable
             track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees);
     }
 
-    private void AddVideoClipAudio(TimelineClipProject clip)
+    private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition)
     {
         if (string.IsNullOrWhiteSpace(clip.SourcePath) || clip.Volume <= 0 ||
             (clip.IsReversed && !clip.ReverseEmbeddedAudio))
@@ -151,7 +152,8 @@ public sealed class ExportAudioMixer : IDisposable
         }
 
         double duration = VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video);
-        if (duration <= 0)
+        VideoAudioSourceRange sourceRange = VideoTransitions.GetAudioSourceRange(clip, transition);
+        if (duration <= 0 || sourceRange.DurationSeconds(clip.PlaybackSpeed) <= 0)
         {
             return;
         }
@@ -172,27 +174,40 @@ public sealed class ExportAudioMixer : IDisposable
         }
 
         _readers.Add(reader);
+        double sourceDuration = reader.TotalTime.TotalSeconds;
+        double sourceStart = Math.Clamp(sourceRange.StartSeconds, 0, sourceDuration);
+        double sourceEnd = Math.Clamp(sourceRange.EndSeconds, sourceStart, sourceDuration);
+        duration = (sourceEnd - sourceStart) / clip.PlaybackSpeed;
+        if (duration <= 0)
+        {
+            return;
+        }
+        double clipStart = VideoTimelineEditing.GetStartSeconds(clip, _frameRate);
+        double clipElapsedAtSourceStart = clip.IsReversed
+            ? ((clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceEnd) / clip.PlaybackSpeed
+            : (sourceStart - clip.SourceInSeconds) / clip.PlaybackSpeed;
+        double timelineStart = clipStart + clipElapsedAtSourceStart;
+
         ISampleProvider source = reader.ToSampleProvider();
         if (clip.IsReversed)
         {
-            double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
             source = new ReverseSampleProvider(
                 source,
                 seconds => reader.CurrentTime = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, reader.TotalTime.TotalSeconds)),
-                clip.SourceInSeconds,
-                Math.Min(sourceEnd, reader.TotalTime.TotalSeconds));
+                sourceStart,
+                sourceEnd);
         }
         else
         {
-            reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(clip.SourceInSeconds, reader.TotalTime.TotalSeconds));
+            reader.CurrentTime = TimeSpan.FromSeconds(sourceStart);
         }
 
         source = new PlaybackSpeedSampleProvider(source, clip.PlaybackSpeed);
 
         var envelope = new GainEnvelopeSampleProvider(
             source,
-            elapsed => ExportPlanning.GetVideoClipAudioGain(clip, elapsed));
-        AddSource(envelope, VideoTimelineEditing.GetStartSeconds(clip, _frameRate), duration);
+            elapsed => ExportPlanning.GetVideoClipAudioGain(clip, clipElapsedAtSourceStart + elapsed, transition));
+        AddSource(envelope, Math.Max(0, timelineStart), duration);
     }
 
     private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,
