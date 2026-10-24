@@ -3,11 +3,23 @@ using System.Text.Json;
 
 namespace InkMotion;
 
+public sealed record ScreenPoint(int X, int Y);
+
 public sealed record ScreenRegion(int X, int Y, int Width, int Height)
 {
+    public IReadOnlyList<ScreenPoint>? Polygon { get; init; }
     public long Right => (long)X + Width;
     public long Bottom => (long)Y + Height;
-    public override string ToString() => $"{X}, {Y} · {Width} × {Height}";
+    public override string ToString() => $"{X}, {Y} · {Width} × {Height}" + (Polygon is null ? "" : " · freeform");
+
+    public static ScreenRegion Freeform(IReadOnlyList<ScreenPoint> points)
+    {
+        if (points.Count is < 3 or > 16384)
+            throw new ArgumentException("Draw a freeform area with at least three points.");
+        int left = points.Min(p => p.X), top = points.Min(p => p.Y);
+        return new(left, top, checked(points.Max(p => p.X) - left), checked(points.Max(p => p.Y) - top))
+            { Polygon = points.ToArray() };
+    }
 }
 
 public sealed record ScreenCapturePlan(ScreenRegion Bounds, IReadOnlyList<ScreenRegion> Regions,
@@ -22,6 +34,10 @@ public sealed record ScreenCapturePlan(ScreenRegion Bounds, IReadOnlyList<Screen
         var pieces = new List<ScreenRegion>();
         foreach (ScreenRegion region in regions)
         {
+            if (region.Polygon is { } polygon &&
+                (polygon.Count is < 3 or > 16384 || polygon.Any(p => p.X < region.X || p.Y < region.Y ||
+                    p.X > region.Right || p.Y > region.Bottom)))
+                throw new ArgumentException("Invalid freeform capture boundary.");
             if (region.Width < 2 || region.Height < 2 || region.Right > int.MaxValue || region.Bottom > int.MaxValue)
                 throw new ArgumentException("Capture regions must have positive dimensions of at least two physical pixels.");
             bool intersects = false;
@@ -31,7 +47,7 @@ public sealed record ScreenCapturePlan(ScreenRegion Bounds, IReadOnlyList<Screen
                 long right = Math.Min(region.Right, display.Right), bottom = Math.Min(region.Bottom, display.Bottom);
                 if (right > x && bottom > y)
                 {
-                    pieces.Add(new(x, y, checked((int)(right - x)), checked((int)(bottom - y))));
+                    pieces.Add(new(x, y, checked((int)(right - x)), checked((int)(bottom - y))) { Polygon = region.Polygon });
                     intersects = true;
                 }
             }

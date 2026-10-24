@@ -43,6 +43,7 @@ public sealed partial class ScreenRecorderWindow : Window
     private CancellationTokenSource? _stopCapture;
     private readonly Stopwatch _clock = new();
     private Task? _run;
+    private bool _selectingArea;
 
     public bool IsRecording => _busy;
 
@@ -71,6 +72,9 @@ public sealed partial class ScreenRecorderWindow : Window
         _configuration.Children.Add(Heading("Screen areas"));
         _configuration.Children.Add(Hint("Select one or more displays, or enter regions using global physical-pixel coordinates (negative values are valid). Areas retain their relative desktop positions; unselected areas and monitor gaps are black. Review selections before starting."));
         _configuration.Children.Add(_displays);
+        _configuration.Children.Add(Row(Button("Draw box (mouse / pen)", () => SelectAreaAsync(false)),
+            Button("Draw freeform (mouse / pen)", () => SelectAreaAsync(true))));
+        _configuration.Children.Add(Hint("Draw across screens, then use the selector's Use selection button or Enter. Box corners and edges resize the area. Freeform outlines close automatically; only their bounding box is saved, with unselected pixels black. Repeat to add another area."));
         _configuration.Children.Add(Row(Button("Add full display", () =>
         {
             if (_displays.SelectedItem is RecordingDisplay display) _regions.Add(display.Bounds);
@@ -78,6 +82,13 @@ public sealed partial class ScreenRecorderWindow : Window
         {
             _regions.Clear();
             foreach (RecordingDisplay display in _connectedDisplays) _regions.Add(display.Bounds);
+        }), Button("Reset to entire screen", () =>
+        {
+            if (_displays.SelectedItem is not RecordingDisplay display)
+                throw new InvalidOperationException("Select a connected display first.");
+            _regions.Clear();
+            _regions.Add(display.Bounds);
+            SetCoordinates(display.Bounds);
         })));
         _configuration.Children.Add(Row(_left, _top, _width, _height));
         _configuration.Children.Add(Button("Add region", () =>
@@ -90,6 +101,10 @@ public sealed partial class ScreenRecorderWindow : Window
             _regions.Add(region);
         }));
         var selection = new ListView { ItemsSource = _regions, MaxHeight = 160, SelectionMode = ListViewSelectionMode.Single };
+        selection.SelectionChanged += (_, _) =>
+        {
+            if (selection.SelectedItem is ScreenRegion region) SetCoordinates(region);
+        };
         _configuration.Children.Add(selection);
         _configuration.Children.Add(Button("Remove selected region", () =>
         {
@@ -120,10 +135,7 @@ public sealed partial class ScreenRecorderWindow : Window
         _displays.SelectionChanged += (_, _) =>
         {
             if (_displays.SelectedItem is not RecordingDisplay display) return;
-            _left.Value = display.Bounds.X;
-            _top.Value = display.Bounds.Y;
-            _width.Value = display.Bounds.Width;
-            _height.Value = display.Bounds.Height;
+            SetCoordinates(display.Bounds);
         };
         _start.Click += async (_, _) => await StartAsync();
         _stop.Click += (_, _) => RequestStop();
@@ -132,6 +144,7 @@ public sealed partial class ScreenRecorderWindow : Window
         _timer.Tick += (_, _) => UpdateRecordingStatus();
         AppWindow.Closing += async (_, args) =>
         {
+            if (_selectingArea) { args.Cancel = true; return; }
             if (_allowClose || !_busy) return;
             args.Cancel = true;
             await StopAndCloseAsync();
@@ -141,6 +154,46 @@ public sealed partial class ScreenRecorderWindow : Window
             try { await LoadDevicesAsync(); RefreshLibrary(); }
             catch (Exception ex) when (IsCaptureException(ex)) { _status.Text = ex.Message; }
         };
+    }
+
+    private void SetCoordinates(ScreenRegion region)
+    {
+        _left.Value = region.X;
+        _top.Value = region.Y;
+        _width.Value = region.Width;
+        _height.Value = region.Height;
+    }
+
+    private async Task SelectAreaAsync(bool freeform)
+    {
+        if (_selectingArea || _busy) return;
+        if (_displays.SelectedItem is not RecordingDisplay display)
+            throw new InvalidOperationException("Select a connected display first.");
+        double[] previous = [_left.Value, _top.Value, _width.Value, _height.Value];
+        _selectingArea = true;
+        _configurationHost.IsEnabled = _start.IsEnabled = false;
+        try
+        {
+            ScreenRegion? region = await ScreenRegionSelector.SelectAsync(DesktopRecordingFrames.Displays(),
+                display.Bounds, freeform, SetCoordinates);
+            if (region is null)
+            {
+                _left.Value = previous[0]; _top.Value = previous[1];
+                _width.Value = previous[2]; _height.Value = previous[3];
+                return;
+            }
+            ScreenCapturePlan.Create([region], _connectedDisplays.Select(d => d.Bounds).ToArray(), 1920, 30);
+            _regions.Add(region);
+            SetCoordinates(region);
+            _status.Text = "Capture area added. Select another area or start recording.";
+        }
+        finally
+        {
+            _selectingArea = false;
+            _configurationHost.IsEnabled = true;
+            _start.IsEnabled = _connectedDisplays.Count > 0;
+            Activate();
+        }
     }
 
     private static TextBlock Heading(string text) => new() { Text = text, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
