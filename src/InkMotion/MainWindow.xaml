@@ -1165,6 +1165,23 @@
                             <Button Content="Remove" Tag="remove" Click="InkLayerAction_Click" />
                         </StackPanel>
                         <Button Content="Add ink layer" Click="AddInkLayer_Click" />
+                        <TextBlock Text="FOLLOW OBJECT · SELECTED INK LAYER" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <Button x:Name="InkTrackingBoxButton" Content="Select object box in viewer" Click="SelectInkTrackingBox_Click" />
+                        <NumberBox x:Name="InkTrackingEndBox" Header="Track until timeline time (seconds; 0 = video clip end)"
+                                   Value="0" Minimum="0" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="InkTrackObjectButton" Content="Track / resume from playhead" Click="TrackInkObject_Click" />
+                            <Button x:Name="CancelInkTrackingButton" Content="Cancel" IsEnabled="False" Click="CancelInkTracking_Click" />
+                        </StackPanel>
+                        <ToggleButton x:Name="InkFollowObjectToggle" Content="Follow object" IsEnabled="False" Click="InkFollowObject_Click" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="InkTrackingLostButton" Content="Go to tracking stop" IsEnabled="False" Click="InkTrackingLost_Click" />
+                            <Button x:Name="ClearInkTrackingButton" Content="Clear tracking" IsEnabled="False" Click="ClearInkTracking_Click" />
+                        </StackPanel>
+                        <TextBlock x:Name="InkTrackingStatusText" Text="Off by default on every layer. Draw first, pause on the object, then select a box and track."
+                                   TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Tracks the top visible video clip under the playhead in Modified view, including its displayed effects. Position, rotation and size follow a textured, rigid object; review the result. Empty cels hold the reference drawing during tracking; existing animated drawings still play. Outside the range or after a tracking stop, this layer is hidden. At a stop, reselect the same object and resume. New and duplicated layers do not inherit tracking. Turn Follow object off to edit original strokes. Cel-global text is not attached."
+                                   TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Flip layer left/right" Tag="flip-horizontal" Click="InkLayerAction_Click" />
                         <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
                         <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel. Tweening remains editable; text and other layers are unchanged. Undo restores the drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

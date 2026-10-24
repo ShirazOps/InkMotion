@@ -71,12 +71,13 @@ public sealed partial class MainWindow
                 colour = InkColourSampling.SampleComposite(InkSurface, project, _selectedFrameIndex,
                     InkSurface.ActualWidth, InkSurface.ActualHeight, x, y, argb,
                     (session, width, height) => DrawVideoComposition(CompositionSurface, session,
-                        _playheadFramePosition / _frameRate, width, height, requireComplete: true));
+                        _playheadFramePosition / _frameRate, width, height, requireComplete: true),
+                    _playheadFramePosition / _frameRate);
             }
             else
             {
                 colour = InkColourSampling.Sample(InkSurface, project, _selectedFrameIndex,
-                    InkSurface.ActualWidth, InkSurface.ActualHeight, x, y);
+                    InkSurface.ActualWidth, InkSurface.ActualHeight, x, y, _playheadFramePosition / _frameRate);
             }
             if (colour == 0)
             {

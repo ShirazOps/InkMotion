@@ -302,6 +302,13 @@ public static class VideoExporter
             _project = request.Project;
             _profile = request.Profile;
             _warnings = warnings;
+            foreach (InkLayerProject layer in _project.InkLayers.Where(layer => layer.IsVisible))
+            {
+                if (!InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _project.VideoTracks))
+                    throw new InvalidOperationException($"Object tracking on '{layer.Name}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
+                if (layer.ObjectTracking is { Enabled: true, LostSeconds: double lost })
+                    warnings.Add($"Object tracking on '{layer.Name}' stopped at {lost:0.###} s; its drawing is hidden from that point until corrected.");
+            }
             _target = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96);
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
             _inkScale = (float)(_profile.Height / reference);
@@ -377,7 +384,8 @@ public static class VideoExporter
                         ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
                         width,
                         height,
-                        _inkScale);
+                        _inkScale,
+                        seconds);
                 }
             }
 

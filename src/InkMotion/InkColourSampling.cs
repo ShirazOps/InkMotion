@@ -6,12 +6,12 @@ namespace InkMotion;
 public static class InkColourSampling
 {
     public static uint Sample(ICanvasResourceCreator device, EditorProject project, int frameIndex,
-        double width, double height, double x, double y) =>
-        SampleComposite(device, project, frameIndex, width, height, x, y, 0, (_, _, _) => { });
+        double width, double height, double x, double y, double? timelineSeconds = null) =>
+        SampleComposite(device, project, frameIndex, width, height, x, y, 0, (_, _, _) => { }, timelineSeconds);
 
     public static uint SampleComposite(ICanvasResourceCreator device, EditorProject project, int frameIndex,
         double width, double height, double x, double y, uint background,
-        Action<CanvasDrawingSession, float, float> drawMedia)
+        Action<CanvasDrawingSession, float, float> drawMedia, double? timelineSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(drawMedia);
         (int pixelX, int pixelY) = GetPixel(x, y, width, height);
@@ -22,7 +22,7 @@ public static class InkColourSampling
             session.Clear(TimelineCompositor.ToColour(background));
             session.Transform = Matrix3x2.CreateTranslation(-pixelX, -pixelY);
             drawMedia(session, (float)width, (float)height);
-            TimelineCompositor.DrawInkFrame(session, project, frameIndex, (float)width, (float)height, 1);
+            TimelineCompositor.DrawInkFrame(session, project, frameIndex, (float)width, (float)height, 1, timelineSeconds);
         }
 
         byte[] bytes = pixel.GetPixelBytes();

@@ -127,9 +127,9 @@ public static class InkEditing
     public static bool FlipLayer(List<InkLayerProject> layers, List<EditorFrame> frames, string id, bool horizontal)
     {
         InkLayerProject? layer = layers.FirstOrDefault(candidate => candidate.Id == id);
-        if (layer is null || layer.IsLocked)
+        if (layer is null || layer.IsLocked || layer.ObjectTracking is { Enabled: true })
         {
-            throw new InvalidOperationException("Select an existing unlocked ink layer to flip.");
+            throw new InvalidOperationException("Select an unlocked ink layer and turn Follow object off before flipping its original drawings.");
         }
 
         var drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
@@ -221,9 +221,10 @@ public static class InkEditing
         InkLayerProject source = layers[index];
         InkLayerProject target = layers[index - 1];
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
+            source.ObjectTracking is not null || target.ObjectTracking is not null ||
             !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity)
         {
-            throw new InvalidOperationException("Unlock and show both adjacent layers, and give them matching opacity before merging.");
+            throw new InvalidOperationException("Unlock and show both adjacent layers, give them matching opacity, and clear object tracking before merging.");
         }
 
         var drawings = new List<List<List<InkPoint>>>(frames.Count);
@@ -266,6 +267,7 @@ public static class InkEditing
         copy.Id = $"ink-{Guid.NewGuid():N}";
         copy.Name += " copy";
         copy.IsLocked = false;
+        copy.ObjectTracking = null;
         List<List<List<InkPoint>>> drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
         for (int frame = 0; frame < frames.Count; frame++)
         {
@@ -302,6 +304,7 @@ public static class InkEditing
         IsVisible = layer.IsVisible,
         IsLocked = layer.IsLocked,
         Opacity = layer.Opacity,
+        ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 
     public static EditorFrame Clone(EditorFrame frame) => Clone(frame, preserveDrawingLink: false);

@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 65;
+    public const int CurrentVersion = 66;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -33,6 +33,7 @@ public sealed class InkLayerProject
     public bool IsVisible { get; set; } = true;
     public bool IsLocked { get; set; }
     public double Opacity { get; set; } = 1;
+    public InkObjectTracking? ObjectTracking { get; set; }
 }
 
 public sealed class AudioTrackProject
@@ -519,6 +520,10 @@ public static class EditorProjectSerialiser
             project.Version = 64;
         }
         if (project.Version == 64)
+        {
+            project.Version = 65;
+        }
+        if (project.Version == 65)
         {
             project.Version = EditorProject.CurrentVersion;
         }
@@ -1045,7 +1050,8 @@ internal static class EditorProjectValidation
                 string.IsNullOrWhiteSpace(layer.Id) ||
                 string.IsNullOrWhiteSpace(layer.Name) ||
                 !double.IsFinite(layer.Opacity) ||
-                layer.Opacity is < 0 or > 1) ||
+                layer.Opacity is < 0 or > 1 ||
+                (layer.ObjectTracking is not null && !InkObjectMotion.IsValid(layer.ObjectTracking))) ||
             project.InkLayers.Select(layer => layer.Id).Distinct(StringComparer.Ordinal).Count() != project.InkLayers.Count ||
             !project.InkLayers.Any(layer => layer.Id == project.ActiveInkLayerId) ||
             !project.InkLayers.Any(layer => layer.Id == "ink-1"))

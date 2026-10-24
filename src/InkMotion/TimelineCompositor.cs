@@ -417,22 +417,29 @@ public static class TimelineCompositor
         int frameIndex,
         float width,
         float height,
-        float sizeScale)
+        float sizeScale,
+        double? timelineSeconds = null)
     {
+        double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
         foreach (InkLayerProject layer in project.InkLayers.Where(layer => layer.IsVisible))
         {
-            IReadOnlyList<List<InkPoint>> strokes = InkAnimation.GetDisplayedStrokes(
-                project.Frames,
-                frameIndex,
-                frame => ExportPlanning.GetLayerStrokes(frame, layer.Id));
-            foreach (List<InkPoint> stroke in strokes)
+            if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+                !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) continue;
+            IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+            var originalTransform = session.Transform;
+            session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
+            try
             {
-                if (stroke.Count > 0)
+                foreach (List<InkPoint> stroke in strokes)
                 {
-                    Color colour = WithOpacity(ToColour(stroke[0].BrushColour), layer.Opacity);
-                    DrawInkStroke(session, stroke, colour, width, height, sizeScale);
+                    if (stroke.Count > 0)
+                    {
+                        Color colour = WithOpacity(ToColour(stroke[0].BrushColour), layer.Opacity);
+                        DrawInkStroke(session, stroke, colour, width, height, sizeScale);
+                    }
                 }
             }
+            finally { session.Transform = originalTransform; }
         }
 
         foreach (InkTextOverlay overlay in project.Frames[frameIndex].TextOverlays)
