@@ -22,7 +22,8 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Exposure, contrast, white balance, saturation, gamma, RGB curves and 3D `.cube` LUTs; chroma key with spill suppression, blur, sharpening, vignette and animated masks.
 - Multicamera switching, local proxy generation, stabilisation and coarse rolling-shutter correction. RGB histogram, luma waveform and vectorscope for source grading.
 - Double-click a title clip, title track header or title in the viewer to edit its text. In paused **Modified** Video preview, drag titles with mouse or touch, resize proportionally using corner handles and rotate with the round handle.
-- Title font, size, foreground colour and background colour/opacity. Viewer edits respect track locks, support undo/redo and update transform keyframes on animated titles.
+- Title font and size, with matching text/background colour pickers and independent opacity controls. Viewer edits respect track locks, support undo/redo and update transform keyframes on animated titles.
+- Animate titles using **Set title motion keyframe**: mark the first pose, move the playhead and drag/rotate/resize the next pose. Subsequent pose edits automatically create or update keys; playback and export interpolate between them. Use **Previous/Next pose** or the title clip's blue motion markers to navigate.
 - Right-click video/image/title headers for track properties or clips for their respective inspector. Audio lanes/headers and the ink timeline/layer selector also provide property menus.
 
 **Original / Modified** compares the active video source at the playhead with the edited composition. Original is a source comparison, not a second unedited timeline.

@@ -7,6 +7,34 @@ namespace InkMotion.Tests;
 public sealed class TitleEditingTests
 {
     [Fact]
+    public void TitlePosesAnimatePositionScaleAndRotationAndSurviveSaving()
+    {
+        var title = new TimelineClipProject { Text = "Moving title", StartFrame = 25, DurationSeconds = 4 };
+        var first = new VideoTransformValue(0.2, 0.3, 0.5, -60);
+        var last = new VideoTransformValue(0.8, 0.7, 1.5, 60);
+        Assert.True(VideoTransformKeyframes.SetValueAtTime(title, TimelineTrackKind.Text, 1, 24, first));
+        Assert.Null(VideoTimelineEditing.Validate(
+            [new() { Kind = TimelineTrackKind.Text, Clips = [title] }], 24));
+        Assert.True(VideoTransformKeyframes.TrySetAtFrame(title, TimelineTrackKind.Text, 0, 24));
+        Assert.True(VideoTransformKeyframes.SetValueAtTime(title, TimelineTrackKind.Text, 3, 24, last));
+        Assert.True(VideoTransformKeyframes.TrySetAtFrame(title, TimelineTrackKind.Text, 48, 24));
+        var project = new EditorProject
+        {
+            VideoTracks = [new() { Kind = TimelineTrackKind.Text, Clips = [title] }],
+        };
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        TimelineClipProject saved = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(2, saved.TransformKeyframes.Count);
+        VideoTransformValue middle = VideoTransformKeyframes.GetValueAtTime(saved, 2, 24);
+        Assert.Equal(0.5, middle.X, 6);
+        Assert.Equal(0.5, middle.Y, 6);
+        Assert.Equal(1, middle.Scale, 6);
+        Assert.Equal(0, middle.RotationDegrees, 6);
+        Assert.Equal(first, VideoTransformKeyframes.GetValueAtTime(saved, 1, 24));
+        Assert.Equal(last, VideoTransformKeyframes.GetValueAtTime(saved, 4, 24));
+    }
+
+    [Fact]
     public void TitleBackgroundSurvivesPlacementAndProjectRoundTrip()
     {
         var title = new TimelineClipProject { Text = "A title", TextBackgroundColour = 0x804080C0 };

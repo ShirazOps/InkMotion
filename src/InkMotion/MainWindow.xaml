@@ -740,27 +740,33 @@
                                 <ComboBoxItem Content="Consolas" Tag="Consolas" />
                                 <ComboBoxItem Content="Ink Free" Tag="Ink Free" />
                             </ComboBox>
-                            <Grid ColumnSpacing="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <NumberBox x:Name="ClipFontSizeBox" Header="Size (1080p px)" Minimum="8" Maximum="400" SmallChange="4" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
-                                <ComboBox x:Name="ClipColourSelector" Grid.Column="1" Header="Colour" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">
-                                    <ComboBoxItem Content="White" Tag="FFFFFFFF" />
-                                    <ComboBoxItem Content="Black" Tag="FF000000" />
-                                    <ComboBoxItem Content="Yellow" Tag="FFFFD60A" />
-                                    <ComboBoxItem Content="Orange" Tag="FFFFA500" />
-                                    <ComboBoxItem Content="Red" Tag="FFE5484D" />
-                                    <ComboBoxItem Content="Blue" Tag="FF3E9BFF" />
-                                </ComboBox>
                             </Grid>
                             <StackPanel x:Name="TitleBackgroundControls" Spacing="6" Visibility="Collapsed">
+                                <TextBlock Text="TITLE MOTION KEYFRAMES" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock x:Name="TitleMotionStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button x:Name="SetTitleMotionKeyframeButton" Content="Set title motion keyframe" Click="SetTransformKeyframe_Click" />
+                                <Button x:Name="RemoveTitleMotionKeyframeButton" Content="Remove title motion keyframe" Click="RemoveTransformKeyframe_Click" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="PreviousTitleMotionKeyframeButton" Content="Previous pose" Tag="previous" Click="NavigateTransformKeyframe_Click" />
+                                    <Button x:Name="NextTitleMotionKeyframeButton" Content="Next pose" Tag="next" Click="NavigateTransformKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Position, rotate or resize the title, then set the first motion keyframe. Move the playhead to a different time inside this title and change its pose in the viewer. Once animation is enabled, pose edits automatically set a keyframe there; Set confirms that pose. Playback and export animate position, rotation and size between poses. Click a blue motion marker on the title clip to return to it." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Title text colour and opacity" Style="{StaticResource LabelTextStyle}" />
+                                <ColorPicker x:Name="TitleTextPicker" IsAlphaEnabled="True"
+                                    IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True"
+                                    AutomationProperties.Name="Title text colour and opacity"
+                                    ColorChanged="TitleColourPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Title background colour and opacity" Style="{StaticResource LabelTextStyle}" />
                                 <ColorPicker x:Name="TitleBackgroundPicker" IsAlphaEnabled="True"
                                     IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True"
-                                    ColorChanged="TitleBackgroundPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
-                                <TextBlock Text="Drag the title in Modified Video preview. Corner handles resize; the round handle rotates. Double-click a title to edit its text. Background opacity is controlled by the alpha slider." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    AutomationProperties.Name="Title background colour and opacity"
+                                    ColorChanged="TitleColourPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Drag the title in Modified Video preview. Corner handles resize; the round handle rotates. Double-click a title to edit its text. Each colour picker's alpha slider controls its opacity independently." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <Slider x:Name="ClipScaleSlider" Header="Scale" Minimum="0.05" Maximum="4" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <NumberBox x:Name="ClipRotationBox" Header="Rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
