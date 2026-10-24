@@ -41,7 +41,7 @@ public sealed partial class MainWindow
             {
                 _copiedCelRange = InkEditing.CopyCelRange(_frames, (int)first - 1, (int)last - 1);
                 PasteInkCelRangeButton.IsEnabled = true;
-                StatusText.Text = $"{_copiedCelRange.Count} cels copied with all layers, text, exposure and tween settings. Project unchanged.";
+                StatusText.Text = $"{_copiedCelRange.Count} cels copied with all layers, text, exposure and tween settings. Open tween edges were materialised in the copy; project unchanged.";
                 return;
             }
 

@@ -4,21 +4,59 @@ public static class InkEditing
 {
     public static List<EditorFrame> CopyCelRange(IReadOnlyList<EditorFrame> frames, int first, int last)
     {
-        ValidateCelRange(frames, first, last);
-        return frames.Skip(first).Take(last - first + 1).Select(Clone).ToList();
+        ValidateRange(frames, first, last);
+        List<EditorFrame> copies = frames.Skip(first).Take(last - first + 1).Select(Clone).ToList();
+        var layerIds = frames.SelectMany(frame => frame.LayerStrokes.Keys)
+            .Distinct(StringComparer.Ordinal).ToArray();
+
+        for (int index = first; index <= last && !frames[index].IsKeyframe; index++)
+        {
+            MaterializeDisplayedDrawing(frames, index, copies[index - first], layerIds);
+        }
+        for (int index = last; index >= first && !frames[index].IsKeyframe; index--)
+        {
+            MaterializeDisplayedDrawing(frames, index, copies[index - first], layerIds);
+        }
+
+        return copies;
     }
 
-    private static void ValidateCelRange(IReadOnlyList<EditorFrame> frames, int first, int last)
+    private static void ValidateRange(IReadOnlyList<EditorFrame> frames, int first, int last)
     {
         if (first < 0 || last < first || last >= frames.Count || last - first >= 10000)
         {
             throw new InvalidOperationException("Choose an existing inclusive range of at most 10,000 cels.");
         }
+    }
 
+    private static void ValidateCelRange(IReadOnlyList<EditorFrame> frames, int first, int last)
+    {
+        ValidateRange(frames, first, last);
         if (!frames[first].IsKeyframe || !frames[last].IsKeyframe)
         {
             throw new InvalidOperationException("Set keyframes on the first and last cels to keep the range's animation self-contained.");
         }
+    }
+
+    private static void MaterializeDisplayedDrawing(IReadOnlyList<EditorFrame> frames, int index,
+        EditorFrame target, IReadOnlyList<string> layerIds)
+    {
+        target.Strokes = CloneStrokes(InkAnimation.GetDisplayedStrokes(frames, index).ToList());
+        foreach (string layerId in layerIds)
+        {
+            List<List<InkPoint>> strokes = CloneStrokes(InkAnimation.GetDisplayedStrokes(
+                frames, index, frame => ExportPlanning.GetLayerStrokes(frame, layerId)).ToList());
+            if (strokes.Count > 0)
+            {
+                target.LayerStrokes[layerId] = strokes;
+            }
+            else
+            {
+                target.LayerStrokes.Remove(layerId);
+            }
+        }
+
+        target.IsKeyframe = true;
     }
 
     public static int PasteCelRange(List<EditorFrame> frames, IReadOnlyList<EditorFrame> clipboard, int before)
@@ -26,7 +64,7 @@ public static class InkEditing
         if (before < 0 || before > frames.Count || clipboard.Count is < 1 or > 10000 ||
             !clipboard[0].IsKeyframe || !clipboard[^1].IsKeyframe)
         {
-            throw new InvalidOperationException("Copy a keyframe-bounded cel range and choose an insertion position from 1 to the cel count plus one.");
+            throw new InvalidOperationException("Copy a valid cel range and choose an insertion position from 1 to the cel count plus one.");
         }
 
         if ((long)frames.Count + clipboard.Count > int.MaxValue ||

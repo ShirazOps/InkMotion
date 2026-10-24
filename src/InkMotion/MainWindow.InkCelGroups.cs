@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         InkCycleLastBox.Value = range.Last + 1;
         InkCelGroupNameBox.Text = range.Name;
         SelectFrame(range.First);
-        StatusText.Text = $"Group '{range.Name}' loaded into the cel-range controls. Copy/move/delete/repeat still require keyframes at both ends.";
+        StatusText.Text = $"Group '{range.Name}' loaded into the cel-range controls. Copy materialises open tween edges; move/delete/repeat still require keyframes at both ends.";
     }
 
     private void AssignInkCelGroup_Click(object sender, RoutedEventArgs e)

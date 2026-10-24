@@ -76,7 +76,7 @@ public sealed class InkCelRangeTests
         List<EditorFrame> frames = Frames();
         EditorFrame[] original = frames.ToArray();
         Assert.Throws<InvalidOperationException>(() => InkEditing.CopyCelRange(frames, 3, 1));
-        Assert.Throws<InvalidOperationException>(() => InkEditing.CopyCelRange(frames, 2, 3));
+        Assert.Equal(2, InkEditing.CopyCelRange(frames, 2, 3).Count);
         Assert.Throws<InvalidOperationException>(() => InkEditing.CopyCelRange(frames, 1, 5));
         Assert.Throws<InvalidOperationException>(() => InkEditing.MoveCelRange(frames, 1, 3, 6));
         Assert.Throws<InvalidOperationException>(() => InkEditing.PasteCelRange(frames, [], 1));
@@ -119,6 +119,41 @@ public sealed class InkCelRangeTests
         List<InkPoint> after = InkAnimation.GetDisplayedStrokes(frames, 1)[0];
         Assert.Equal(before.Select(point => (point.X, point.Y, point.Pressure)),
             after.Select(point => (point.X, point.Y, point.Pressure)));
+    }
+
+    [Fact]
+    public void CopyMaterializesOpenTweenEdgesWithoutChangingTheSourceAnimation()
+    {
+        List<EditorFrame> frames = Frames();
+        foreach (int index in new[] { 1, 2, 3 })
+        {
+            frames[index].IsKeyframe = false;
+            frames[index].Strokes.Clear();
+            frames[index].LayerStrokes.Clear();
+        }
+        frames[0].Strokes[0][0].X = 0;
+        frames[4].Strokes[0][0].X = 1;
+        frames[0].LayerStrokes["ink-2"][0][0].X = 0;
+        frames[4].LayerStrokes["ink-2"][0][0].X = 1;
+
+        var expected = Enumerable.Range(1, 3).Select(index => (
+            InkAnimation.GetDisplayedStrokes(frames, index)[0][0].X,
+            InkAnimation.GetDisplayedStrokes(frames, index,
+                frame => ExportPlanning.GetLayerStrokes(frame, "ink-2"))[0][0].X)).ToArray();
+
+        List<EditorFrame> clipboard = InkEditing.CopyCelRange(frames, 1, 3);
+
+        Assert.All(clipboard, frame => Assert.True(frame.IsKeyframe));
+        Assert.Equal(expected, clipboard.Select(frame => (
+            InkAnimation.GetDisplayedStrokes(clipboard, clipboard.IndexOf(frame))[0][0].X,
+            InkAnimation.GetDisplayedStrokes(clipboard, clipboard.IndexOf(frame),
+                cel => ExportPlanning.GetLayerStrokes(cel, "ink-2"))[0][0].X)));
+        Assert.All(frames.Skip(1).Take(3), frame =>
+        {
+            Assert.False(frame.IsKeyframe);
+            Assert.Empty(frame.Strokes);
+            Assert.Empty(frame.LayerStrokes);
+        });
     }
 
     [Fact]
