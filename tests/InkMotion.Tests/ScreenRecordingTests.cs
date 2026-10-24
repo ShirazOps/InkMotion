@@ -6,6 +6,51 @@ namespace InkMotion.Tests;
 public sealed class ScreenRecordingTests
 {
     [Fact]
+    public void Freeform_NativeCaptureMaskExcludesOutsidePixelsWithoutCapturingDesktop()
+    {
+        var display = DesktopRecordingFrames.Displays()[0].Bounds;
+        int x = display.X + 20, y = display.Y + 20;
+        ScreenRegion shape = ScreenRegion.Freeform([new(x, y), new(x + 100, y), new(x, y + 100)]);
+        ScreenCapturePlan plan = ScreenCapturePlan.Create([shape], [display], 1920, 30);
+        using var frames = new DesktopRecordingFrames(plan, false);
+        nint mask = (nint)typeof(DesktopRecordingFrames).GetField("_clipRegion",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(frames)!;
+        Assert.True(PtInRegion(mask, 10, 10));
+        Assert.False(PtInRegion(mask, 90, 90));
+        Assert.False(PtInRegion(mask, -1, 10));
+        Assert.False(PtInRegion(mask, 100, 10));
+        Assert.Equal(100, plan.Width);
+        Assert.Equal(100, plan.Height);
+    }
+
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+    private static extern bool PtInRegion(nint region, int x, int y);
+
+    [Fact]
+    public void Freeform_CropsToShapeBoundsAndPreservesDesktopPointsAcrossDisplaysAndPersistence()
+    {
+        ScreenPoint[] points = [new(-100, 20), new(100, 20), new(0, 180)];
+        ScreenRegion shape = ScreenRegion.Freeform(points);
+        Assert.Equal(-100, shape.X);
+        Assert.Equal(20, shape.Y);
+        Assert.Equal(200, shape.Width);
+        Assert.Equal(160, shape.Height);
+        ScreenRegion[] displays = [new(-200, 0, 200, 200), new(0, 0, 200, 200)];
+        ScreenCapturePlan plan = ScreenCapturePlan.Create([shape], displays, 1920, 30);
+        Assert.Equal(new(-100, 20, 200, 160), plan.Bounds);
+        Assert.Equal(200, plan.Width);
+        Assert.Equal(160, plan.Height);
+        Assert.Equal(2, plan.Regions.Count);
+        Assert.All(plan.Regions, piece => Assert.Equal(points, piece.Polygon));
+        string json = System.Text.Json.JsonSerializer.Serialize(plan);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<ScreenCapturePlan>(json)!;
+        Assert.Equal(points, restored.Regions[0].Polygon);
+        Assert.Throws<ArgumentException>(() => ScreenRegion.Freeform([new(0, 0), new(1, 1)]));
+        Assert.Throws<ArgumentException>(() => ScreenCapturePlan.Create(
+            [new(0, 0, 10, 10) { Polygon = points }], displays, 1920, 30));
+    }
+
+    [Fact]
     public void Plan_PreservesNegativeMonitorPositionsAndClipsRegionsToConnectedDisplays()
     {
         ScreenRegion[] displays = [new(-1920, 200, 1920, 1080), new(0, 0, 2560, 1440)];

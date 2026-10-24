@@ -61,6 +61,8 @@ For optional formats, choose a trusted local `ffmpeg.exe` under **Export > Optio
 
 Use **File > Screen recorder** to record one or more displays, or add regions using global physical-pixel coordinates (including negative monitor positions). Selected areas retain their relative placement on one canvas; gaps are black. Choose a 1920/3840-pixel longest-side limit, 15/24/30 fps, and whether to include the pointer.
 
+**Draw box** or **Draw freeform** selects directly over the live desktop with a mouse or pen, including across monitors. Outside the selection is fogged; the clear area and border show what will be captured. Box corners and edges are draggable, and Left/Top/Width/Height update as you draw or resize. Freeform outlines close automatically. Choose **Use selection** (Enter), **Reset entire screen** (R), or **Cancel** (Esc); repeat to add more regions. The recording is cropped to the selected areas' bounding box, with pixels outside freeform shapes and gaps between areas black. **Reset to entire screen** in the recorder replaces all regions with the selected full display.
+
 15 fps capture opens on a 30 fps editing timeline without changing its duration; 24/30 fps captures use matching project rates.
 
 System output audio, microphone and webcam are explicitly selected and off by default. Each becomes a separate editable source; the webcam can appear picture-in-picture in the resulting project. Use headphones to avoid microphone echo. Windows camera/microphone privacy settings still apply. A countdown precedes capture; move or minimise InkMotion yourself if it should not appear.

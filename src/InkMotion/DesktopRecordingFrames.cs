@@ -68,6 +68,18 @@ public sealed class DesktopRecordingFrames : IScreenRecordingFrames
                 if (piece == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
                 try
                 {
+                    if (region.Polygon is { } polygon)
+                    {
+                        var points = polygon.Select(p => new NativePoint { X = p.X - plan.Bounds.X, Y = p.Y - plan.Bounds.Y }).ToArray();
+                        nint shape = CreatePolygonRgn(points, points.Length, 1);
+                        if (shape == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        try
+                        {
+                            if (CombineRgn(piece, piece, shape, 1) == 0)
+                                throw new Win32Exception(Marshal.GetLastWin32Error());
+                        }
+                        finally { DeleteObject(shape); }
+                    }
                     if (CombineRgn(_clipRegion, _clipRegion, piece, 2) == 0)
                         throw new Win32Exception(Marshal.GetLastWin32Error());
                 }
@@ -91,6 +103,8 @@ public sealed class DesktopRecordingFrames : IScreenRecordingFrames
         }
         if (!PatBlt(_memory, 0, 0, _plan.Bounds.Width, _plan.Bounds.Height, 0x00000042))
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not clear the capture canvas.");
+        if (SelectClipRgn(_memory, _clipRegion) == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
         foreach (ScreenRegion region in _plan.Regions)
         {
             if (!BitBlt(_memory, region.X - _plan.Bounds.X, region.Y - _plan.Bounds.Y, region.Width, region.Height,
@@ -122,8 +136,9 @@ public sealed class DesktopRecordingFrames : IScreenRecordingFrames
                 }
                 else throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not obtain the cursor image.");
             }
-            SelectClipRgn(_memory, 0);
         }
+        if (SelectClipRgn(_memory, 0) == 0) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (!GdiFlush()) throw new Win32Exception(Marshal.GetLastWin32Error());
         Marshal.Copy(_pixels, _buffer, 0, _buffer.Length);
         _image!.SetPixelBytes(_buffer);
         using (CanvasDrawingSession session = _target!.CreateDrawingSession())
@@ -149,6 +164,7 @@ public sealed class DesktopRecordingFrames : IScreenRecordingFrames
 
     private delegate bool MonitorCallback(nint monitor, nint dc, ref NativeRect rect, nint data);
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct BitmapInfo
     {
         public uint Size; public int Width, Height; public ushort Planes, BitCount;
@@ -167,8 +183,10 @@ public sealed class DesktopRecordingFrames : IScreenRecordingFrames
     [DllImport("gdi32.dll", SetLastError = true)] private static extern bool BitBlt(nint dst, int x, int y, int width, int height, nint src, int sx, int sy, uint rop);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern bool PatBlt(nint dc, int x, int y, int width, int height, uint rop);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreateRectRgn(int left, int top, int right, int bottom);
+    [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreatePolygonRgn(NativePoint[] points, int count, int mode);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern int CombineRgn(nint destination, nint first, nint second, int mode);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern int SelectClipRgn(nint dc, nint region);
+    [DllImport("gdi32.dll", SetLastError = true)] private static extern bool GdiFlush();
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetCursorInfo(ref CursorInfo info);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetIconInfo(nint cursor, out IconInfo info);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool DrawIconEx(nint dc, int x, int y, nint icon, int width, int height, uint step, nint brush, uint flags);
