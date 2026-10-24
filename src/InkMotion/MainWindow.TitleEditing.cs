@@ -325,7 +325,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private void TitleBackgroundPicker_ColorChanged(ColorPicker sender, ColorChangedEventArgs args)
+    private void TitleColourPicker_ColorChanged(ColorPicker sender, ColorChangedEventArgs args)
     {
         if (_isInitialising || _isRestoringProject || SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text } selected)
         {
@@ -333,11 +333,20 @@ public sealed partial class MainWindow
         }
         Color colour = args.NewColor;
         uint argb = ((uint)colour.A << 24) | ((uint)colour.R << 16) | ((uint)colour.G << 8) | colour.B;
-        if (argb == selected.Clip.TextBackgroundColour || !TryBeginClipPropertyEdit(out _))
+        bool isText = ReferenceEquals(sender, TitleTextPicker);
+        uint current = isText ? selected.Clip.Colour : selected.Clip.TextBackgroundColour;
+        if (argb == current || !TryBeginClipPropertyEdit(out _))
         {
             return;
         }
-        selected.Clip.TextBackgroundColour = argb;
+        if (isText)
+        {
+            selected.Clip.Colour = argb;
+        }
+        else
+        {
+            selected.Clip.TextBackgroundColour = argb;
+        }
         ApplyClipPreview();
     }
 }

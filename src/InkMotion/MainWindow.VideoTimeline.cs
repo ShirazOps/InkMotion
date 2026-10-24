@@ -2806,6 +2806,7 @@ public sealed partial class MainWindow
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         TitleBackgroundControls.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         TitleBackgroundPicker.Color = ToColour(clip.TextBackgroundColour);
+        TitleTextPicker.Color = ToColour(clip.Colour);
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)ClipFontSizeBox.Parent).Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipScaleSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
@@ -2874,10 +2875,6 @@ public sealed partial class MainWindow
         ClipFontSelector.SelectedItem = ClipFontSelector.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(item => string.Equals(item.Tag as string, clip.FontFamily, StringComparison.OrdinalIgnoreCase));
         ClipFontSizeBox.Value = clip.FontSize;
-        ClipColourSelector.SelectedItem = ClipColourSelector.Items.OfType<ComboBoxItem>()
-            .FirstOrDefault(item => item.Tag is string tag &&
-                uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out uint argb) &&
-                argb == clip.Colour);
         VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipScaleSlider.Value = transform.Scale;
@@ -5610,11 +5607,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        bool isFont = sender == ClipFontSelector;
-        uint argb = 0;
-        if (isFont
-            ? string.Equals(current.Clip.FontFamily, tag, StringComparison.Ordinal)
-            : !uint.TryParse(tag, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out argb) || argb == current.Clip.Colour)
+        if (string.Equals(current.Clip.FontFamily, tag, StringComparison.Ordinal))
         {
             return;
         }
@@ -5624,14 +5617,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (isFont)
-        {
-            location.Clip.FontFamily = tag;
-        }
-        else
-        {
-            location.Clip.Colour = argb;
-        }
+        location.Clip.FontFamily = tag;
 
         ApplyClipPreview();
         CommitEdit();

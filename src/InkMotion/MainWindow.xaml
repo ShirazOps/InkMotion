@@ -740,27 +740,24 @@
                                 <ComboBoxItem Content="Consolas" Tag="Consolas" />
                                 <ComboBoxItem Content="Ink Free" Tag="Ink Free" />
                             </ComboBox>
-                            <Grid ColumnSpacing="6">
+                            <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <NumberBox x:Name="ClipFontSizeBox" Header="Size (1080p px)" Minimum="8" Maximum="400" SmallChange="4" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
-                                <ComboBox x:Name="ClipColourSelector" Grid.Column="1" Header="Colour" HorizontalAlignment="Stretch" SelectionChanged="ClipChoice_Changed">
-                                    <ComboBoxItem Content="White" Tag="FFFFFFFF" />
-                                    <ComboBoxItem Content="Black" Tag="FF000000" />
-                                    <ComboBoxItem Content="Yellow" Tag="FFFFD60A" />
-                                    <ComboBoxItem Content="Orange" Tag="FFFFA500" />
-                                    <ComboBoxItem Content="Red" Tag="FFE5484D" />
-                                    <ComboBoxItem Content="Blue" Tag="FF3E9BFF" />
-                                </ComboBox>
                             </Grid>
                             <StackPanel x:Name="TitleBackgroundControls" Spacing="6" Visibility="Collapsed">
+                                <TextBlock Text="Title text colour and opacity" Style="{StaticResource LabelTextStyle}" />
+                                <ColorPicker x:Name="TitleTextPicker" IsAlphaEnabled="True"
+                                    IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True"
+                                    AutomationProperties.Name="Title text colour and opacity"
+                                    ColorChanged="TitleColourPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Title background colour and opacity" Style="{StaticResource LabelTextStyle}" />
                                 <ColorPicker x:Name="TitleBackgroundPicker" IsAlphaEnabled="True"
                                     IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True"
-                                    ColorChanged="TitleBackgroundPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
-                                <TextBlock Text="Drag the title in Modified Video preview. Corner handles resize; the round handle rotates. Double-click a title to edit its text. Background opacity is controlled by the alpha slider." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    AutomationProperties.Name="Title background colour and opacity"
+                                    ColorChanged="TitleColourPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Drag the title in Modified Video preview. Corner handles resize; the round handle rotates. Double-click a title to edit its text. Each colour picker's alpha slider controls its opacity independently." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <Slider x:Name="ClipScaleSlider" Header="Scale" Minimum="0.05" Maximum="4" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <NumberBox x:Name="ClipRotationBox" Header="Rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
