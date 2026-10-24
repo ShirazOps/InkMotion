@@ -1050,7 +1050,9 @@ public sealed partial class MainWindow
                     VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    flipHorizontal: clip.FlipHorizontal,
+                    flipVertical: clip.FlipVertical);
             }
             if (updateScopes)
             {
@@ -1132,7 +1134,9 @@ public sealed partial class MainWindow
                 VideoChromaKeyColourKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoChromaKeyEnabledKeyframes.GetValueAtTime(
-                    clip, _playheadFramePosition / _frameRate, _frameRate));
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                flipHorizontal: clip.FlipHorizontal,
+                flipVertical: clip.FlipVertical);
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException))
@@ -1730,6 +1734,8 @@ public sealed partial class MainWindow
         destination.CropTopPercent = source.CropTopPercent;
         destination.CropRightPercent = source.CropRightPercent;
         destination.CropBottomPercent = source.CropBottomPercent;
+        destination.FlipHorizontal = source.FlipHorizontal;
+        destination.FlipVertical = source.FlipVertical;
         destination.CropKeyframes = VideoCropKeyframes.CloneKeys(source.CropKeyframes);
         destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
@@ -2669,6 +2675,7 @@ public sealed partial class MainWindow
         ClipXSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipYSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
         ClipCropKeyframeActions.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
+        ClipFlipControls.Visibility = supportsMediaTransform ? Visibility.Visible : Visibility.Collapsed;
 
         double opacitySeconds = _playheadFramePosition / _frameRate;
         int opacityFrameOffset = VideoOpacityKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
@@ -2707,6 +2714,8 @@ public sealed partial class MainWindow
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipScaleSlider.Value = transform.Scale;
         ClipRotationBox.Value = transform.RotationDegrees;
+        ClipFlipHorizontalCheck.IsChecked = clip.FlipHorizontal;
+        ClipFlipVerticalCheck.IsChecked = clip.FlipVertical;
         VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipCropLeftBox.Value = crop.Left;
@@ -3039,6 +3048,23 @@ public sealed partial class MainWindow
             UpdateVideoInspector();
             return;
         }
+        ApplyClipPreview();
+    }
+
+    private void ClipFlip_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            (selected.Clip.FlipHorizontal == (ClipFlipHorizontalCheck.IsChecked == true) &&
+             selected.Clip.FlipVertical == (ClipFlipVerticalCheck.IsChecked == true)) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        location.Clip.FlipHorizontal = ClipFlipHorizontalCheck.IsChecked == true;
+        location.Clip.FlipVertical = ClipFlipVerticalCheck.IsChecked == true;
         ApplyClipPreview();
     }
 

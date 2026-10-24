@@ -158,11 +158,12 @@ public static class VideoClipJoining
             left.MaskX != right.MaskX || left.MaskY != right.MaskY ||
             left.MaskWidth != right.MaskWidth || left.MaskHeight != right.MaskHeight ||
             left.MaskRotationDegrees != right.MaskRotationDegrees ||
+            left.FlipHorizontal != right.FlipHorizontal || left.FlipVertical != right.FlipVertical ||
             !left.MaskKeyframes.SequenceEqual(right.MaskKeyframes) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)
         {
-            throw new InvalidOperationException("Match the clip opacity, volume, transform, colour, text and styling before joining; no clip properties will be discarded.");
+            throw new InvalidOperationException("Match the clip opacity, volume, transform, flips, colour, text and styling before joining; no clip properties will be discarded.");
         }
 
         TimelineClipProject joined = VideoTimelineEditing.Clone(left);

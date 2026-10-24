@@ -348,7 +348,9 @@ public static class VideoExporter
                                 VideoChromaKeySpillKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
                                 VideoChromaKeyFeatherKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
                                 VideoChromaKeyColourKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
-                                VideoChromaKeyEnabledKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
+                                VideoChromaKeyEnabledKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
+                                flipHorizontal: layer.Clip.FlipHorizontal,
+                                flipVertical: layer.Clip.FlipVertical);
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
@@ -453,7 +455,9 @@ public static class VideoExporter
                     VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
                     VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
                     VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
-                    VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
+                    VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
+                    flipHorizontal: clip.FlipHorizontal,
+                    flipVertical: clip.FlipVertical);
             }
         }
 

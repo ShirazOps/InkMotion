@@ -494,6 +494,12 @@
                             </StackPanel>
                             <StackPanel x:Name="TransformKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="TransformKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel x:Name="ClipFlipControls" Spacing="4">
+                                    <TextBlock Text="FLIP SOURCE" Style="{StaticResource SectionHeaderTextStyle}" />
+                                    <CheckBox x:Name="ClipFlipHorizontalCheck" Content="Flip horizontal" Click="ClipFlip_Changed" />
+                                    <CheckBox x:Name="ClipFlipVerticalCheck" Content="Flip vertical" Click="ClipFlip_Changed" />
+                                    <TextBlock Text="Flips video or image content about its centre before clip rotation. This does not change the source file." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                </StackPanel>
                                 <StackPanel x:Name="VideoStabilisationActions" Spacing="6">
                                     <Button x:Name="StabiliseVideoButton" Content="Stabilise + correct rolling shutter" Click="StabiliseVideo_Click" />
                                     <Button x:Name="ClearRollingShutterButton" Content="Clear rolling-shutter correction" Click="ClearRollingShutter_Click" />

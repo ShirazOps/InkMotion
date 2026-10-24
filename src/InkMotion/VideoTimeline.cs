@@ -220,6 +220,8 @@ public sealed class TimelineClipProject
     public double Y { get; set; } = 0.5;
     public double Scale { get; set; } = 1;
     public double RotationDegrees { get; set; }
+    public bool FlipHorizontal { get; set; }
+    public bool FlipVertical { get; set; }
     public List<VideoTransformKeyframe> TransformKeyframes { get; set; } = [];
     public string Text { get; set; } = string.Empty;
     public string FontFamily { get; set; } = "Segoe UI";
@@ -1046,6 +1048,8 @@ public static class VideoTimelineEditing
         Y = clip.Y,
         Scale = clip.Scale,
         RotationDegrees = clip.RotationDegrees,
+        FlipHorizontal = clip.FlipHorizontal,
+        FlipVertical = clip.FlipVertical,
         TransformKeyframes = VideoTransformKeyframes.CloneKeys(clip.TransformKeyframes),
         Text = clip.Text,
         FontFamily = clip.FontFamily,

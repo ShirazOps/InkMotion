@@ -68,7 +68,9 @@ public static class TimelineCompositor
         double? animatedChromaKeySpillSuppression = null,
         bool? animatedChromaKeyFeather = null,
         uint? animatedChromaKeyColour = null,
-        bool? animatedChromaKeyEnabled = null)
+        bool? animatedChromaKeyEnabled = null,
+        bool flipHorizontal = false,
+        bool flipVertical = false)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -77,8 +79,12 @@ public static class TimelineCompositor
             VideoColourGradingEffect? temporaryColourGradeEffect = null;
             try
             {
-                session.Transform = Matrix3x2.CreateRotation((float)(rotationDegrees * Math.PI / 180),
-                    new Vector2((float)(x * width), (float)(y * height))) * previous;
+                Vector2 centre = new((float)(x * width), (float)(y * height));
+                Matrix3x2 flip = Matrix3x2.CreateScale(
+                    flipHorizontal ? -1 : 1, flipVertical ? -1 : 1, centre);
+                Matrix3x2 rotation = Matrix3x2.CreateRotation(
+                    (float)(rotationDegrees * Math.PI / 180), centre);
+                session.Transform = flip * rotation * previous;
                 VideoColourGradingValue gradingValue = animatedColourGrade ??
                     (colourGrade is null
                         ? new VideoColourGradingValue(0, 0, 0, 0, 1)
