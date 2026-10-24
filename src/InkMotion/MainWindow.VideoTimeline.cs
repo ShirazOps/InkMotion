@@ -1046,7 +1046,8 @@ public sealed partial class MainWindow
                     VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoBlurKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoSharpenKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoChromaKeyKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoChromaKeyKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1119,6 +1120,8 @@ public sealed partial class MainWindow
                 VideoSharpenKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoChromaKeyKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoChromaKeySpillKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1683,6 +1686,7 @@ public sealed partial class MainWindow
         destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
         destination.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(source.SharpenKeyframes);
         destination.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(source.ChromaKeyKeyframes);
+        destination.ChromaKeySpillKeyframes = VideoChromaKeySpillKeyframes.CloneKeys(source.ChromaKeySpillKeyframes);
         destination.MaskFeatherKeyframes = VideoMaskFeatherKeyframes.CloneKeys(source.MaskFeatherKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
@@ -2714,7 +2718,18 @@ public sealed partial class MainWindow
             ? "No tolerance keyframes. Chroma-key tolerance applies to the whole clip."
             : $"{clip.ChromaKeyKeyframes.Count} tolerance keyframe(s); values interpolate at the playhead.";
         ClipChromaKeyFeather.IsChecked = clip.ChromaKeyFeather;
-        ClipChromaKeySpillBox.Value = clip.ChromaKeySpillSuppression;
+        ClipChromaKeySpillBox.Value = VideoChromaKeySpillKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        int chromaKeySpillFrameOffset = VideoChromaKeySpillKeyframes.GetFrameOffset(
+            clip, opacitySeconds, _frameRate);
+        bool chromaKeySpillPlayheadInside = VideoChromaKeySpillKeyframes.CanSetAtFrame(
+            clip, kind, chromaKeySpillFrameOffset, _frameRate);
+        SetChromaKeySpillKeyframeButton.IsEnabled = chromaKeySpillPlayheadInside && !location.Track.IsLocked;
+        RemoveChromaKeySpillKeyframeButton.IsEnabled = chromaKeySpillPlayheadInside && !location.Track.IsLocked &&
+            VideoChromaKeySpillKeyframes.IsKeyframeAt(clip, chromaKeySpillFrameOffset);
+        ChromaKeySpillKeyframeStateText.Text = clip.ChromaKeySpillKeyframes.Count == 0
+            ? "No spill keyframes. Spill suppression applies to the whole clip."
+            : $"{clip.ChromaKeySpillKeyframes.Count} spill keyframe(s); strength interpolates at the playhead.";
         ClipBlurAmountBox.Value = VideoBlurKeyframes.GetValueAtTime(clip, opacitySeconds, _frameRate);
         int blurFrameOffset = VideoBlurKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
         bool blurPlayheadInside = VideoBlurKeyframes.CanSetAtFrame(clip, kind, blurFrameOffset, _frameRate);
@@ -3090,7 +3105,31 @@ public sealed partial class MainWindow
             UpdateVideoInspector();
             return;
         }
-        ApplyClipChromaKeySettings(commitEdit: false);
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        double current = VideoChromaKeySpillKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == args.NewValue)
+        {
+            CommitEdit();
+            return;
+        }
+        if (!VideoChromaKeySpillKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, args.NewValue))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated spill suppression.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
     }
 
     private void ClipBlurAmount_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -3232,9 +3271,12 @@ public sealed partial class MainWindow
         bool toleranceMatches = clip.ChromaKeyKeyframes.Count == 0
             ? clip.ChromaKeyTolerance == tolerance
             : VideoChromaKeyKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == tolerance;
+        bool spillMatches = clip.ChromaKeySpillKeyframes.Count == 0
+            ? clip.ChromaKeySpillSuppression == spill
+            : VideoChromaKeySpillKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == spill;
         if (clip.ChromaKeyEnabled == enabled && clip.ChromaKeyColour == colour &&
             toleranceMatches && clip.ChromaKeyFeather == feather &&
-            clip.ChromaKeySpillSuppression == spill)
+            spillMatches)
         {
             CommitEdit();
             return;
@@ -3247,7 +3289,10 @@ public sealed partial class MainWindow
             clip.ChromaKeyTolerance = tolerance;
         }
         clip.ChromaKeyFeather = feather;
-        clip.ChromaKeySpillSuppression = spill;
+        if (clip.ChromaKeySpillKeyframes.Count == 0)
+        {
+            clip.ChromaKeySpillSuppression = spill;
+        }
         ApplyClipPreview();
         if (commitEdit)
         {
@@ -3813,6 +3858,61 @@ public sealed partial class MainWindow
         StatusText.Text = removed
             ? "Chroma-key tolerance keyframe removed."
             : "There is no tolerance keyframe at the playhead.";
+    }
+
+    private void SetChromaKeySpillKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeySpillKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoChromaKeySpillKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Chroma-key spill keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a spill keyframe.";
+    }
+
+    private void RemoveChromaKeySpillKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeySpillKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoChromaKeySpillKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Chroma-key spill keyframe removed."
+            : "There is no spill keyframe at the playhead.";
     }
 
     private void SetBlurKeyframe_Click(object sender, RoutedEventArgs e)

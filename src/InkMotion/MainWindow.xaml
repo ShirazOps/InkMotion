@@ -604,7 +604,12 @@
                                 <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKey_Changed" />
                                 <NumberBox x:Name="ClipChromaKeySpillBox" Header="Spill suppression (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeySpill_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Reduces excess key-colour channels without changing the key's transparency. Applies across the foreground, so genuine green/blue/magenta objects may also lose colour. Zero preserves the original foreground." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                                <TextBlock Text="Removes the selected key colour to transparency before compositing. Feather softens the transition edge; this is a basic colour key, not spill suppression or a tracked matte." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetChromaKeySpillKeyframeButton" Content="Add/update spill keyframe" Click="SetChromaKeySpillKeyframe_Click" />
+                                    <Button x:Name="RemoveChromaKeySpillKeyframeButton" Content="Remove spill keyframe" Click="RemoveChromaKeySpillKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ChromaKeySpillKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Removes the selected key colour to transparency before compositing. Feather softens the transition edge; spill suppression is a separate control, and this is not a tracked matte." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <TextBlock Text="BLUR" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <NumberBox x:Name="ClipBlurAmountBox" Header="Gaussian blur (0-20)" Minimum="0" Maximum="20" Value="0" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipBlurAmount_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Softens the video or image source before it is composited. Zero leaves the source unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

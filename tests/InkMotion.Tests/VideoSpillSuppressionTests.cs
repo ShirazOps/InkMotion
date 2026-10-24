@@ -7,7 +7,8 @@ namespace InkMotion.Tests;
 public sealed class VideoSpillSuppressionTests
 {
     private static byte[] Render(uint key, double amount, byte r, byte g, byte b, byte alpha = 255,
-        double tolerance = 0, bool feather = false)
+        double tolerance = 0, bool feather = false, int frameOffset = 0,
+        List<VideoChromaKeySpillKeyframe>? spillKeyframes = null)
     {
         using var device = new CanvasDevice(true);
         byte[] pixels = Enumerable.Range(0, 16 * 16).SelectMany(_ => new[]
@@ -22,12 +23,14 @@ public sealed class VideoSpillSuppressionTests
         {
             ChromaKeyEnabled = true, ChromaKeyColour = key, ChromaKeyTolerance = tolerance,
             ChromaKeyFeather = feather, ChromaKeySpillSuppression = amount,
+            ChromaKeySpillKeyframes = spillKeyframes ?? [],
         };
         using (var session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
             TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1,
-                colourGrade: clip, chromaKeyEffect: effect);
+                colourGrade: clip, chromaKeyEffect: effect,
+                animatedChromaKeySpillSuppression: VideoChromaKeySpillKeyframes.GetValue(clip, frameOffset));
         }
         return target.GetPixelBytes().Skip((8 * 16 + 8) * 4).Take(4).ToArray();
     }
@@ -93,6 +96,132 @@ public sealed class VideoSpillSuppressionTests
         var clip = new TimelineClipProject { SourcePath = "scene.mp4", SourceDurationSeconds = 2,
             ChromaKeySpillSuppression = amount };
         Assert.NotNull(VideoChromaKey.Validate(clip, TimelineTrackKind.Video));
+    }
+
+    [Fact]
+    public void AnimatedSpillKeyframes_InterpolateAndChangeRenderedSuppression()
+    {
+        List<VideoChromaKeySpillKeyframe> keys =
+        [
+            new() { FrameOffset = 0, Amount = 0 },
+            new() { FrameOffset = 24, Amount = 1 },
+        ];
+
+        Assert.Equal(0.5, VideoChromaKeySpillKeyframes.GetValue(
+            new TimelineClipProject { ChromaKeySpillKeyframes = keys }, 12));
+        byte[] unsuppressed = Render(0xFF00FF00, 0, 80, 200, 120, tolerance: 0, spillKeyframes: keys);
+        byte[] halfSuppressed = Render(0xFF00FF00, 0, 80, 200, 120,
+            tolerance: 0, frameOffset: 12, spillKeyframes: keys);
+        byte[] fullySuppressed = Render(0xFF00FF00, 0, 80, 200, 120,
+            tolerance: 0, frameOffset: 24, spillKeyframes: keys);
+
+        Assert.True(unsuppressed[1] > halfSuppressed[1]);
+        Assert.True(halfSuppressed[1] > fullySuppressed[1]);
+        Assert.Equal(unsuppressed[3], halfSuppressed[3]);
+        Assert.Equal(unsuppressed[3], fullySuppressed[3]);
+    }
+
+    [Fact]
+    public void SpillKeyframes_PersistAndFollowEditsAndMigration()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 4,
+            ChromaKeySpillSuppression = 0.1,
+            ChromaKeySpillKeyframes =
+            [
+                new() { FrameOffset = 0, Amount = 0 },
+                new() { FrameOffset = 48, Amount = 1 },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.Equal(0.5, VideoChromaKeySpillKeyframes.GetValue(clip, 24), 6);
+        Assert.True(VideoChromaKeySpillKeyframes.SetValueAtTime(clip, track.Kind, 1, 24, 0.75));
+        Assert.Equal(0.75, VideoChromaKeySpillKeyframes.GetValue(clip, 24));
+        TimelineClipProject restored = Assert.Single(Assert.Single(
+            EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(
+                new EditorProject { VideoTracks = [track] })).VideoTracks).Clips);
+        Assert.Equal(clip.ChromaKeySpillKeyframes, restored.ChromaKeySpillKeyframes);
+        Assert.Equal(clip.ChromaKeySpillKeyframes.Select(key => (key.FrameOffset, key.Amount)),
+            VideoTimelineEditing.Clone(clip).ChromaKeySpillKeyframes.Select(key => (key.FrameOffset, key.Amount)));
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 25, 24));
+        Assert.Equal(0, right.ChromaKeySpillKeyframes[0].FrameOffset);
+        Assert.Equal(0.75, right.ChromaKeySpillKeyframes[0].Amount, 6);
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 37, 24));
+        Assert.Equal(0, right.ChromaKeySpillKeyframes[0].FrameOffset);
+        Assert.Equal(0.875, right.ChromaKeySpillKeyframes[0].Amount, 6);
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 48);
+        Assert.Null(VideoTimelineEditing.Validate([track], 48));
+
+        EditorProject legacy = EditorProjectSerialiser.Deserialise(
+            """{"Version":51,"VideoTracks":[{"Kind":"Video","Clips":[{"SourcePath":"scene.mp4","SourceDurationSeconds":2,"ChromaKeySpillSuppression":0.65}]}],"Frames":[{"Number":1}],"SelectedFrameIndex":0}""");
+        TimelineClipProject migrated = Assert.Single(Assert.Single(legacy.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, legacy.Version);
+        Assert.Equal(0.65, migrated.ChromaKeySpillSuppression);
+        Assert.Empty(migrated.ChromaKeySpillKeyframes);
+    }
+
+    [Fact]
+    public void RemovingLastSpillKeyframe_BakesItsValueIntoStaticSuppression()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 2,
+            ChromaKeySpillSuppression = 0.1,
+            ChromaKeySpillKeyframes = [new() { FrameOffset = 0, Amount = 0.8 }],
+        };
+
+        Assert.True(VideoChromaKeySpillKeyframes.TryRemoveAtFrame(clip, 0));
+        Assert.Empty(clip.ChromaKeySpillKeyframes);
+        Assert.Equal(0.8, clip.ChromaKeySpillSuppression);
+        Assert.Equal(0.8, VideoChromaKeySpillKeyframes.GetValue(clip, 12));
+    }
+
+    [Fact]
+    public void AnimatedSpillKeyframes_PreserveOverwriteAndStillDuration()
+    {
+        TimelineClipProject original = new()
+        {
+            Id = "original",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            ChromaKeySpillKeyframes =
+            [
+                new() { FrameOffset = 0, Amount = 0 },
+                new() { FrameOffset = 143, Amount = 0.8 },
+            ],
+        };
+        TimelineTrackProject videoTrack = new() { Kind = TimelineTrackKind.Video, Clips = [original] };
+        TimelineClipProject replacement = new() { Id = "replacement", SourcePath = "new.mp4", SourceDurationSeconds = 2 };
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            videoTrack, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = videoTrack.Clips.Where(clip => clip.Id != replacement.Id).ToArray();
+        Assert.Equal(new[] { 0, 47 }, remainders[0].ChromaKeySpillKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(new[] { 0, 47 }, remainders[1].ChromaKeySpillKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(0.8 * 47 / 143, remainders[0].ChromaKeySpillKeyframes[^1].Amount, 6);
+        Assert.Equal(0.8 * 96 / 143, remainders[1].ChromaKeySpillKeyframes[0].Amount, 6);
+        Assert.Null(VideoTimelineEditing.Validate([videoTrack], 24));
+
+        TimelineClipProject image = new()
+        {
+            SourcePath = "image.png",
+            DurationSeconds = 4,
+            ChromaKeySpillKeyframes =
+            [
+                new() { FrameOffset = 0, Amount = 0 },
+                new() { FrameOffset = 72, Amount = 0.9 },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [image] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, image, 2, 24));
+        Assert.Equal(47, image.ChromaKeySpillKeyframes[^1].FrameOffset);
+        Assert.Equal(0.9 * 47 / 72, image.ChromaKeySpillKeyframes[^1].Amount, 6);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
     }
 
     [Fact]
@@ -168,7 +297,11 @@ public sealed class VideoSpillSuppressionTests
             suppressed.Id = "suppressed";
             suppressed.StartFrame = 13;
             suppressed.ChromaKeyEnabled = true;
-            suppressed.ChromaKeySpillSuppression = 1;
+            suppressed.ChromaKeySpillKeyframes =
+            [
+                new() { FrameOffset = 0, Amount = 0 },
+                new() { FrameOffset = 11, Amount = 1 },
+            ];
             var project = new EditorProject
             {
                 VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip, suppressed] }],
@@ -185,11 +318,16 @@ public sealed class VideoSpillSuppressionTests
             int keyed = (reader.Width / 10 + reader.Height / 2 * reader.Width) * 4;
             Assert.All(reader.Pixels.Skip(keyed).Take(3), channel => Assert.InRange(channel, 0, 20));
             Assert.True(reader.TryGetFrame(0.7));
+            byte[] animated = reader.Pixels.Skip(centre).Take(3).ToArray();
+            Assert.InRange(animated[1], 145, 175);
+            Assert.InRange(Math.Abs(animated[0] - original[0]), 0, 10);
+            Assert.InRange(Math.Abs(animated[2] - original[2]), 0, 10);
+            Assert.All(reader.Pixels.Skip(keyed).Take(3), channel => Assert.InRange(channel, 0, 20));
+            Assert.True(reader.TryGetFrame(0.96));
             byte[] corrected = reader.Pixels.Skip(centre).Take(3).ToArray();
             Assert.InRange(corrected[1], 105, 135);
             Assert.InRange(Math.Abs(corrected[0] - original[0]), 0, 10);
             Assert.InRange(Math.Abs(corrected[2] - original[2]), 0, 10);
-            Assert.All(reader.Pixels.Skip(keyed).Take(3), channel => Assert.InRange(channel, 0, 20));
         }
         finally
         {

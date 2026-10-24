@@ -97,6 +97,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove chroma-key keyframes before joining; animated tolerance cannot be combined without changing its timing.");
         }
 
+        if (left.ChromaKeySpillKeyframes.Count != 0 || right.ChromaKeySpillKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove chroma-key spill keyframes before joining; animated spill suppression cannot be combined without changing its timing.");
+        }
+
         if (left.MaskFeatherKeyframes.Count != 0 || right.MaskFeatherKeyframes.Count != 0)
         {
             throw new InvalidOperationException("Remove mask feather keyframes before joining; animated feather cannot be combined without changing its timing.");
