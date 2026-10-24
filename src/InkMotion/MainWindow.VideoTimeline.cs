@@ -1641,6 +1641,17 @@ public sealed partial class MainWindow
             session.DrawLine(x1 - (float)(clip.FadeOutSeconds * _timelinePixelsPerSecond), top + 2, x1, bottom, fadeColour);
         }
 
+        foreach (VideoMaskShapeKeyframe key in clip.MaskShapeKeyframes)
+        {
+            float keyX = (float)(((clip.StartFrame - 1 + key.FrameOffset) / _frameRate) *
+                _timelinePixelsPerSecond);
+            if (keyX >= x0 && keyX <= x1 && keyX >= left - 4 && keyX <= right + 4)
+            {
+                session.FillCircle(keyX, top + TimelineLaneHeight - 8, 3,
+                    Color.FromArgb(255, 0xFF, 0xD1, 0x70));
+            }
+        }
+
         if (track.Kind == TimelineTrackKind.Video && clip.TransitionInSeconds > 0)
         {
             float transitionWidth = (float)(clip.TransitionInSeconds * _timelinePixelsPerSecond);
@@ -1803,6 +1814,16 @@ public sealed partial class MainWindow
         }
 
         _selectedTimelineClipId = location.Clip.Id;
+        int clickedClipFrame = VideoMaskShapeKeyframes.GetFrameOffset(location.Clip, seconds, _frameRate);
+        int keyToleranceFrames = Math.Max(1, (int)Math.Ceiling(7 / _timelinePixelsPerSecond * _frameRate));
+        int? clickedShapeKey = VideoMaskShapeKeyframes.FindNearestFrame(
+            location.Clip, clickedClipFrame, keyToleranceFrames);
+        if (clickedShapeKey is int shapeFrame)
+        {
+            MoveTimelinePlayhead(((location.Clip.StartFrame - 1) + shapeFrame) / _frameRate);
+            return;
+        }
+
         if (_timelineToolMode == TimelineToolMode.Blade)
         {
             if (!track.IsLocked)

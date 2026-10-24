@@ -77,6 +77,23 @@ public static class VideoMaskShapeKeyframes
                 .Select(key => (int?)key.FrameOffset).Max();
     }
 
+    public static int? FindNearestFrame(TimelineClipProject clip, int frameOffset, int maximumDistance)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (maximumDistance < 0)
+        {
+            return null;
+        }
+
+        return clip.MaskShapeKeyframes
+            .Select(key => key.FrameOffset)
+            .Where(keyFrame => Math.Abs((long)keyFrame - frameOffset) <= maximumDistance)
+            .OrderBy(keyFrame => Math.Abs((long)keyFrame - frameOffset))
+            .ThenBy(keyFrame => keyFrame)
+            .Select(keyFrame => (int?)keyFrame)
+            .FirstOrDefault();
+    }
+
     public static bool TryRemoveAtFrame(TimelineClipProject clip, int frameOffset)
     {
         ArgumentNullException.ThrowIfNull(clip);
