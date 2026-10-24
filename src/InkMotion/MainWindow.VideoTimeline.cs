@@ -1691,6 +1691,50 @@ public sealed partial class MainWindow
                 Color.FromArgb(255, 0xF2, 0xF4, 0xF8),
                 _timelineLabelFormat);
         }
+
+        if (track.Kind == TimelineTrackKind.Video && clip.VolumeKeyframes.Count > 0)
+        {
+            DrawVideoVolumeAutomation(session, clip, x0, x1, bottom, left, right);
+        }
+    }
+
+    private void DrawVideoVolumeAutomation(
+        CanvasDrawingSession session,
+        TimelineClipProject clip,
+        float x0,
+        float x1,
+        float bottom,
+        float visibleLeft,
+        float visibleRight)
+    {
+        Color curveColour = Color.FromArgb(255, 0xA8, 0xF0, 0xD0);
+        float graphHeight = TimelineLaneHeight - 14;
+        float graphBottom = bottom - 4;
+        float previousX = x0;
+        float previousY = graphBottom - ((float)(clip.Volume *
+            VideoClipVolumeKeyframes.GetValue(clip, 0)) * graphHeight);
+        foreach (VideoClipVolumeKeyframe key in clip.VolumeKeyframes)
+        {
+            float keyX = x0 + (float)(key.FrameOffset / _frameRate * _timelinePixelsPerSecond);
+            float keyY = graphBottom - ((float)(clip.Volume * key.Volume) * graphHeight);
+            if (previousX != keyX)
+            {
+                session.DrawLine(previousX, previousY, keyX, keyY, curveColour, 1.5f);
+            }
+
+            if (keyX >= visibleLeft - 4 && keyX <= visibleRight + 4)
+            {
+                session.FillCircle(keyX, keyY, 3, curveColour);
+            }
+
+            previousX = keyX;
+            previousY = keyY;
+        }
+
+        if (previousX < x1)
+        {
+            session.DrawLine(previousX, previousY, x1, previousY, curveColour, 1.5f);
+        }
     }
 
     private static string GetClipLabel(TimelineTrackProject track, TimelineClipProject clip) => track.Kind == TimelineTrackKind.Text
