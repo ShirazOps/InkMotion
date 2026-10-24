@@ -168,6 +168,27 @@ public sealed class ExportJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task InterruptedExport_IsRetriedAutomaticallyOnce()
+    {
+        string input = WriteTone();
+        var project = new EditorProject { AudioTracks = [new() { AudioPath = input }] };
+        ExportJobStatus job = CreateAudioJob(project);
+        _store.WriteStatus(job with
+        {
+            Phase = ExportJobPhase.Interrupted,
+            Message = "The previous worker stopped unexpectedly.",
+        });
+
+        ExportJobStatus starting = Assert.IsType<ExportJobStatus>(_store.StartNextQueued(WorkerExecutable));
+        Assert.Equal(job.Id, starting.Id);
+        Assert.Equal(0, starting.AutomaticRetriesRemaining);
+        Assert.Contains("automatically retrying", starting.Message, StringComparison.OrdinalIgnoreCase);
+        ExportJobStatus completed = await WaitForTerminal(job.Id);
+        Assert.True(completed.Phase == ExportJobPhase.Completed, completed.Message);
+        Assert.Equal(0, completed.AutomaticRetriesRemaining);
+    }
+
+    [Fact]
     public async Task VideoExport_SurvivesTerminatedLaunchingProcessAndProducesPlayableFile()
     {
         if (!VideoExportTests.HasH264Encoder)

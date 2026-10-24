@@ -13,7 +13,8 @@ public sealed record ExportJobRequest(string Id, string ProjectJson, string Outp
 public enum ExportJobPhase { Queued, Starting, Running, Completed, Cancelled, Failed, Interrupted }
 
 public sealed record ExportJobStatus(string Id, string OutputPath, ExportJobPhase Phase, double Fraction,
-    string Message, DateTimeOffset UpdatedUtc, int ProcessId = 0, long ProcessStartUtcTicks = 0)
+    string Message, DateTimeOffset UpdatedUtc, int ProcessId = 0, long ProcessStartUtcTicks = 0,
+    int AutomaticRetriesRemaining = 1)
 {
     public bool IsActive => Phase is ExportJobPhase.Queued or ExportJobPhase.Starting or ExportJobPhase.Running;
     public string DisplayText => $"{Path.GetFileName(OutputPath)} | {Phase} | {Fraction:P0}\n{Message}";
@@ -64,7 +65,8 @@ public sealed class ExportJobStore
         ExportJobStatus status = ReadJson<ExportJobStatus>(Path.Combine(JobDirectory(id), "status.json"));
         if (status.Id != id || !Enum.IsDefined(status.Phase) || !double.IsFinite(status.Fraction) ||
             status.Fraction is < 0 or > 1 || status.Message is null ||
-            string.IsNullOrWhiteSpace(status.OutputPath) || !Path.IsPathFullyQualified(status.OutputPath))
+            string.IsNullOrWhiteSpace(status.OutputPath) || !Path.IsPathFullyQualified(status.OutputPath) ||
+            status.AutomaticRetriesRemaining is < 0 or > 1)
         {
             throw new InvalidDataException("Invalid export job status.");
         }
@@ -155,7 +157,8 @@ public sealed class ExportJobStore
             }
 
             string[] outputs = ReservedPaths(Path.GetFullPath(outputPath), video is not null);
-            foreach (ExportJobStatus active in scan.Jobs.Where(job => job.IsActive))
+            foreach (ExportJobStatus active in scan.Jobs.Where(job =>
+                job.IsActive || job.Phase == ExportJobPhase.Interrupted && job.AutomaticRetriesRemaining > 0))
             {
                 ExportJobRequest existing = ReadRequest(active.Id);
                 if (ReservedPaths(existing.OutputPath, existing.Video is not null)
@@ -212,14 +215,28 @@ public sealed class ExportJobStore
                 return null;
             }
 
-            foreach (ExportJobStatus queued in scan.Jobs.Where(job => job.Phase == ExportJobPhase.Queued)
+            foreach (ExportJobStatus queued in scan.Jobs.Where(job =>
+                job.Phase == ExportJobPhase.Queued ||
+                job.Phase == ExportJobPhase.Interrupted && job.AutomaticRetriesRemaining > 0)
                 .OrderBy(job => job.UpdatedUtc).ThenBy(job => job.Id, StringComparer.Ordinal))
             {
+                bool retryingInterrupted = queued.Phase == ExportJobPhase.Interrupted;
+                string cancelPath = Path.Combine(JobDirectory(queued.Id), "cancel");
+                if (retryingInterrupted && File.Exists(cancelPath))
+                {
+                    File.Delete(cancelPath);
+                }
+
                 ExportJobStatus starting = queued with
                 {
                     Phase = ExportJobPhase.Starting,
-                    Message = "Starting queued export worker.",
+                    Message = retryingInterrupted
+                        ? "Automatically retrying an interrupted export (one attempt maximum)."
+                        : "Starting queued export worker.",
                     UpdatedUtc = DateTimeOffset.UtcNow,
+                    AutomaticRetriesRemaining = retryingInterrupted
+                        ? queued.AutomaticRetriesRemaining - 1
+                        : queued.AutomaticRetriesRemaining,
                 };
                 WriteStatus(starting);
                 try
@@ -365,11 +382,14 @@ public sealed class ExportJobStore
                         {
                             string diagnostic = Path.Combine(directory, "worker-error.txt");
                             string? detail = File.Exists(diagnostic) ? File.ReadLines(diagnostic).FirstOrDefault() : null;
+                            bool cancellationRequested = IsCancellationRequested(id);
                             status = status with
                             {
-                                Phase = ExportJobPhase.Interrupted,
-                                Message = "The export worker stopped unexpectedly. Output may be incomplete; export again to retry." +
-                                    (detail is null ? "" : Environment.NewLine + detail),
+                                Phase = cancellationRequested ? ExportJobPhase.Cancelled : ExportJobPhase.Interrupted,
+                                Message = cancellationRequested
+                                    ? "The worker stopped after cancellation was requested. Partial output may remain."
+                                    : "The export worker stopped unexpectedly. Output may be incomplete; export again to retry." +
+                                        (detail is null ? "" : Environment.NewLine + detail),
                                 UpdatedUtc = DateTimeOffset.UtcNow,
                             };
                             WriteStatus(status);
