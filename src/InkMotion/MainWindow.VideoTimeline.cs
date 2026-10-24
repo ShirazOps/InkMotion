@@ -1677,7 +1677,7 @@ public sealed partial class MainWindow
         if (clip.Id == _selectedTimelineClipId)
         {
             session.DrawRoundedRectangle(bounds, 3, 3, Color.FromArgb(255, 0xF2, 0xF4, 0xF8), 2);
-            if (_timelineToolMode is TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll)
+            if (!track.IsLocked && _timelineToolMode is TimelineToolMode.Select or TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll)
             {
                 if (_timelineToolMode != TimelineToolMode.Roll)
                 {
@@ -1808,6 +1808,7 @@ public sealed partial class MainWindow
         destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
         destination.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(source.SharpenKeyframes);
         destination.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(source.ChromaKeyKeyframes);
+        destination.ChromaKeyEnabledKeyframes = VideoChromaKeyEnabledKeyframes.CloneKeys(source.ChromaKeyEnabledKeyframes);
         destination.ChromaKeyColourKeyframes = VideoChromaKeyColourKeyframes.CloneKeys(source.ChromaKeyColourKeyframes);
         destination.ChromaKeyFeatherKeyframes = VideoChromaKeyFeatherKeyframes.CloneKeys(source.ChromaKeyFeatherKeyframes);
         destination.ChromaKeySpillKeyframes = VideoChromaKeySpillKeyframes.CloneKeys(source.ChromaKeySpillKeyframes);
@@ -1886,7 +1887,8 @@ public sealed partial class MainWindow
     private void VideoTimelineCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         Microsoft.UI.Input.PointerPoint point = e.GetCurrentPoint(VideoTimelineCanvas);
-        if (!point.Properties.IsLeftButtonPressed)
+        if (!point.Properties.IsLeftButtonPressed &&
+            e.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Touch)
         {
             return;
         }
@@ -1908,6 +1910,15 @@ public sealed partial class MainWindow
         e.Handled = track.Kind != TimelineTrackKind.Text;
         _selectedTimelineTrackId = track.Id;
         TimelineClipLocation? location = VideoTimelineEditing.FindClipAt(track, seconds, _frameRate);
+        double handleTolerance = (e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch ? 14 : 8)
+            / _timelinePixelsPerSecond;
+        bool edgeTool = _timelineToolMode is TimelineToolMode.Select or TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll;
+        if (edgeTool && SelectedTimelineClip is { } selected && selected.Track == track &&
+            (Math.Abs(seconds - VideoTimelineEditing.GetStartSeconds(selected.Clip, _frameRate)) <= handleTolerance ||
+                Math.Abs(seconds - VideoTimelineEditing.GetEndSeconds(selected.Clip, track.Kind, _frameRate)) <= handleTolerance))
+        {
+            location = selected;
+        }
         if (location is null)
         {
             _selectedTimelineClipId = null;
@@ -1918,11 +1929,17 @@ public sealed partial class MainWindow
         }
 
         _selectedTimelineClipId = location.Clip.Id;
+        double start = VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate);
+        double end = VideoTimelineEditing.GetEndSeconds(location.Clip, track.Kind, _frameRate);
+        double startDistance = Math.Abs(seconds - start);
+        double endDistance = Math.Abs(seconds - end);
+        bool nearStart = _timelineToolMode != TimelineToolMode.Roll && startDistance <= handleTolerance;
+        bool nearEnd = endDistance <= handleTolerance;
         int clickedClipFrame = VideoMaskShapeKeyframes.GetFrameOffset(location.Clip, seconds, _frameRate);
         int keyToleranceFrames = Math.Max(1, (int)Math.Ceiling(7 / _timelinePixelsPerSecond * _frameRate));
         int? clickedMaskKey = VideoMaskTimelineKeyframes.FindNearestFrame(
             location.Clip, clickedClipFrame, keyToleranceFrames);
-        if (_timelineToolMode == TimelineToolMode.Select && clickedMaskKey is int maskFrame)
+        if (_timelineToolMode == TimelineToolMode.Select && !nearStart && !nearEnd && clickedMaskKey is int maskFrame)
         {
             MoveTimelinePlayhead(((location.Clip.StartFrame - 1) + maskFrame) / _frameRate);
             return;
@@ -1961,16 +1978,9 @@ public sealed partial class MainWindow
                     grabOffsetSeconds: seconds - VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate));
             }
         }
-        else if (_timelineToolMode is TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll)
+        else if (_timelineToolMode is TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll ||
+            (_timelineToolMode == TimelineToolMode.Select && (nearStart || nearEnd)))
         {
-            double start = VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate);
-            double end = VideoTimelineEditing.GetEndSeconds(location.Clip, track.Kind, _frameRate);
-            double startDistance = Math.Abs(seconds - start);
-            double endDistance = Math.Abs(seconds - end);
-            double handleTolerance = 8 / _timelinePixelsPerSecond;
-            bool allowStart = _timelineToolMode != TimelineToolMode.Roll;
-            bool nearStart = allowStart && startDistance <= handleTolerance;
-            bool nearEnd = endDistance <= handleTolerance;
             if (!track.IsLocked && (nearStart || nearEnd))
             {
                 TimelineTrimEdge edge = nearStart && (!nearEnd || startDistance <= endDistance)
@@ -1978,11 +1988,12 @@ public sealed partial class MainWindow
                     : TimelineTrimEdge.End;
                 TimelineDragOperation operation = _timelineToolMode switch
                 {
-                    TimelineToolMode.Trim => TimelineDragOperation.Trim,
+                    TimelineToolMode.Select or TimelineToolMode.Trim => TimelineDragOperation.Trim,
                     TimelineToolMode.Ripple => TimelineDragOperation.RippleTrim,
                     _ => TimelineDragOperation.Roll,
                 };
-                _timelineDrag = TimelineDrag.CreateOperation(location.Clip, track, operation, edge);
+                _timelineDrag = TimelineDrag.CreateOperation(location.Clip, track, operation, edge,
+                    grabOffsetSeconds: seconds - (edge == TimelineTrimEdge.Start ? start : end));
             }
             else
             {
@@ -2040,7 +2051,7 @@ public sealed partial class MainWindow
             }
             else
             {
-                int edgeFrame = Math.Max(1, (int)Math.Round(seconds * _frameRate) + 1);
+                int edgeFrame = Math.Max(1, (int)Math.Round((seconds - drag.GrabOffsetSeconds) * _frameRate) + 1);
                 int originalEdgeFrame = edge == TimelineTrimEdge.Start
                     ? workingClip.StartFrame
                     : (int)Math.Round(VideoTimelineEditing.GetEndSeconds(workingClip, workingTrack.Kind, _frameRate) * _frameRate) + 1;
@@ -2060,7 +2071,8 @@ public sealed partial class MainWindow
             }
 
             changed &= VideoTimelineEditing.Validate([workingTrack], _frameRate) is null;
-            if (!changed || change == drag.LastChange)
+            bool restoringOriginal = change == 0 && drag.Moved;
+            if ((!changed && !restoringOriginal) || change == drag.LastChange)
             {
                 drag.Blocked = !changed;
                 return;
@@ -5685,7 +5697,7 @@ public sealed partial class MainWindow
         SlideTimelineToolButton.IsChecked = selected == TimelineToolMode.Slide;
         VideoTimelineHint.Text = selected switch
         {
-            TimelineToolMode.Select => "Select: drag clips to move. Click the ruler or empty lane to move the playhead.",
+            TimelineToolMode.Select => "Select: drag the clip body to move; drag either edge to shorten or extend. Click empty space to seek.",
             TimelineToolMode.Blade => "Blade: click inside a clip to split it at that frame.",
             TimelineToolMode.Trim => "Trim: drag a selected clip's highlighted start or end handle.",
             TimelineToolMode.Ripple => "Ripple: drag either edge to trim and shift later clips on this track.",
@@ -5695,7 +5707,7 @@ public sealed partial class MainWindow
         InvalidateVideoTimeline();
         StatusText.Text = selected switch
         {
-            TimelineToolMode.Select => "Select tool: click and drag clips to move them.",
+            TimelineToolMode.Select => "Select tool: drag the body to move, or either edge to change duration.",
             TimelineToolMode.Blade => "Blade tool: click inside a clip to split it at that frame.",
             _ => "Trim tool: drag a selected clip's highlighted start or end handle.",
         };

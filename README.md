@@ -17,6 +17,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 ### Video and titles
 
 - Multitrack video, image and title compositing, with source In/Out marks, insert/overwrite, snapping, markers, copy/paste, split, trim, ripple, roll, slide and cross-dissolves.
+- In **Select** mode, drag a video, image or title clip's body to move it, or either highlighted edge to shorten or extend its duration. Video extensions use available source footage; still images and titles can be extended without changing playback speed. Track locks and neighbouring clips remain protected.
 - Clip position, scale, rotation, crop, flips, opacity, fades, playback speed and reverse; keyframed transforms and supported effects.
 - Exposure, contrast, white balance, saturation, gamma, RGB curves and 3D `.cube` LUTs; chroma key with spill suppression, blur, sharpening, vignette and animated masks.
 - Multicamera switching, local proxy generation, stabilisation and coarse rolling-shutter correction. RGB histogram, luma waveform and vectorscope for source grading.
