@@ -24,14 +24,7 @@ public static class AudioMixControls
         var speakers = AudioChannelLayouts.Get(layout).Speakers;
         for (int target = 0; target < speakers.Count; target++)
         {
-            double gain = speakers[target] switch
-            {
-                AudioSpeaker.FrontLeft or AudioSpeaker.BackLeft or AudioSpeaker.SideLeft or
-                    AudioSpeaker.TopFrontLeft or AudioSpeaker.TopBackLeft => 1 - Math.Max(0, balance),
-                AudioSpeaker.FrontRight or AudioSpeaker.BackRight or AudioSpeaker.SideRight or
-                    AudioSpeaker.TopFrontRight or AudioSpeaker.TopBackRight => 1 + Math.Min(0, balance),
-                _ => 1,
-            };
+            double gain = GetBalanceGain(speakers[target], balance);
             for (int source = 0; source < sourceChannels; source++)
             {
                 matrix[target, source] *= (float)gain;
@@ -40,4 +33,14 @@ public static class AudioMixControls
 
         return matrix;
     }
+
+    public static double GetBalanceGain(AudioSpeaker speaker, double balance) =>
+        speaker switch
+        {
+            AudioSpeaker.FrontLeft or AudioSpeaker.BackLeft or AudioSpeaker.SideLeft or
+                AudioSpeaker.TopFrontLeft or AudioSpeaker.TopBackLeft => 1 - Math.Max(0, balance),
+            AudioSpeaker.FrontRight or AudioSpeaker.BackRight or AudioSpeaker.SideRight or
+                AudioSpeaker.TopFrontRight or AudioSpeaker.TopBackRight => 1 + Math.Min(0, balance),
+            _ => 1,
+        };
 }

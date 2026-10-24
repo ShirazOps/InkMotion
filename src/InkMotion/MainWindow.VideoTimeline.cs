@@ -673,6 +673,10 @@ public sealed partial class MainWindow
             double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
             double playbackSpeed = clip.PlaybackSpeed;
             bool reversed = clip.IsReversed;
+            double clipElapsedAtPosition = reversed
+                ? (sourceOut - sourceSeconds) / playbackSpeed
+                : (sourceSeconds - sourceIn) / playbackSpeed;
+            project.Balance = VideoClipBalanceKeyframes.GetValue(clip, clipElapsedAtPosition * _frameRate);
             envelopeKey = new VideoAudioEnvelopeKey(
                 clip.Volume,
                 clip.FadeInSeconds,
@@ -1697,6 +1701,10 @@ public sealed partial class MainWindow
         {
             DrawVideoVolumeAutomation(session, clip, x0, x1, bottom, left, right);
         }
+        if (track.Kind == TimelineTrackKind.Video && clip.EmbeddedAudioBalanceKeyframes.Count > 0)
+        {
+            DrawVideoBalanceAutomation(session, clip, x0, x1, bottom, left, right);
+        }
     }
 
     private void DrawVideoVolumeAutomation(
@@ -1738,6 +1746,42 @@ public sealed partial class MainWindow
         }
     }
 
+    private void DrawVideoBalanceAutomation(
+        CanvasDrawingSession session,
+        TimelineClipProject clip,
+        float x0,
+        float x1,
+        float bottom,
+        float visibleLeft,
+        float visibleRight)
+    {
+        Color curveColour = Color.FromArgb(255, 0xFF, 0xC7, 0x78);
+        float graphHeight = TimelineLaneHeight - 14;
+        float centre = bottom - 4 - graphHeight / 2;
+        float previousX = x0;
+        float previousY = centre - (float)VideoClipBalanceKeyframes.GetValue(clip, 0) * graphHeight / 2;
+        foreach (VideoClipBalanceKeyframe key in clip.EmbeddedAudioBalanceKeyframes)
+        {
+            float keyX = x0 + (float)(key.FrameOffset / _frameRate * _timelinePixelsPerSecond);
+            float keyY = centre - (float)key.Balance * graphHeight / 2;
+            if (previousX != keyX)
+            {
+                session.DrawLine(previousX, previousY, keyX, keyY, curveColour, 1.5f);
+            }
+            if (keyX >= visibleLeft - 4 && keyX <= visibleRight + 4)
+            {
+                session.FillCircle(keyX, keyY, 3, curveColour);
+            }
+            previousX = keyX;
+            previousY = keyY;
+        }
+
+        if (previousX < x1)
+        {
+            session.DrawLine(previousX, previousY, x1, previousY, curveColour, 1.5f);
+        }
+    }
+
     private static string GetClipLabel(TimelineTrackProject track, TimelineClipProject clip) => track.Kind == TimelineTrackKind.Text
         ? clip.Text.Split('\n', 2)[0].Trim()
         : Path.GetFileName(clip.SourcePath) ?? "Clip";
@@ -1755,6 +1799,8 @@ public sealed partial class MainWindow
         destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
         destination.VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(source.VolumeKeyframes);
         destination.EmbeddedAudioBalance = source.EmbeddedAudioBalance;
+        destination.EmbeddedAudioBalanceKeyframes =
+            VideoClipBalanceKeyframes.CloneKeys(source.EmbeddedAudioBalanceKeyframes);
         destination.ColourGradingKeyframes =
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
@@ -2713,6 +2759,7 @@ public sealed partial class MainWindow
             : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipAudioBalanceSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipAudioBalanceKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipVolumeKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -2758,7 +2805,21 @@ public sealed partial class MainWindow
         ClipVolumeKeyframeStateText.Text = clip.VolumeKeyframes.Count == 0
             ? "No volume keyframes. Volume applies to the whole clip."
             : $"{clip.VolumeKeyframes.Count} volume keyframe(s); values interpolate at the playhead.";
-        ClipAudioBalanceSlider.Value = clip.EmbeddedAudioBalance;
+        int balanceFrameOffset = VideoClipBalanceKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool balancePlayheadInside = VideoClipBalanceKeyframes.CanSetAtFrame(
+            clip, kind, balanceFrameOffset, _frameRate);
+        ClipAudioBalanceSlider.Value = VideoClipBalanceKeyframes.GetValueAtTime(clip, opacitySeconds, _frameRate);
+        ClipAudioBalanceSlider.IsEnabled = clip.EmbeddedAudioBalanceKeyframes.Count == 0 || balancePlayheadInside;
+        PreviousClipAudioBalanceKeyframeButton.IsEnabled =
+            VideoClipBalanceKeyframes.FindAdjacentFrame(clip, balanceFrameOffset, next: false) is not null;
+        NextClipAudioBalanceKeyframeButton.IsEnabled =
+            VideoClipBalanceKeyframes.FindAdjacentFrame(clip, balanceFrameOffset, next: true) is not null;
+        SetClipAudioBalanceKeyframeButton.IsEnabled = balancePlayheadInside && isVideo && !location.Track.IsLocked;
+        RemoveClipAudioBalanceKeyframeButton.IsEnabled = balancePlayheadInside && isVideo && !location.Track.IsLocked &&
+            VideoClipBalanceKeyframes.IsKeyframeAt(clip, balanceFrameOffset);
+        ClipAudioBalanceKeyframeStateText.Text = clip.EmbeddedAudioBalanceKeyframes.Count == 0
+            ? "No balance keyframes. Balance applies to the whole clip."
+            : $"{clip.EmbeddedAudioBalanceKeyframes.Count} balance keyframe(s); values interpolate at the playhead.";
         ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
         ClipReverseVideoCheck.IsChecked = clip.IsReversed;
         ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
@@ -3080,7 +3141,13 @@ public sealed partial class MainWindow
         }
         else if (ReferenceEquals(sender, ClipAudioBalanceSlider))
         {
-            clip.EmbeddedAudioBalance = Math.Clamp(e.NewValue, -1, 1);
+            if (!VideoClipBalanceKeyframes.SetAtTime(
+                clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, Math.Clamp(e.NewValue, -1, 1)))
+            {
+                CommitEdit();
+                UpdateVideoInspector();
+                return;
+            }
         }
         else if (ReferenceEquals(sender, ClipScaleSlider) ||
             ReferenceEquals(sender, ClipXSlider) ||
@@ -4168,6 +4235,78 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Volume keyframe removed." : "There is no volume keyframe at the playhead.";
+    }
+
+    private void SetClipAudioBalanceKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video || selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipBalanceKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoClipBalanceKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Balance keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video clip to add a balance keyframe.";
+    }
+
+    private void NavigateClipAudioBalanceKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            sender is not Button { Tag: string direction })
+        {
+            return;
+        }
+        int frameOffset = VideoClipBalanceKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int? target = VideoClipBalanceKeyframes.FindAdjacentFrame(
+            selected.Clip, frameOffset, next: direction == "next");
+        if (target is null)
+        {
+            return;
+        }
+        PausePlayback();
+        FinishActiveEdit();
+        MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
+    }
+
+    private void RemoveClipAudioBalanceKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video || selected.Track.IsLocked)
+        {
+            return;
+        }
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipBalanceKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoClipBalanceKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Balance keyframe removed." : "There is no balance keyframe at the playhead.";
     }
 
     private void SetChromaKeyKeyframe_Click(object sender, RoutedEventArgs e)

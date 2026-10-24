@@ -96,6 +96,7 @@ public static class VideoEditTools
         int retainedFrames = (int)Math.Ceiling(
             VideoTimelineEditing.GetDurationSeconds(clip, track.Kind) * frameRate - 1e-6);
         VideoClipVolumeKeyframes.TrimEnd(clip, retainedFrames);
+        VideoClipBalanceKeyframes.TrimEnd(clip, retainedFrames);
         return true;
     }
 

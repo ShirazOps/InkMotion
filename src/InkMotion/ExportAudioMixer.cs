@@ -204,11 +204,23 @@ public sealed class ExportAudioMixer : IDisposable
 
         source = new PlaybackSpeedSampleProvider(source, clip.PlaybackSpeed);
 
-        var envelope = new GainEnvelopeSampleProvider(
+        ISampleProvider envelope = new GainEnvelopeSampleProvider(
             source,
             elapsed => ExportPlanning.GetVideoClipAudioGain(
                 clip, clipElapsedAtSourceStart + elapsed, transition, _frameRate));
-        AddSource(envelope, Math.Max(0, timelineStart), duration, clip.EmbeddedAudioBalance);
+        if (clip.EmbeddedAudioBalanceKeyframes.Count > 0)
+        {
+            envelope = new BalanceEnvelopeSampleProvider(
+                envelope,
+                Layout,
+                elapsed => VideoClipBalanceKeyframes.GetValue(
+                    clip, (clipElapsedAtSourceStart + elapsed) * _frameRate));
+            AddSource(envelope, Math.Max(0, timelineStart), duration);
+        }
+        else
+        {
+            AddSource(envelope, Math.Max(0, timelineStart), duration, clip.EmbeddedAudioBalance);
+        }
     }
 
     private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,
@@ -259,6 +271,56 @@ public sealed class ExportAudioMixer : IDisposable
             }
 
             return read;
+        }
+    }
+
+    private sealed class BalanceEnvelopeSampleProvider(
+        ISampleProvider source,
+        AudioChannelLayout layout,
+        Func<double, double> balanceAtSeconds) : ISampleProvider
+    {
+        private readonly int _sourceChannels = source.WaveFormat.Channels;
+        private readonly float[,] _baseMatrix = AudioChannelLayouts.CreateMixMatrix(source.WaveFormat.Channels, layout);
+        private readonly AudioSpeaker[] _speakers = AudioChannelLayouts.Get(layout).Speakers.ToArray();
+        private float[] _sourceBuffer = [];
+        private long _framePosition;
+        private readonly double _sampleRate = source.WaveFormat.SampleRate;
+
+        public WaveFormat WaveFormat { get; } =
+            WaveFormat.CreateIeeeFloatWaveFormat(source.WaveFormat.SampleRate, AudioChannelLayouts.Get(layout).ChannelCount);
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int outputChannels = WaveFormat.Channels;
+            int requestedFrames = count / outputChannels;
+            int requestedSourceSamples = requestedFrames * _sourceChannels;
+            if (_sourceBuffer.Length < requestedSourceSamples)
+            {
+                _sourceBuffer = new float[requestedSourceSamples];
+            }
+
+            int read = source.Read(_sourceBuffer, 0, requestedSourceSamples);
+            int frames = read / _sourceChannels;
+            for (int frame = 0; frame < frames; frame++, _framePosition++)
+            {
+                double balance = Math.Clamp(balanceAtSeconds(_framePosition / _sampleRate), -1, 1);
+                int sourceStart = frame * _sourceChannels;
+                int outputStart = offset + frame * outputChannels;
+                for (int target = 0; target < outputChannels; target++)
+                {
+                    double sum = 0;
+                    double balanceGain = AudioMixControls.GetBalanceGain(_speakers[target], balance);
+                    for (int input = 0; input < _sourceChannels; input++)
+                    {
+                        sum += _sourceBuffer[sourceStart + input] * _baseMatrix[target, input];
+                    }
+                    buffer[outputStart + target] = (float)(sum * balanceGain);
+                }
+            }
+
+            int outputRead = frames * outputChannels;
+            Array.Clear(buffer, offset + outputRead, count - outputRead);
+            return outputRead;
         }
     }
 }

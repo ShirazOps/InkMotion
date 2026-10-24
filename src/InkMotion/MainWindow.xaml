@@ -473,6 +473,15 @@
                             </StackPanel>
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipAudioBalanceSlider" Header="Embedded audio balance (L/R)" Minimum="-1" Maximum="1" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <StackPanel x:Name="ClipAudioBalanceKeyframeActions" Spacing="6">
+                                <TextBlock x:Name="ClipAudioBalanceKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="PreviousClipAudioBalanceKeyframeButton" Content="Previous balance key" Click="NavigateClipAudioBalanceKeyframe_Click" Tag="previous" />
+                                    <Button x:Name="NextClipAudioBalanceKeyframeButton" Content="Next balance key" Click="NavigateClipAudioBalanceKeyframe_Click" Tag="next" />
+                                </StackPanel>
+                                <Button x:Name="SetClipAudioBalanceKeyframeButton" Content="Set balance keyframe" Click="SetClipAudioBalanceKeyframe_Click" />
+                                <Button x:Name="RemoveClipAudioBalanceKeyframeButton" Content="Remove balance keyframe" Click="RemoveClipAudioBalanceKeyframe_Click" />
+                            </StackPanel>
                             <StackPanel x:Name="ClipVolumeKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="ClipVolumeKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <StackPanel Orientation="Horizontal" Spacing="8">

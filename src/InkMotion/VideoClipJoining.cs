@@ -82,6 +82,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove volume keyframes before joining; animated audio volume cannot be combined without changing its timing.");
         }
 
+        if (left.EmbeddedAudioBalanceKeyframes.Count != 0 || right.EmbeddedAudioBalanceKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove balance keyframes before joining; animated audio balance cannot be combined without changing its timing.");
+        }
+
         if (left.ColourGradingKeyframes.Count != 0 || right.ColourGradingKeyframes.Count != 0)
         {
             throw new InvalidOperationException("Remove colour grading keyframes before joining; animated grading cannot be combined without changing its timing.");
