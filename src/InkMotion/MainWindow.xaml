@@ -658,10 +658,10 @@
                                     <Button x:Name="RemoveMaskShapeKeyframeButton" Content="Remove shape keyframe" Click="RemoveMaskShapeKeyframe_Click" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Button x:Name="PreviousMaskShapeKeyframeButton" Content="Previous shape key" Click="NavigateMaskShapeKeyframe_Click" Tag="previous" />
-                                    <Button x:Name="NextMaskShapeKeyframeButton" Content="Next shape key" Click="NavigateMaskShapeKeyframe_Click" Tag="next" />
+                                    <Button x:Name="PreviousMaskKeyframeButton" Content="Previous mask key" Click="NavigateMaskKeyframe_Click" Tag="previous" />
+                                    <Button x:Name="NextMaskKeyframeButton" Content="Next mask key" Click="NavigateMaskKeyframe_Click" Tag="next" />
                                 </StackPanel>
-                                <TextBlock x:Name="MaskShapeKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock x:Name="MaskShapeKeyframeStateText" Text="Mask shape applies to the whole clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ToggleButton x:Name="ClipMaskInvertedCheck" Content="Invert mask" Click="ClipMaskSettings_Changed" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetMaskInversionKeyframeButton" Content="Add/update inversion keyframe" Click="SetMaskInversionKeyframe_Click" />

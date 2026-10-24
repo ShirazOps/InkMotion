@@ -2857,13 +2857,14 @@ public sealed partial class MainWindow
         SetMaskShapeKeyframeButton.IsEnabled = maskShapePlayheadInside && !location.Track.IsLocked;
         RemoveMaskShapeKeyframeButton.IsEnabled = maskShapePlayheadInside && !location.Track.IsLocked &&
             VideoMaskShapeKeyframes.IsKeyframeAt(clip, maskShapeFrameOffset);
-        PreviousMaskShapeKeyframeButton.IsEnabled =
-            VideoMaskShapeKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: false) is not null;
-        NextMaskShapeKeyframeButton.IsEnabled =
-            VideoMaskShapeKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: true) is not null;
-        MaskShapeKeyframeStateText.Text = clip.MaskShapeKeyframes.Count == 0
+        PreviousMaskKeyframeButton.IsEnabled =
+            VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: false) is not null;
+        NextMaskKeyframeButton.IsEnabled =
+            VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: true) is not null;
+        int maskKeyframeCount = VideoMaskTimelineKeyframes.GetFrameOffsets(clip).Count();
+        MaskShapeKeyframeStateText.Text = maskKeyframeCount == 0
             ? "Mask shape applies to the whole clip."
-            : $"{clip.MaskShapeKeyframes.Count} shape keyframe(s); each shape holds until the next key.";
+            : $"{maskKeyframeCount} mask key time(s); keys may set shape, geometry, inversion or feather.";
         int maskInversionFrameOffset = VideoMaskInversionKeyframes.GetFrameOffset(
             clip, opacitySeconds, _frameRate);
         ClipMaskInvertedCheck.IsChecked = VideoMaskInversionKeyframes.GetValue(
@@ -4880,7 +4881,7 @@ public sealed partial class MainWindow
             : "There is no mask shape keyframe at the playhead.";
     }
 
-    private void NavigateMaskShapeKeyframe_Click(object sender, RoutedEventArgs e)
+    private void NavigateMaskKeyframe_Click(object sender, RoutedEventArgs e)
     {
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
             sender is not Button { Tag: string direction })
@@ -4890,7 +4891,7 @@ public sealed partial class MainWindow
 
         int frameOffset = VideoMaskShapeKeyframes.GetFrameOffset(
             selected.Clip, CurrentPlaybackSeconds, _frameRate);
-        int? target = VideoMaskShapeKeyframes.FindAdjacentFrame(
+        int? target = VideoMaskTimelineKeyframes.FindAdjacentFrame(
             selected.Clip, frameOffset, next: direction == "next");
         if (target is null)
         {

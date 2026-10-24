@@ -403,6 +403,11 @@ public sealed class VideoClipMaskTests
         Assert.Equal(60, VideoMaskTimelineKeyframes.FindNearestFrame(clip, 57, 6));
         Assert.Null(VideoMaskTimelineKeyframes.FindNearestFrame(clip, 36, 11));
         Assert.Null(VideoMaskTimelineKeyframes.FindNearestFrame(clip, 24, -1));
+        Assert.Equal(48, VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, 24, next: true));
+        Assert.Equal(0, VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, 24, next: false));
+        Assert.Equal(84, VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, 72, next: true));
+        Assert.Null(VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, 84, next: true));
+        Assert.Null(VideoMaskTimelineKeyframes.FindAdjacentFrame(clip, 0, next: false));
         Assert.True(VideoMaskShapeKeyframes.SetValueAtTime(
             clip, track.Kind, 2, 24, VideoMaskShape.Rectangle));
         Assert.Equal(VideoMaskShape.Rectangle, VideoMaskShapeKeyframes.GetValue(clip, 48));

@@ -28,4 +28,12 @@ public static class VideoMaskTimelineKeyframes
             .Select(keyFrame => (int?)keyFrame)
             .FirstOrDefault();
     }
+
+    public static int? FindAdjacentFrame(TimelineClipProject clip, int frameOffset, bool next)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return next
+            ? GetFrameOffsets(clip).Where(keyFrame => keyFrame > frameOffset).Select(keyFrame => (int?)keyFrame).FirstOrDefault()
+            : GetFrameOffsets(clip).Where(keyFrame => keyFrame < frameOffset).Select(keyFrame => (int?)keyFrame).LastOrDefault();
+    }
 }
