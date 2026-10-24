@@ -394,10 +394,15 @@ public sealed class VideoClipMaskTests
         Assert.Equal(72, VideoMaskShapeKeyframes.FindAdjacentFrame(clip, 24, next: true));
         Assert.Null(VideoMaskShapeKeyframes.FindAdjacentFrame(clip, 0, next: false));
         Assert.Null(VideoMaskShapeKeyframes.FindAdjacentFrame(clip, 72, next: true));
-        Assert.Equal(24, VideoMaskShapeKeyframes.FindNearestFrame(clip, 26, 3));
-        Assert.Equal(24, VideoMaskShapeKeyframes.FindNearestFrame(clip, 36, 12));
-        Assert.Null(VideoMaskShapeKeyframes.FindNearestFrame(clip, 36, 11));
-        Assert.Null(VideoMaskShapeKeyframes.FindNearestFrame(clip, 24, -1));
+        clip.MaskKeyframes = [new() { FrameOffset = 48 }];
+        clip.MaskInversionKeyframes = [new() { FrameOffset = 60, Inverted = true }];
+        clip.MaskFeatherKeyframes = [new() { FrameOffset = 84, Feather = 0.1 }];
+        Assert.Equal([0, 24, 48, 60, 72, 84], VideoMaskTimelineKeyframes.GetFrameOffsets(clip));
+        Assert.Equal(24, VideoMaskTimelineKeyframes.FindNearestFrame(clip, 26, 3));
+        Assert.Equal(48, VideoMaskTimelineKeyframes.FindNearestFrame(clip, 47, 3));
+        Assert.Equal(60, VideoMaskTimelineKeyframes.FindNearestFrame(clip, 57, 6));
+        Assert.Null(VideoMaskTimelineKeyframes.FindNearestFrame(clip, 36, 11));
+        Assert.Null(VideoMaskTimelineKeyframes.FindNearestFrame(clip, 24, -1));
         Assert.True(VideoMaskShapeKeyframes.SetValueAtTime(
             clip, track.Kind, 2, 24, VideoMaskShape.Rectangle));
         Assert.Equal(VideoMaskShape.Rectangle, VideoMaskShapeKeyframes.GetValue(clip, 48));

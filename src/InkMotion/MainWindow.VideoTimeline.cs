@@ -1641,9 +1641,9 @@ public sealed partial class MainWindow
             session.DrawLine(x1 - (float)(clip.FadeOutSeconds * _timelinePixelsPerSecond), top + 2, x1, bottom, fadeColour);
         }
 
-        foreach (VideoMaskShapeKeyframe key in clip.MaskShapeKeyframes)
+        foreach (int frameOffset in VideoMaskTimelineKeyframes.GetFrameOffsets(clip))
         {
-            float keyX = (float)(((clip.StartFrame - 1 + key.FrameOffset) / _frameRate) *
+            float keyX = (float)(((clip.StartFrame - 1 + frameOffset) / _frameRate) *
                 _timelinePixelsPerSecond);
             if (keyX >= x0 && keyX <= x1 && keyX >= left - 4 && keyX <= right + 4)
             {
@@ -1816,11 +1816,11 @@ public sealed partial class MainWindow
         _selectedTimelineClipId = location.Clip.Id;
         int clickedClipFrame = VideoMaskShapeKeyframes.GetFrameOffset(location.Clip, seconds, _frameRate);
         int keyToleranceFrames = Math.Max(1, (int)Math.Ceiling(7 / _timelinePixelsPerSecond * _frameRate));
-        int? clickedShapeKey = VideoMaskShapeKeyframes.FindNearestFrame(
+        int? clickedMaskKey = VideoMaskTimelineKeyframes.FindNearestFrame(
             location.Clip, clickedClipFrame, keyToleranceFrames);
-        if (clickedShapeKey is int shapeFrame)
+        if (_timelineToolMode == TimelineToolMode.Select && clickedMaskKey is int maskFrame)
         {
-            MoveTimelinePlayhead(((location.Clip.StartFrame - 1) + shapeFrame) / _frameRate);
+            MoveTimelinePlayhead(((location.Clip.StartFrame - 1) + maskFrame) / _frameRate);
             return;
         }
 
