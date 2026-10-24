@@ -595,6 +595,11 @@
                                     <ComboBoxItem Content="Blue screen" Tag="FF0000FF" />
                                     <ComboBoxItem Content="Magenta screen" Tag="FFFF00FF" />
                                 </ComboBox>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetChromaKeyColourKeyframeButton" Content="Add/update key-colour keyframe" Click="SetChromaKeyColourKeyframe_Click" />
+                                    <Button x:Name="RemoveChromaKeyColourKeyframeButton" Content="Remove key-colour keyframe" Click="RemoveChromaKeyColourKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ChromaKeyColourKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipChromaKeyToleranceBox" Header="Colour tolerance (0-1)" Minimum="0" Maximum="1" Value="0.1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeyTolerance_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetChromaKeyKeyframeButton" Content="Add/update tolerance keyframe" Click="SetChromaKeyKeyframe_Click" />

@@ -45,14 +45,16 @@ public sealed class VideoChromaKeyEffect : IDisposable
         TimelineClipProject clip,
         double? animatedTolerance = null,
         double? animatedSpillSuppression = null,
-        bool? animatedFeather = null)
+        bool? animatedFeather = null,
+        uint? animatedColour = null)
     {
+        uint chromaKeyColour = animatedColour ?? clip.ChromaKeyColour;
         _effect.Source = source;
         _effect.Color = Color.FromArgb(
-            (byte)(clip.ChromaKeyColour >> 24),
-            (byte)(clip.ChromaKeyColour >> 16),
-            (byte)(clip.ChromaKeyColour >> 8),
-            (byte)clip.ChromaKeyColour);
+            (byte)(chromaKeyColour >> 24),
+            (byte)(chromaKeyColour >> 16),
+            (byte)(chromaKeyColour >> 8),
+            (byte)chromaKeyColour);
         _effect.Tolerance = (float)(animatedTolerance ?? clip.ChromaKeyTolerance);
         _effect.Feather = animatedFeather ?? clip.ChromaKeyFeather;
         double spillSuppression = animatedSpillSuppression ?? clip.ChromaKeySpillSuppression;
@@ -65,13 +67,13 @@ public sealed class VideoChromaKeyEffect : IDisposable
         Matrix5x4 identity = new() { M11 = 1, M22 = 1, M33 = 1, M54 = 1 };
         Matrix5x4 first = identity;
         Matrix5x4 second = identity;
-        if (clip.ChromaKeyColour == 0xFF00FF00)
+        if (chromaKeyColour == 0xFF00FF00)
         {
             first.M22 = second.M22 = 0;
             first.M12 = 1;
             second.M32 = 1;
         }
-        else if (clip.ChromaKeyColour == 0xFF0000FF)
+        else if (chromaKeyColour == 0xFF0000FF)
         {
             first.M33 = second.M33 = 0;
             first.M13 = 1;

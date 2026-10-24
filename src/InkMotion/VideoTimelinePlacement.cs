@@ -136,6 +136,7 @@ public static class VideoTimelinePlacement
                 VideoBlurKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoSharpenKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoChromaKeyKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoChromaKeyColourKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoChromaKeyFeatherKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoChromaKeySpillKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
@@ -172,6 +173,7 @@ public static class VideoTimelinePlacement
                 VideoBlurKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoSharpenKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoChromaKeyKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoChromaKeyColourKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoChromaKeyFeatherKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoChromaKeySpillKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
@@ -208,6 +210,7 @@ public static class VideoTimelinePlacement
                 existing.BlurKeyframes = VideoBlurKeyframes.CloneKeys(candidate.BlurKeyframes);
                 existing.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(candidate.SharpenKeyframes);
                 existing.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(candidate.ChromaKeyKeyframes);
+                existing.ChromaKeyColourKeyframes = VideoChromaKeyColourKeyframes.CloneKeys(candidate.ChromaKeyColourKeyframes);
                 existing.ChromaKeyFeatherKeyframes = VideoChromaKeyFeatherKeyframes.CloneKeys(candidate.ChromaKeyFeatherKeyframes);
                 existing.ChromaKeySpillKeyframes = VideoChromaKeySpillKeyframes.CloneKeys(candidate.ChromaKeySpillKeyframes);
                 result.Add(existing);

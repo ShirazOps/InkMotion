@@ -66,7 +66,8 @@ public static class TimelineCompositor
         double? animatedSharpenAmount = null,
         double? animatedChromaKeyTolerance = null,
         double? animatedChromaKeySpillSuppression = null,
-        bool? animatedChromaKeyFeather = null)
+        bool? animatedChromaKeyFeather = null,
+        uint? animatedChromaKeyColour = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -88,6 +89,7 @@ public static class TimelineCompositor
                 double chromaKeySpillSuppression = animatedChromaKeySpillSuppression ??
                     colourGrade?.ChromaKeySpillSuppression ?? 0;
                 bool chromaKeyFeather = animatedChromaKeyFeather ?? colourGrade?.ChromaKeyFeather ?? false;
+                uint chromaKeyColour = animatedChromaKeyColour ?? colourGrade?.ChromaKeyColour ?? 0xFF00FF00;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
@@ -102,7 +104,8 @@ public static class TimelineCompositor
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))
-                            .GetOutput(output, colourGrade, chromaKeyTolerance, chromaKeySpillSuppression, chromaKeyFeather);
+                            .GetOutput(output, colourGrade, chromaKeyTolerance, chromaKeySpillSuppression,
+                                chromaKeyFeather, chromaKeyColour);
                     }
 
                     if (colourGrade is not null && blurAmount > 0)
@@ -137,7 +140,8 @@ public static class TimelineCompositor
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))
-                            .GetOutput(output, colourGrade, chromaKeyTolerance, chromaKeySpillSuppression, chromaKeyFeather);
+                            .GetOutput(output, colourGrade, chromaKeyTolerance, chromaKeySpillSuppression,
+                                chromaKeyFeather, chromaKeyColour);
                     }
 
                     if (blurAmount > 0)
