@@ -23,7 +23,7 @@ public sealed class ScreenRecordingTests
     [Fact]
     public void Freeform_NativeCaptureMaskExcludesOutsidePixelsWithoutCapturingDesktop()
     {
-        var display = DesktopRecordingFrames.Displays()[0].Bounds;
+        var display = new ScreenRegion(-200, 0, 400, 200);
         int x = display.X + 20, y = display.Y + 20;
         ScreenRegion shape = ScreenRegion.Freeform([new(x, y), new(x + 100, y), new(x, y + 100)]);
         ScreenCapturePlan plan = ScreenCapturePlan.Create([shape], [display], 1920, 30);
