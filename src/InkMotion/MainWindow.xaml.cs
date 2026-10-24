@@ -70,6 +70,7 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Interval = TimeSpan.FromMilliseconds(16);
         _playbackTimer.Tick += PlaybackTimer_Tick;
         Closed += MainWindow_Closed;
+        AppWindow.Closing += MainWindow_ScreenRecordingClosing;
         InitialiseVideoTimeline();
         InitialiseAudioRecordingControls();
         _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
@@ -213,9 +214,9 @@ public sealed partial class MainWindow : Window
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
-        if (IsAudioRecordingInProgress)
+        if (IsAudioRecordingInProgress || _screenRecorderWindow?.IsRecording == true)
         {
-            StatusText.Text = "Stop audio recording before opening another project.";
+            StatusText.Text = "Stop recording before opening another project.";
             return;
         }
 

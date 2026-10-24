@@ -77,6 +77,11 @@ public sealed partial class MainWindow
 
     private void StartAudioRecording()
     {
+        if (_screenRecorderWindow?.IsRecording == true)
+        {
+            AudioRecordingStatus.Text = "Stop screen recording before starting a separate audio take.";
+            return;
+        }
         if (AudioRecordingDeviceSelector.SelectedItem is not AudioRecordingInput input ||
             AudioRecordingSampleRateSelector.SelectedItem is not AudioRecordingSampleRate sampleRate)
         {

@@ -36,6 +36,7 @@
                         <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
                         <MenuFlyoutItem Text="Add title" Click="AddTitleClip_Click" />
                         <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
+                        <MenuFlyoutItem Text="Screen recorder…" Click="ScreenRecorder_Click" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Export…" Tag="Export" Click="Workspace_Click">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEDE1;" /></MenuFlyoutItem.Icon>

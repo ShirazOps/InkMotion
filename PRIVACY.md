@@ -17,7 +17,7 @@ InkMotion accesses the media and project files you choose to open, import, relin
 The application also stores working data locally, including:
 
 - Editor layout preferences.
-- Microphone recordings and generated video proxies.
+- Microphone recordings, screen recordings, optional system-audio/webcam sources, recording recovery metadata and generated video proxies.
 - Export job history, saved project snapshots, output and linked-source paths, progress and error details.
 - Temporary rendering, audio-mixing and encoder-probe files, and completed video segments used to recover interrupted optional FFmpeg exports.
 
@@ -25,11 +25,17 @@ These files can contain personal information if your content, file names or path
 
 Local working data is generally stored under `%LOCALAPPDATA%\InkMotion`; temporary files can also be stored in your Windows temporary directory or beside a chosen export destination. Windows packaging may redirect application storage. Saved projects and exported files are stored where you choose.
 
-## Microphone, camera and input
+## Screen, microphone, camera and input
 
 Microphone recording starts when you use the recording controls and stops when you stop recording or close the recording session. Recordings are saved locally and are not uploaded by InkMotion. You can manage microphone access through Windows privacy settings.
 
-InkMotion uses mouse, touch and pen input for editing and drawing. It does not use your camera, contacts or location.
+Screen recording starts only from the recorder controls after a countdown. It captures the displays or regions you select, optionally including the mouse pointer. Anything visible in those areas can be recorded, including other applications and personal information. InkMotion does not automatically hide its own windows. Protected or secure content may be unavailable.
+
+System audio, microphone and webcam sources are optional and off by default in the screen recorder. Selecting system audio records sound played through the selected Windows output device, potentially including other applications. Selecting a webcam records video to its own local file. Manage camera and microphone access through Windows privacy settings. Stop the session to end capture; closing the recorder or editor finalises active recordings.
+
+Screen captures, separate audio/webcam files, editable projects and recovery metadata are retained in the local ScreenRecordings folder, including interrupted or incomplete files after a crash. The recorder displays storage use and provides explicit confirmed removal. Other projects may link to these files; deleting them can break those projects.
+
+InkMotion uses mouse, touch and pen input for editing and drawing. It does not access your contacts or location.
 
 ## Background exports and optional tools
 

@@ -57,6 +57,18 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 
 For optional formats, choose a trusted local `ffmpeg.exe` under **Export > Optional FFmpeg** and check its capabilities. InkMotion does not download, bundle or redistribute FFmpeg; available encoders and licensing depend on your build. Existing Windows exports need no FFmpeg. Saved jobs retain the executable path.
 
+### Screen recording
+
+Use **File > Screen recorder** to record one or more displays, or add regions using global physical-pixel coordinates (including negative monitor positions). Selected areas retain their relative placement on one canvas; gaps are black. Choose a 1920/3840-pixel longest-side limit, 15/24/30 fps, and whether to include the pointer.
+
+15 fps capture opens on a 30 fps editing timeline without changing its duration; 24/30 fps captures use matching project rates.
+
+System output audio, microphone and webcam are explicitly selected and off by default. Each becomes a separate editable source; the webcam can appear picture-in-picture in the resulting project. Use headphones to avoid microphone echo. Windows camera/microphone privacy settings still apply. A countdown precedes capture; move or minimise InkMotion yourself if it should not appear.
+
+**Stop and save** creates a durable `.inkmotion` project before opening it. Screen segments, separate audio/webcam files and recovery metadata remain under `%LOCALAPPDATA%\InkMotion\ScreenRecordings`. The recorder's library shows storage use and opens saved/interrupted takes; removal requires explicit confirmation and is blocked while the editor uses those sources. No automatic cleanup removes recordings.
+
+Capture is best-effort desktop SDR capture, not protected-content, secure-desktop or exclusive-fullscreen capture. Slow frames repeat to preserve elapsed time; disconnected/rearranged displays stop the take. Five-second screen checkpoints survive crashes, but the unfinished MP4/device files may need external recovery. Review sync on your devices; separate tracks allow timing correction. Do not change device formats or displays mid-take.
+
 ## Privacy
 
 Media is processed locally, without application analytics or automatic uploads. See the [privacy policy](PRIVACY.md) for microphone use, local working files, background exports and optional tools.
