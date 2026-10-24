@@ -152,7 +152,7 @@ public static class VideoExportCapabilities
         }
     }
 
-    private static byte[] CreateTestPattern(int width, int height)
+    internal static byte[] CreateTestPattern(int width, int height)
     {
         var pixels = new byte[checked(width * height * 4)];
         for (int y = 0; y < height; y++)

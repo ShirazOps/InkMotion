@@ -9,31 +9,41 @@ public enum AudioExportCodec
     FloatWave,
     Mp3,
     Aac,
+    Flac,
+    Opus,
 }
 
-public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate, int BitsPerSample = 24, int BitRate = 192000)
+public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate, int BitsPerSample = 24,
+    int BitRate = 192000, string? FFmpegPath = null)
 {
     public static IReadOnlyList<int> SampleRates { get; } = Array.AsReadOnly(new[] { 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000 });
 
     public bool IsWave => Codec is AudioExportCodec.PcmWave or AudioExportCodec.FloatWave;
+    public bool IsLossless => IsWave || Codec == AudioExportCodec.Flac;
+    public bool UsesFFmpeg => Codec is AudioExportCodec.Flac or AudioExportCodec.Opus;
 
     public string Extension => Codec switch
     {
         AudioExportCodec.PcmWave or AudioExportCodec.FloatWave => ".wav",
         AudioExportCodec.Mp3 => ".mp3",
         AudioExportCodec.Aac => ".m4a",
+        AudioExportCodec.Flac => ".flac",
+        AudioExportCodec.Opus => ".opus",
         _ => throw new ArgumentOutOfRangeException(nameof(Codec)),
     };
 
     public void Validate()
     {
         if (!Enum.IsDefined(Codec) || !SampleRates.Contains(SampleRate) ||
-            (!IsWave && SampleRate is not (44100 or 48000)) ||
+            (!IsLossless && SampleRate is not (44100 or 48000)) ||
+            (Codec == AudioExportCodec.Opus && SampleRate != 48000) ||
             (Codec == AudioExportCodec.PcmWave && BitsPerSample is not (16 or 24 or 32)) ||
             (Codec == AudioExportCodec.FloatWave && BitsPerSample != 32) ||
-            (!IsWave && BitRate is not (128000 or 160000 or 192000 or 256000 or 320000)))
+            (Codec == AudioExportCodec.Flac && BitsPerSample is not (16 or 24)) ||
+            (!IsLossless && BitRate is not (128000 or 160000 or 192000 or 256000 or 320000)) ||
+            (UsesFFmpeg && (string.IsNullOrWhiteSpace(FFmpegPath) || !Path.IsPathFullyQualified(FFmpegPath))))
         {
-            throw new ArgumentException("Unsupported audio export settings. Lossy formats require 44.1 or 48 kHz and 128–320 kbps.");
+            throw new ArgumentException("Unsupported audio export settings. FLAC requires 16/24-bit PCM; Opus requires 48 kHz. FLAC/Opus require an absolute path to a local FFmpeg executable. Lossy formats use 128–320 kbps.");
         }
     }
 }
@@ -56,12 +66,16 @@ public static class AudioExporter
         var warnings = mixer.Warnings.ToList();
         ISampleProvider source = new FiniteMix(mixer, cancellationToken);
         AudioChannelLayout layout = mixer.Layout;
-        if (!settings.IsWave && source.WaveFormat.Channels > 2)
+        if (!settings.IsLossless && source.WaveFormat.Channels > 2)
         {
             source = new ChannelMixingSampleProvider(source,
                 AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
             layout = AudioChannelLayout.Stereo;
             warnings.Add("The compressed audio file contains a stereo downmix. Use WAV to preserve the full channel layout.");
+        }
+        if (settings.Codec == AudioExportCodec.Flac && source.WaveFormat.Channels > 8)
+        {
+            throw new InvalidOperationException("FLAC supports at most 8 channels. Choose WAV to preserve this project layout.");
         }
 
         bool completed = false;
@@ -98,13 +112,17 @@ public static class AudioExporter
                     progress?.Report(1 - remaining / (double)(frames * info.ChannelCount));
                 }
             }
+            else if (settings.UsesFFmpeg)
+            {
+                FFmpegAudioEncoder.Encode(source, layout, mixer.DurationSeconds, settings, path, progress, cancellationToken);
+            }
             else
             {
                 var provider = new SampleToWaveProvider16(source);
                 AudioEncoderCapabilities.EncodeExact(provider, path, settings, () => outputStarted = true);
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
+            if (!settings.UsesFFmpeg) cancellationToken.ThrowIfCancellationRequested();
             completed = true;
             progress?.Report(1);
             return new(settings.SampleRate, source.WaveFormat.Channels, warnings);

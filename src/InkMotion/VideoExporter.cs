@@ -14,7 +14,9 @@ public sealed record VideoExportRequest(
     bool PreferHardware = true,
     double Quality = 0.5,
     int AudioSampleRate = ExportPlanning.AudioSampleRate,
-    int AudioBitRate = 192000);
+    int AudioBitRate = 192000,
+    FFmpegVideoSettings? FFmpeg = null,
+    string? CheckpointDirectory = null);
 
 public sealed record VideoExportProgress(int Frame, int FrameCount, string Stage)
 {
@@ -28,7 +30,8 @@ public sealed record VideoExportResult(
     double DurationSeconds,
     bool HardwareTransformsEnabled,
     IReadOnlyList<string> Warnings,
-    int AudioChannels = 0);
+    int AudioChannels = 0,
+    string? EncoderName = null);
 
 /// <summary>
 /// Renders the project frame by frame on the GPU with Win2D and encodes it to MP4 with Media Foundation.
@@ -48,6 +51,10 @@ public static class VideoExporter
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.FFmpeg is not null)
+        {
+            return FFmpegVideoExporter.Export(request, progress, cancellationToken);
+        }
         EditorProject project = request.Project;
         ExportPlanning.ValidateEmbeddedAudio(request.AudioSampleRate, request.AudioBitRate);
         ExportPlanning.ValidateOutputPath(project, request.OutputPath);
@@ -271,7 +278,7 @@ public static class VideoExporter
     }
 
     /// <summary>Owns the GPU render target, the decoders for clips on screen and cached still images.</summary>
-    private sealed class FrameRenderer : IDisposable
+    internal sealed class FrameRenderer : IDisposable
     {
         private readonly CanvasDevice _device;
         private readonly EditorProject _project;

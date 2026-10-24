@@ -92,11 +92,13 @@ public static class ExportJobWorker
                 {
                     ExportVideoSettings video = request.Video!;
                     VideoExportResult result = VideoExporter.Export(new(project, video.Profile, video.Codec, request.OutputPath,
-                        video.InkReferenceHeight, video.PreferHardware, video.Quality, video.AudioSampleRate, video.AudioBitRate),
+                        video.InkReferenceHeight, video.PreferHardware, video.Quality, video.AudioSampleRate, video.AudioBitRate,
+                        video.FFmpeg, video.FFmpeg is null ? null :
+                            Path.Combine(store.JobDirectory(video.CheckpointKey ?? id), "segments")),
                         new InlineProgress<VideoExportProgress>(update => Report(update.Fraction,
                             $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0}")), cancellation.Token);
                     summary = $"Exported {result.DurationSeconds:0.0} s · " +
-                        (result.HardwareTransformsEnabled
+                        (result.EncoderName is not null ? $"encoder: {result.EncoderName}" : result.HardwareTransformsEnabled
                             ? "hardware transforms preferred (encoder hardware use unverified)"
                             : "hardware transforms not requested (encoder hardware use unverified)");
                     warnings = result.Warnings;

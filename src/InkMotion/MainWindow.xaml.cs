@@ -83,6 +83,7 @@ public sealed partial class MainWindow : Window
         UpdateAudioExportOptions();
         InitialiseExportJobs();
         InitialiseEditorLayout();
+        InitialiseFFmpegPreference();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];

@@ -13,6 +13,123 @@ public sealed partial class MainWindow
     private bool _checkingAudioEncoders;
     private bool _checkingVideoEncoders;
     private bool _measuringVideoPerformance;
+    private bool _checkingFFmpeg;
+    private FFmpegAudioCapabilities? _ffmpegCapabilities;
+    private readonly string _ffmpegPreferencePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "InkMotion", "ffmpeg-path.txt");
+
+    private void InitialiseFFmpegPreference()
+    {
+        try
+        {
+            if (File.Exists(_ffmpegPreferencePath))
+                FFmpegPathBox.Text = File.ReadAllText(_ffmpegPreferencePath).Trim();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FFmpegCapabilitiesText.Text = $"Could not restore optional encoder preference: {ex.Message}";
+        }
+    }
+
+    private void FFmpegVideoOptions_Changed(object sender, SelectionChangedEventArgs e) => UpdateFFmpegVideoOptions();
+
+    private void UpdateFFmpegVideoOptions()
+    {
+        if (VideoAudioRateSelector is null || VideoAudioBitRateSelector is null ||
+            VideoAudioDepthSelector is null || ExportHardwareToggle is null ||
+            MatroskaExportOption is null || VideoPcmOption is null || VideoFlacOption is null || VideoOpusOption is null)
+            return;
+        bool ffmpeg = VideoBackendSelector.SelectedIndex > 0;
+        MatroskaExportOption.IsEnabled = ffmpeg;
+        ExportHardwareToggle.IsEnabled = !ffmpeg;
+        if (!ffmpeg) VideoContainerSelector.SelectedIndex = 0;
+        bool matroska = ffmpeg && VideoContainerSelector.SelectedIndex == 1;
+        VideoPcmOption.IsEnabled = matroska;
+        VideoFlacOption.IsEnabled = matroska && _ffmpegCapabilities?.Flac == true;
+        VideoOpusOption.IsEnabled = matroska && _ffmpegCapabilities?.Opus == true;
+        if (!matroska) VideoAudioCodecSelector.SelectedIndex = 0;
+        int codec = VideoAudioCodecSelector.SelectedIndex;
+        bool lossless = codec is 1 or 2;
+        VideoAudioDepthSelector.IsEnabled = lossless;
+        VideoAudioBitRateSelector.IsEnabled = !lossless;
+        for (int i = 0; i < VideoAudioRateSelector.Items.Count; i++)
+            ((ComboBoxItem)VideoAudioRateSelector.Items[i]).IsEnabled = lossless || i == 1 || (i == 0 && codec != 3);
+        if (VideoAudioRateSelector.SelectedItem is not ComboBoxItem { IsEnabled: true })
+            VideoAudioRateSelector.SelectedIndex = 1;
+    }
+
+    private FFmpegVideoSettings? GetFFmpegVideoSettings()
+    {
+        if (VideoBackendSelector.SelectedIndex <= 0) return null;
+        string path = FFmpegPathBox.Text.Trim();
+        if (_ffmpegCapabilities is null ||
+            !string.Equals(path, _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Select a local FFmpeg executable and check its capabilities first.");
+        return new(path, (FFmpegVideoEncoder)(VideoBackendSelector.SelectedIndex - 1),
+            (FFmpegVideoContainer)VideoContainerSelector.SelectedIndex,
+            (FFmpegVideoAudioCodec)VideoAudioCodecSelector.SelectedIndex,
+            VideoAudioDepthSelector.SelectedIndex == 0 ? 16 : 24);
+    }
+
+    private async void ChooseFFmpeg_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".exe");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSingleFileAsync();
+        if (file is not null)
+        {
+            FFmpegPathBox.Text = file.Path;
+            CheckFFmpeg_Click(sender, e);
+        }
+    }
+
+    private async void CheckFFmpeg_Click(object sender, RoutedEventArgs e)
+    {
+        if (_checkingFFmpeg) return;
+        _checkingFFmpeg = true;
+        CheckFFmpegButton.IsEnabled = false;
+        ChooseFFmpegButton.IsEnabled = false;
+        FlacExportOption.IsEnabled = false;
+        OpusExportOption.IsEnabled = false;
+        _ffmpegCapabilities = null;
+        UpdateFFmpegVideoOptions();
+        FFmpegCapabilitiesText.Text = "Checking the selected local FFmpeg executable...";
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            string path = FFmpegPathBox.Text.Trim();
+            _ffmpegCapabilities = await Task.Run(() => FFmpegAudioEncoder.Discover(path, timeout.Token));
+            FlacExportOption.IsEnabled = _ffmpegCapabilities.Flac;
+            OpusExportOption.IsEnabled = _ffmpegCapabilities.Opus;
+            UpdateFFmpegVideoOptions();
+            FFmpegCapabilitiesText.Text = $"{_ffmpegCapabilities.Version}\n" +
+                $"FLAC: {(_ffmpegCapabilities.Flac ? "available" : "unavailable")} | " +
+                $"Opus (libopus): {(_ffmpegCapabilities.Opus ? "available" : "unavailable")}\n" +
+                "Build availability is not an encode guarantee. Each export checks the encoder and fails explicitly if the selected format is unsupported. Licensing depends on your FFmpeg build; InkMotion does not redistribute it.";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_ffmpegPreferencePath)!);
+                File.WriteAllText(_ffmpegPreferencePath, _ffmpegCapabilities.ExecutablePath);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FFmpegCapabilitiesText.Text += $"\nCould not save the optional encoder path: {ex.Message}";
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or
+            System.ComponentModel.Win32Exception or OperationCanceledException or ArgumentException)
+        {
+            if (AudioExportCodecSelector.SelectedIndex >= 4) AudioExportCodecSelector.SelectedIndex = 0;
+            FFmpegCapabilitiesText.Text = $"Could not check FFmpeg: {ex.Message}";
+        }
+        finally
+        {
+            _checkingFFmpeg = false;
+            CheckFFmpegButton.IsEnabled = true;
+            ChooseFFmpegButton.IsEnabled = true;
+        }
+    }
 
     private async void CheckVideoEncoders_Click(object sender, RoutedEventArgs e)
     {
@@ -28,6 +145,21 @@ public sealed partial class MainWindow
         VideoEncoderCapabilitiesText.Text = "Encoding one-frame software probes for H.264/HEVC at 720p–4K and common 24–120 fps rates. No user files are changed.";
         try
         {
+            if (VideoBackendSelector.SelectedIndex > 0)
+            {
+                FFmpegVideoSettings settings = GetFFmpegVideoSettings()!;
+                if (ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
+                    !Enum.TryParse(resolutionName, out ExportResolution resolution))
+                    throw new InvalidOperationException("Choose a video resolution.");
+                var request = new VideoExportRequest(new(), VideoExportProfile.Create(resolution, GetExportFrameRate()),
+                    GetSelectedExportCodec(), "", 720, FFmpeg: settings);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                string encoder = await Task.Run(() => FFmpegVideoExporter.Probe(request, timeout.Token));
+                VideoEncoderCapabilitiesText.Text = $"Selected encoder {encoder} successfully encoded and finalised a frame at " +
+                    $"{request.Profile.Width}×{request.Profile.Height}, {request.Profile.FrameRate:0.###} fps. " +
+                    "No fallback was permitted. This checks this PC and selected profile, not sustained performance or other devices.";
+                return;
+            }
             IReadOnlyList<VideoExportCapability> capabilities =
                 await Task.Run(VideoExportCapabilities.DiscoverSoftwareCapabilities);
             VideoEncoderCapabilitiesText.Text = string.Join(
@@ -41,7 +173,8 @@ public sealed partial class MainWindow
                 Environment.NewLine +
                 "This checks real software encode/finalise support for these profiles on this PC. It does not certify GPU encoder use or sustained-speed/resolution performance.";
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or
+            ArgumentException or System.ComponentModel.Win32Exception or OperationCanceledException)
         {
             VideoEncoderCapabilitiesText.Text = $"Could not run video encoder capability probes: {ex.Message}";
         }
@@ -113,18 +246,25 @@ public sealed partial class MainWindow
             VideoExportProfile profile = VideoExportProfile.Create(resolution, GetExportFrameRate());
             VideoExportCodec codec = GetSelectedExportCodec();
             bool preferHardware = ExportHardwareToggle.IsOn;
-            VideoExportPerformance result = await Task.Run(() =>
-                VideoExportCapabilities.MeasureProfilePerformance(profile, codec, preferHardware));
+            FFmpegVideoSettings? ffmpeg = GetFFmpegVideoSettings();
+            double quality = ExportQualitySlider.Value / 100;
+            VideoExportPerformance result = ffmpeg is null ? await Task.Run(() =>
+                VideoExportCapabilities.MeasureProfilePerformance(profile, codec, preferHardware)) :
+                await Task.Run(() => FFmpegVideoExporter.Measure(new(new(), profile, codec, "", 720,
+                    Quality: quality, FFmpeg: ffmpeg)));
             VideoEncoderCapabilitiesText.Text =
                 $"Synthetic sample: {result.FrameCount} frames at {profile.Width}×{profile.Height}, " +
                 $"{profile.FrameRate:0.###} fps, {ExportPlanning.CodecName(codec)}. " +
                 $"Encoded in {result.ElapsedSeconds:0.00}s ({result.FramesPerSecond:0.0} fps); " +
                 $"{result.OutputBytes / 1_000_000d:0.0} MB. " +
-                $"Hardware-transform preference {(result.HardwareTransformsPreferred ? "enabled" : "disabled")}. " +
-                "Performance is this run's synthetic result; Media Foundation does not identify or certify the actual encoder hardware.";
+                (ffmpeg is null ? $"Hardware-transform preference {(result.HardwareTransformsPreferred ? "enabled" : "disabled")}. " +
+                    "Media Foundation does not identify the actual encoder hardware." :
+                    $"Encoder: {ffmpeg.EncoderName(codec)} (no fallback).") +
+                " Performance is this run's synthetic result, not broad device certification.";
         }
         catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException or
-            NotSupportedException or IOException or ArgumentException or OverflowException)
+            NotSupportedException or IOException or ArgumentException or OverflowException or
+            System.ComponentModel.Win32Exception or OperationCanceledException)
         {
             VideoEncoderCapabilitiesText.Text = $"Could not measure the selected video profile: {ex.Message}";
         }
@@ -153,12 +293,16 @@ public sealed partial class MainWindow
         }
 
         bool wave = AudioExportCodecSelector.SelectedIndex < 2;
+        bool flac = AudioExportCodecSelector.SelectedIndex == (int)AudioExportCodec.Flac;
+        bool opus = AudioExportCodecSelector.SelectedIndex == (int)AudioExportCodec.Opus;
         bool floatingPoint = AudioExportCodecSelector.SelectedIndex == 1;
-        AudioExportRateSelector.ItemsSource = wave ? AudioExportSettings.SampleRates : new[] { 44100, 48000 };
+        AudioExportRateSelector.ItemsSource = wave || flac ? AudioExportSettings.SampleRates :
+            opus ? new[] { 48000 } : new[] { 44100, 48000 };
         AudioExportRateSelector.SelectedItem = 48000;
-        AudioExportDepthSelector.IsEnabled = wave && !floatingPoint;
+        AudioExportDepthSelector.IsEnabled = (wave && !floatingPoint) || flac;
+        ((ComboBoxItem)AudioExportDepthSelector.Items[2]).IsEnabled = !flac;
         AudioExportDepthSelector.SelectedIndex = floatingPoint ? 2 : 1;
-        AudioExportBitRateSelector.IsEnabled = !wave;
+        AudioExportBitRateSelector.IsEnabled = !wave && !flac;
     }
 
     private async void ExportAudio_Click(object sender, RoutedEventArgs e)
@@ -181,7 +325,14 @@ public sealed partial class MainWindow
         }
 
         var settings = new AudioExportSettings((AudioExportCodec)AudioExportCodecSelector.SelectedIndex, rate,
-            int.Parse(depth), int.Parse(bitRate));
+            int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim());
+        if (settings.UsesFFmpeg && (_ffmpegCapabilities is null ||
+            !string.Equals(settings.FFmpegPath, _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Check the selected FFmpeg executable's capabilities before exporting FLAC or Opus.";
+            return;
+        }
         var picker = new FileSavePicker
         {
             SuggestedFileName = _projectFile is null ? "Untitled mix" : Path.GetFileNameWithoutExtension(_projectFile.Name),
@@ -235,16 +386,29 @@ public sealed partial class MainWindow
             VideoAudioBitRateSelector.SelectedItem is not ComboBoxItem { Tag: string audioBitRate })
         {
             ExportStatusText.Visibility = Visibility.Visible;
-            ExportStatusText.Text = "Choose the MP4 AAC sample rate and bit rate.";
+            ExportStatusText.Text = "Choose the embedded audio sample rate and bit rate.";
             return;
         }
 
+        FFmpegVideoSettings? ffmpeg;
+        try
+        {
+            ffmpeg = GetFFmpegVideoSettings();
+            ffmpeg?.Validate(int.Parse(audioRate));
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = ex.Message;
+            return;
+        }
+        string extension = ffmpeg?.Extension ?? ".mp4";
         var picker = new FileSavePicker
         {
             SuggestedFileName = _projectFile is null ? "Untitled" : Path.GetFileNameWithoutExtension(_projectFile.Name),
-            DefaultFileExtension = ".mp4",
+            DefaultFileExtension = extension,
         };
-        picker.FileTypeChoices.Add("MPEG-4 video", [".mp4"]);
+        picker.FileTypeChoices.Add(extension == ".mp4" ? "MPEG-4 video" : "Matroska video", [extension]);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null)
@@ -259,7 +423,7 @@ public sealed partial class MainWindow
             ExportHardwareToggle.IsOn,
             ExportQualitySlider.Value / 100,
             int.Parse(audioRate),
-            int.Parse(audioBitRate));
+            int.Parse(audioBitRate), ffmpeg);
         await SubmitExportJobAsync(CreateProjectSnapshot(), file.Path, null, settings);
     }
 
@@ -294,9 +458,13 @@ public sealed partial class MainWindow
         ExportCodecSelector.IsEnabled = canSubmit;
         ExportFrameRateBox.IsEnabled = canSubmit;
         ExportHardwareToggle.IsEnabled = canSubmit;
+        VideoBackendSelector.IsEnabled = canSubmit;
+        VideoContainerSelector.IsEnabled = canSubmit;
+        VideoAudioCodecSelector.IsEnabled = canSubmit;
         ExportQualitySlider.IsEnabled = canSubmit;
         VideoAudioRateSelector.IsEnabled = canSubmit;
         VideoAudioBitRateSelector.IsEnabled = canSubmit;
+        if (canSubmit) UpdateFFmpegVideoOptions();
         CheckAudioEncodersButton.IsEnabled = canSubmit && !_hasActiveExports &&
             !_checkingAudioEncoders && !_checkingVideoEncoders;
         CheckVideoEncodersButton.IsEnabled = canSubmit && !_hasActiveExports &&
