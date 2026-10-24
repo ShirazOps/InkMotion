@@ -1664,6 +1664,18 @@ public sealed partial class MainWindow
             }
         }
 
+        if (track.Kind == TimelineTrackKind.Text)
+        {
+            foreach (VideoTransformKeyframe key in clip.TransformKeyframes)
+            {
+                float keyX = (float)(((clip.StartFrame - 1d + key.FrameOffset) / _frameRate) * _timelinePixelsPerSecond);
+                if (keyX >= left - 4 && keyX <= right + 4)
+                {
+                    session.FillCircle(keyX, top + 9, 4, Color.FromArgb(255, 0x5A, 0xB4, 0xFF));
+                }
+            }
+        }
+
         if (track.Kind == TimelineTrackKind.Video && clip.TransitionInSeconds > 0)
         {
             float transitionWidth = (float)(clip.TransitionInSeconds * _timelinePixelsPerSecond);
@@ -1937,6 +1949,19 @@ public sealed partial class MainWindow
         bool nearEnd = endDistance <= handleTolerance;
         int clickedClipFrame = VideoMaskShapeKeyframes.GetFrameOffset(location.Clip, seconds, _frameRate);
         int keyToleranceFrames = Math.Max(1, (int)Math.Ceiling(7 / _timelinePixelsPerSecond * _frameRate));
+        if (_timelineToolMode == TimelineToolMode.Select && track.Kind == TimelineTrackKind.Text &&
+            Math.Abs(point.Position.Y - (LaneTop(index) + 9)) <= 7)
+        {
+            VideoTransformKeyframe? motionKey = location.Clip.TransformKeyframes
+                .Where(key => Math.Abs(key.FrameOffset - clickedClipFrame) <= keyToleranceFrames)
+                .MinBy(key => Math.Abs(key.FrameOffset - clickedClipFrame));
+            if (motionKey is not null)
+            {
+                RefreshVideoTrackHeaders();
+                MoveTimelinePlayhead(((location.Clip.StartFrame - 1d) + motionKey.FrameOffset) / _frameRate);
+                return;
+            }
+        }
         int? clickedMaskKey = VideoMaskTimelineKeyframes.FindNearestFrame(
             location.Clip, clickedClipFrame, keyToleranceFrames);
         if (_timelineToolMode == TimelineToolMode.Select && !nearStart && !nearEnd && clickedMaskKey is int maskFrame)
@@ -3114,6 +3139,16 @@ public sealed partial class MainWindow
             TransformKeyframeStateText.Text = clip.TransformKeyframes.Count == 0
                 ? "No transform keyframes. Add one to animate this clip."
                 : $"{clip.TransformKeyframes.Count} transform keyframe(s); playhead frame {frameOffset + 1}.";
+            SetTitleMotionKeyframeButton.IsEnabled = playheadInside && !location.Track.IsLocked;
+            RemoveTitleMotionKeyframeButton.IsEnabled = RemoveTransformKeyframeButton.IsEnabled && !location.Track.IsLocked;
+            PreviousTitleMotionKeyframeButton.IsEnabled = PreviousTransformKeyframeButton.IsEnabled;
+            NextTitleMotionKeyframeButton.IsEnabled = NextTransformKeyframeButton.IsEnabled;
+            TitleMotionStateText.Text = !playheadInside
+                ? "Move the playhead inside this title to set a motion keyframe."
+                : clip.TransformKeyframes.Count == 0
+                    ? "Static title. Set the first pose to start animating."
+                    : $"{clip.TransformKeyframes.Count} motion pose(s). Clip frame {frameOffset + 1}" +
+                        (VideoTransformKeyframes.IsKeyframeAt(clip, frameOffset) ? " is a keyframe." : " is between keyframes.");
         }
         _isRestoringProject = wasRestoring;
     }
@@ -4122,7 +4157,7 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, _playheadFramePosition / _frameRate, _frameRate);
         bool set = VideoTransformKeyframes.TrySetAtFrame(selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
         if (set)
         {
@@ -4931,7 +4966,7 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, _playheadFramePosition / _frameRate, _frameRate);
         bool removed = VideoTransformKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
         if (removed)
         {
@@ -4954,7 +4989,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int frameOffset = VideoTransformKeyframes.GetFrameOffset(selected.Clip, _playheadFramePosition / _frameRate, _frameRate);
         int? target = VideoTransformKeyframes.FindAdjacentFrame(selected.Clip, frameOffset, next: direction == "next");
         if (target is null)
         {

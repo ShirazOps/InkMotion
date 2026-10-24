@@ -1276,8 +1276,7 @@ public static class VideoTimelineEditing
             IsUnit(clip.X) &&
             IsUnit(clip.Y) &&
             double.IsFinite(clip.RotationDegrees) &&
-            clip.RotationDegrees is >= -180 and <= 180 &&
-            (kind is TimelineTrackKind.Image or TimelineTrackKind.Video || clip.RotationDegrees == 0);
+            clip.RotationDegrees is >= -180 and <= 180;
         if (!common)
         {
             return false;
