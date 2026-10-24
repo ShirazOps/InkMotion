@@ -57,6 +57,7 @@ public sealed partial class ScreenRecorderWindow
             var drive = new DriveInfo(Path.GetPathRoot(ScreenRecordingStore.Root)!);
             if (drive.AvailableFreeSpace < 1024L * 1024 * 1024)
                 throw new IOException("At least 1 GiB of free recording storage is required.");
+            CloseAreaOutlines();
             _busy = true;
             _captureError = null;
             _completedProjectPath = null;

@@ -6,6 +6,21 @@ namespace InkMotion.Tests;
 public sealed class ScreenRecordingTests
 {
     [Fact]
+    public void SelectionResize_TransformsFreeformPointsAndKeepsCroppedBounds()
+    {
+        ScreenRegion original = ScreenRegion.Freeform([new(-100, 20), new(100, 20), new(0, 180)]);
+        ScreenRegion resized = original.ResizeTo(new(-300, -200, 400, 80));
+        Assert.Equal(new ScreenPoint[] { new(-300, -200), new(100, -200), new(-100, -120) }, resized.Polygon);
+        Assert.Equal(new ScreenPoint(-100, 20), original.Polygon![0]);
+        ScreenCapturePlan plan = ScreenCapturePlan.Create([resized], [new(-400, -300, 800, 600)], 1920, 30);
+        Assert.Equal(new(-300, -200, 400, 80), plan.Bounds);
+        Assert.Equal(400, plan.Width);
+        Assert.Equal(80, plan.Height);
+        Assert.Null(new ScreenRegion(0, 0, 100, 100).ResizeTo(new(10, 20, 200, 300)).Polygon);
+        Assert.Throws<ArgumentException>(() => original.ResizeTo(new(0, 0, 1, 100)));
+    }
+
+    [Fact]
     public void Freeform_NativeCaptureMaskExcludesOutsidePixelsWithoutCapturingDesktop()
     {
         var display = DesktopRecordingFrames.Displays()[0].Bounds;
