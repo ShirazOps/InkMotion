@@ -27,6 +27,8 @@ public sealed class VideoClipVolumeKeyframesTests
         Assert.Equal(0.6, ExportPlanning.GetVideoClipAudioGain(clip, 1, default, FrameRate), 6);
         Assert.Equal(0.4, ExportPlanning.GetVideoClipAudioGain(clip, 2, default, FrameRate), 6);
         Assert.Equal(0, ExportPlanning.GetVideoClipAudioGain(clip, 3, default, FrameRate), 6);
+        Assert.Equal(48, VideoClipVolumeKeyframes.FindAdjacentFrame(clip, 24, next: true));
+        Assert.Equal(0, VideoClipVolumeKeyframes.FindAdjacentFrame(clip, 24, next: false));
     }
 
     [Fact]

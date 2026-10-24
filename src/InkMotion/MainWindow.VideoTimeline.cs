@@ -2745,6 +2745,10 @@ public sealed partial class MainWindow
         ClipVolumeSlider.Maximum = clip.VolumeKeyframes.Count == 0 ? 1 : clip.Volume;
         ClipVolumeSlider.Value = VideoClipVolumeKeyframes.GetVolumeAtTime(clip, opacitySeconds, _frameRate);
         ClipVolumeSlider.IsEnabled = clip.VolumeKeyframes.Count == 0 || volumePlayheadInside;
+        PreviousClipVolumeKeyframeButton.IsEnabled =
+            VideoClipVolumeKeyframes.FindAdjacentFrame(clip, volumeFrameOffset, next: false) is not null;
+        NextClipVolumeKeyframeButton.IsEnabled =
+            VideoClipVolumeKeyframes.FindAdjacentFrame(clip, volumeFrameOffset, next: true) is not null;
         SetClipVolumeKeyframeButton.IsEnabled = volumePlayheadInside && isVideo && !location.Track.IsLocked;
         RemoveClipVolumeKeyframeButton.IsEnabled = volumePlayheadInside && isVideo && !location.Track.IsLocked &&
             VideoClipVolumeKeyframes.IsKeyframeAt(clip, volumeFrameOffset);
@@ -4107,6 +4111,28 @@ public sealed partial class MainWindow
         StatusText.Text = set
             ? $"Volume keyframe set at clip frame {frameOffset + 1}."
             : "Move the playhead inside the selected video clip to add a volume keyframe.";
+    }
+
+    private void NavigateClipVolumeKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            sender is not Button { Tag: string direction })
+        {
+            return;
+        }
+
+        int frameOffset = VideoClipVolumeKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int? target = VideoClipVolumeKeyframes.FindAdjacentFrame(
+            selected.Clip, frameOffset, next: direction == "next");
+        if (target is null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
     }
 
     private void RemoveClipVolumeKeyframe_Click(object sender, RoutedEventArgs e)

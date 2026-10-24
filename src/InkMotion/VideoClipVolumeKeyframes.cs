@@ -108,6 +108,25 @@ public static class VideoClipVolumeKeyframes
     public static bool IsKeyframeAt(TimelineClipProject clip, int frameOffset) =>
         clip.VolumeKeyframes.Any(key => key.FrameOffset == frameOffset);
 
+    public static int? FindAdjacentFrame(TimelineClipProject clip, int frameOffset, bool next)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        int? result = null;
+        foreach (VideoClipVolumeKeyframe key in clip.VolumeKeyframes)
+        {
+            if (next && key.FrameOffset > frameOffset && (result is null || key.FrameOffset < result))
+            {
+                result = key.FrameOffset;
+            }
+            else if (!next && key.FrameOffset < frameOffset && (result is null || key.FrameOffset > result))
+            {
+                result = key.FrameOffset;
+            }
+        }
+
+        return result;
+    }
+
     public static void Split(TimelineClipProject left, TimelineClipProject right, int splitFrameOffset)
     {
         if (left.VolumeKeyframes.Count == 0)
