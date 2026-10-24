@@ -291,10 +291,11 @@ public static class VideoClipMask
     {
         VideoMaskValue mask = GetValue(clip, clipFrameOffset);
         double feather = VideoMaskFeatherKeyframes.GetValue(clip, clipFrameOffset);
+        bool inverted = VideoMaskInversionKeyframes.GetValue(clip, clipFrameOffset);
         if (feather <= 0)
         {
             using CanvasGeometry geometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
-            if (clip.MaskInverted)
+            if (inverted)
             {
                 using CanvasGeometry bounds = CanvasGeometry.CreateRectangle(session, new Rect(0, 0, width, height));
                 using CanvasGeometry outside = bounds.CombineWith(
@@ -314,7 +315,7 @@ public static class VideoClipMask
         double featherY = Math.Min(feather * Math.Min(width, height) / height, mask.Height * 0.49);
         VideoMaskValue previousMask = mask;
         using CanvasGeometry outerGeometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
-        if (clip.MaskInverted)
+        if (inverted)
         {
             using CanvasGeometry bounds = CanvasGeometry.CreateRectangle(session, new Rect(0, 0, width, height));
             using CanvasGeometry outside = bounds.CombineWith(
@@ -334,12 +335,13 @@ public static class VideoClipMask
             using CanvasGeometry previousGeometry = CreateGeometry(session, clip.MaskShape, previousMask, width, height);
             using CanvasGeometry band = previousGeometry.CombineWith(
                 innerGeometry, Matrix3x2.Identity, CanvasGeometryCombine.Exclude);
-            float bandOpacity = opacity * (float)((step + 0.5) / featherSteps);
+            double bandAmount = (step + 0.5) / featherSteps;
+            float bandOpacity = opacity * (float)(inverted ? 1 - bandAmount : bandAmount);
             DrawInLayer(session, band, image, destination, sourceRect, bandOpacity);
             previousMask = innerMask;
         }
 
-        if (!clip.MaskInverted)
+        if (!inverted)
         {
             using CanvasGeometry centre = CreateGeometry(session, clip.MaskShape, previousMask, width, height);
             DrawInLayer(session, centre, image, destination, sourceRect, opacity);

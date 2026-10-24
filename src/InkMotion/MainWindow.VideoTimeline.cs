@@ -2816,7 +2816,18 @@ public sealed partial class MainWindow
         ClipMaskShapeSelector.SelectedItem = ClipMaskShapeSelector.Items.OfType<ComboBoxItem>()
             .FirstOrDefault(item => item.Tag is string tag &&
                 Enum.TryParse(tag, out VideoMaskShape shape) && shape == clip.MaskShape);
-        ClipMaskInvertedCheck.IsChecked = clip.MaskInverted;
+        int maskInversionFrameOffset = VideoMaskInversionKeyframes.GetFrameOffset(
+            clip, opacitySeconds, _frameRate);
+        ClipMaskInvertedCheck.IsChecked = VideoMaskInversionKeyframes.GetValue(
+            clip, maskInversionFrameOffset);
+        bool maskInversionPlayheadInside = VideoMaskInversionKeyframes.CanSetAtFrame(
+            clip, kind, maskInversionFrameOffset, _frameRate);
+        SetMaskInversionKeyframeButton.IsEnabled = maskInversionPlayheadInside && !location.Track.IsLocked;
+        RemoveMaskInversionKeyframeButton.IsEnabled = maskInversionPlayheadInside && !location.Track.IsLocked &&
+            VideoMaskInversionKeyframes.IsKeyframeAt(clip, maskInversionFrameOffset);
+        MaskInversionKeyframeStateText.Text = clip.MaskInversionKeyframes.Count == 0
+            ? "Mask inversion applies to the whole clip."
+            : $"{clip.MaskInversionKeyframes.Count} inversion keyframe(s); state holds until the next key.";
         VideoMaskValue mask = VideoClipMask.GetValue(
             clip,
             VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate));
@@ -4599,15 +4610,27 @@ public sealed partial class MainWindow
         var newMask = new VideoMaskValue(
             ClipMaskXBox.Value, ClipMaskYBox.Value, ClipMaskWidthBox.Value, ClipMaskHeightBox.Value);
         bool inverted = ClipMaskInvertedCheck.IsChecked == true;
+        bool currentInverted = VideoMaskInversionKeyframes.GetValue(clip, currentFrameOffset);
         if (clip.MaskShape == shape && currentMask == newMask &&
-            clip.MaskInverted == inverted)
+            currentInverted == inverted)
         {
             CommitEdit();
             return;
         }
 
         clip.MaskShape = shape;
-        clip.MaskInverted = inverted;
+        if (clip.MaskInversionKeyframes.Count == 0)
+        {
+            clip.MaskInverted = inverted;
+        }
+        else if (currentInverted != inverted &&
+            !VideoMaskInversionKeyframes.SetValueAtTime(
+                clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, inverted))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated mask inversion.";
+            return;
+        }
         if (shape != VideoMaskShape.None && clip.MaskKeyframes.Count > 0)
         {
             VideoClipMask.SetKeyframe(clip, location.Track.Kind, currentFrameOffset, _frameRate, newMask);
@@ -4730,6 +4753,61 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Mask keyframe removed." : "There is no mask keyframe at the playhead.";
+    }
+
+    private void SetMaskInversionKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoMaskInversionKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool added = VideoMaskInversionKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (added)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = added
+            ? $"Mask inversion keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a mask inversion keyframe.";
+    }
+
+    private void RemoveMaskInversionKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoMaskInversionKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoMaskInversionKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Mask inversion keyframe removed."
+            : "There is no mask inversion keyframe at the playhead.";
     }
 
     private void SetMaskFeatherKeyframe_Click(object sender, RoutedEventArgs e)

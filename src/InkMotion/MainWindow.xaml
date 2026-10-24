@@ -654,6 +654,11 @@
                                     <ComboBoxItem Content="Ellipse" Tag="Ellipse" />
                                 </ComboBox>
                                 <ToggleButton x:Name="ClipMaskInvertedCheck" Content="Invert mask" Click="ClipMaskSettings_Changed" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetMaskInversionKeyframeButton" Content="Add/update inversion keyframe" Click="SetMaskInversionKeyframe_Click" />
+                                    <Button x:Name="RemoveMaskInversionKeyframeButton" Content="Remove inversion keyframe" Click="RemoveMaskInversionKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="MaskInversionKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipMaskFeatherBox" Header="Mask feather (0-0.25 frame)" Minimum="0" Maximum="0.25" Value="0" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskFeather_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <Button x:Name="TrackMaskSubjectButton" Content="Track mask from playhead" Click="TrackMaskSubject_Click" />
                                 <Grid ColumnSpacing="6" RowSpacing="4">

@@ -122,6 +122,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove mask feather keyframes before joining; animated feather cannot be combined without changing its timing.");
         }
 
+        if (left.MaskInversionKeyframes.Count != 0 || right.MaskInversionKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove mask inversion keyframes before joining; animated inversion cannot be combined without changing its timing.");
+        }
+
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.CropLeftPercent != right.CropLeftPercent || left.CropTopPercent != right.CropTopPercent ||

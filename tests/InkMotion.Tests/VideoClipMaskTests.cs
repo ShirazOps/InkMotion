@@ -254,6 +254,199 @@ public sealed class VideoClipMaskTests
     }
 
     [Fact]
+    public void MaskInversionKeyframes_HoldPersistAndFollowTimelineEdits()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 6,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskInversionKeyframes =
+            [
+                new() { FrameOffset = 0, Inverted = false },
+                new() { FrameOffset = 72, Inverted = true },
+                new() { FrameOffset = 96, Inverted = false },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.False(VideoMaskInversionKeyframes.GetValue(clip, 71));
+        Assert.True(VideoMaskInversionKeyframes.GetValue(clip, 72));
+        Assert.True(VideoMaskInversionKeyframes.GetValue(clip, 95));
+        Assert.False(VideoMaskInversionKeyframes.GetValue(clip, 96));
+        Assert.True(VideoMaskInversionKeyframes.SetValueAtTime(
+            clip, track.Kind, 3.5, 24, false));
+        Assert.False(VideoMaskInversionKeyframes.GetValue(clip, 84));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 49, 24));
+        Assert.False(right.MaskInversionKeyframes[0].Inverted);
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 61, 24));
+        Assert.Equal(0, right.MaskInversionKeyframes[0].FrameOffset);
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 60);
+        Assert.Null(VideoTimelineEditing.Validate([track], 60));
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(new EditorProject { FrameRate = 60, VideoTracks = [track] }))
+            .VideoTracks).Clips, item => item.Id == clip.Id);
+        Assert.Equal(clip.MaskInversionKeyframes.Select(key => (key.FrameOffset, key.Inverted)),
+            VideoTimelineEditing.Clone(clip).MaskInversionKeyframes.Select(key => (key.FrameOffset, key.Inverted)));
+        Assert.Equal(clip.MaskInversionKeyframes.Select(key => (key.FrameOffset, key.Inverted)),
+            restored.MaskInversionKeyframes.Select(key => (key.FrameOffset, key.Inverted)));
+
+        TimelineClipProject still = new()
+        {
+            SourcePath = "still.png",
+            DurationSeconds = 4,
+            MaskShape = VideoMaskShape.Ellipse,
+            MaskInversionKeyframes =
+            [
+                new() { FrameOffset = 0, Inverted = false },
+                new() { FrameOffset = 72, Inverted = true },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [still] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, still, 2, 24));
+        Assert.Equal(47, still.MaskInversionKeyframes[^1].FrameOffset);
+        Assert.False(still.MaskInversionKeyframes[^1].Inverted);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
+
+        TimelineClipProject migrated = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            """{"Version":55,"VideoTracks":[{"Kind":"Video","Clips":[{"SourcePath":"scene.mp4","SourceDurationSeconds":2,"MaskInverted":true}]}],"Frames":[{"Number":1}],"SelectedFrameIndex":0}""").VideoTracks).Clips);
+        Assert.True(migrated.MaskInverted);
+        Assert.Empty(migrated.MaskInversionKeyframes);
+    }
+
+    [Fact]
+    public void MaskInversionKeyframes_PreserveOverwriteAndRejectJoins()
+    {
+        TimelineClipProject source = new()
+        {
+            Id = "source",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            MaskShape = VideoMaskShape.Ellipse,
+            MaskInversionKeyframes =
+            [
+                new() { FrameOffset = 0, Inverted = false },
+                new() { FrameOffset = 143, Inverted = true },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [source] };
+        TimelineClipProject replacement = new() { Id = "replacement", SourcePath = "new.mp4", SourceDurationSeconds = 2 };
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            track, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = track.Clips.Where(clip => clip.Id != replacement.Id).ToArray();
+        Assert.Equal(new[] { 0, 47 }, remainders[0].MaskInversionKeyframes.Select(key => key.FrameOffset));
+        Assert.False(remainders[0].MaskInversionKeyframes[^1].Inverted);
+        Assert.Equal(new[] { 0, 47 }, remainders[1].MaskInversionKeyframes.Select(key => key.FrameOffset));
+        Assert.True(remainders[1].MaskInversionKeyframes[^1].Inverted);
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject left = new()
+        {
+            SourcePath = @"C:\Media\source.mp4",
+            SourceOutSeconds = 2,
+            SourceDurationSeconds = 4,
+        };
+        TimelineTrackProject joinTrack = new() { Kind = TimelineTrackKind.Video, Clips = [left] };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(joinTrack, left, 25, 24));
+        right.MaskInversionKeyframes = [new() { FrameOffset = 0, Inverted = true }];
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => VideoClipJoining.Join(joinTrack, left, right, 24));
+        Assert.Contains("inversion", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Render_AnimatedMaskInversionReversesTheVisibleArea()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index + 2] = 255;
+            pixels[index + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 64, 64, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 64, 64, 96);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "red.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskWidth = 0.5,
+            MaskHeight = 0.5,
+            MaskInversionKeyframes =
+            [
+                new() { FrameOffset = 0, Inverted = false },
+                new() { FrameOffset = 23, Inverted = true },
+            ],
+        };
+
+        void Draw(int frameOffset)
+        {
+            using CanvasDrawingSession session = target.CreateDrawingSession();
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(session, source,
+                new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds, 1, clip, frameOffset, 64, 64);
+        }
+
+        Draw(0);
+        byte[] normal = target.GetPixelBytes();
+        Draw(23);
+        byte[] inverted = target.GetPixelBytes();
+        int centre = (32 * 64 + 32) * 4;
+        int corner = 4;
+        Assert.True(normal[centre + 2] > 245);
+        Assert.True(normal[corner] > 245);
+        Assert.True(inverted[centre] > 245);
+        Assert.True(inverted[corner + 2] > 245);
+    }
+
+    [Fact]
+    public void Render_FeatheredInvertedMaskFadesTowardItsInterior()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index + 2] = 255;
+            pixels[index + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 64, 64, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 64, 64, 96);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "red.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskWidth = 0.5,
+            MaskHeight = 0.5,
+            MaskFeather = 0.2,
+            MaskInversionKeyframes = [new() { FrameOffset = 0, Inverted = true }],
+        };
+
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(session, source,
+                new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds, 1, clip, 0, 64, 64);
+        }
+
+        byte[] rendered = target.GetPixelBytes();
+        int nearEdge = (32 * 64 + 17) * 4;
+        int interior = (32 * 64 + 32) * 4;
+        Assert.True(rendered[nearEdge + 2] > rendered[nearEdge]);
+        Assert.True(rendered[interior] > rendered[interior + 2]);
+    }
+
+    [Fact]
     public void RemovingOnlyMaskFeatherKeyframe_BakesItsValueIntoStaticFeather()
     {
         TimelineClipProject clip = new()
