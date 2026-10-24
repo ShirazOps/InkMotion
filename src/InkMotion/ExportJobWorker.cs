@@ -15,7 +15,7 @@ public static class ExportJobWorker
             }
 
             ExportJobStatus status = store.ReadStatus(id);
-            if (status.Phase != ExportJobPhase.Queued)
+            if (status.Phase is not (ExportJobPhase.Queued or ExportJobPhase.Starting))
             {
                 return 3;
             }
@@ -121,6 +121,16 @@ public static class ExportJobWorker
             }
 
             store.WriteStatus(status with { UpdatedUtc = DateTimeOffset.UtcNow });
+            try
+            {
+                store.StartNextQueued(Environment.ProcessPath ??
+                    throw new InvalidOperationException("Could not locate the InkMotion worker executable."));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or
+                System.ComponentModel.Win32Exception or InvalidOperationException or System.Text.Json.JsonException)
+            {
+                Trace.TraceError($"Could not start the next queued export after job {id}: {ex}");
+            }
             return status.Phase == ExportJobPhase.Completed ? 0 : 1;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)

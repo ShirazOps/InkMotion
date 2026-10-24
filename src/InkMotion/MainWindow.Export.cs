@@ -134,10 +134,10 @@ public sealed partial class MainWindow
             MeasureVideoPerformanceButton.IsEnabled = !_submittingExport && !_hasActiveExports;
             CheckVideoEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingVideoEncoders;
             CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingAudioEncoders;
-            ExportVideoButton.IsEnabled = !_submittingExport && !_hasActiveExports;
-            ExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
-            ToolbarExportButton.IsEnabled = !_submittingExport && !_hasActiveExports;
-            ToolbarExportAudioButton.IsEnabled = !_submittingExport && !_hasActiveExports;
+            ExportVideoButton.IsEnabled = !_submittingExport;
+            ExportAudioButton.IsEnabled = !_submittingExport;
+            ToolbarExportButton.IsEnabled = !_submittingExport;
+            ToolbarExportAudioButton.IsEnabled = !_submittingExport;
         }
     }
 
@@ -163,7 +163,7 @@ public sealed partial class MainWindow
 
     private async void ExportAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (_submittingExport || _hasActiveExports || _measuringVideoPerformance ||
+        if (_submittingExport || _measuringVideoPerformance ||
             _checkingVideoEncoders || _checkingAudioEncoders)
         {
             return;
@@ -213,7 +213,7 @@ public sealed partial class MainWindow
 
     private async void ExportVideo_Click(object sender, RoutedEventArgs e)
     {
-        if (_submittingExport || _hasActiveExports || _measuringVideoPerformance ||
+        if (_submittingExport || _measuringVideoPerformance ||
             _checkingVideoEncoders || _checkingAudioEncoders ||
             ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
             !Enum.TryParse(resolutionName, out ExportResolution resolution))
@@ -274,7 +274,7 @@ public sealed partial class MainWindow
         {
             _exportJobStore.Cancel(job.Id);
             CancelExportButton.IsEnabled = false;
-            ExportStatusText.Text = "Cancellation requested. The worker will stop and remove its partial output.";
+            ExportStatusText.Text = "Cancellation requested. Queued jobs stop before rendering; active jobs clean up partial output.";
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -282,32 +282,26 @@ public sealed partial class MainWindow
         }
     }
 
-    private void SetExportRunning(bool running)
+    private void SetExportSubmissionBusy(bool busy)
     {
-        ExportVideoButton.IsEnabled = !running;
-        ToolbarExportButton.IsEnabled = !running;
-        ToolbarExportAudioButton.IsEnabled = !running;
-        ExportAudioButton.IsEnabled = !running;
-        AudioExportOptions.IsEnabled = !running;
-        CheckAudioEncodersButton.IsEnabled = !running && !_checkingAudioEncoders;
-        CheckVideoEncodersButton.IsEnabled = !running && !_checkingVideoEncoders;
-        MeasureVideoPerformanceButton.IsEnabled = !running && !_measuringVideoPerformance;
-        ExportResolutionSelector.IsEnabled = !running;
-        ExportCodecSelector.IsEnabled = !running;
-        ExportFrameRateBox.IsEnabled = !running;
-        ExportHardwareToggle.IsEnabled = !running;
-        ExportQualitySlider.IsEnabled = !running;
-        VideoAudioRateSelector.IsEnabled = !running;
-        VideoAudioBitRateSelector.IsEnabled = !running;
-        CancelExportButton.IsEnabled = running;
-        CancelExportButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        ExportProgressBar.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        ExportStatusText.Visibility = Visibility.Visible;
-        if (running)
-        {
-            ExportProgressBar.Value = 0;
-            ExportProgressBar.IsIndeterminate = true;
-            ExportStatusText.Text = "Starting export…";
-        }
+        bool canSubmit = !busy && !_measuringVideoPerformance;
+        ExportVideoButton.IsEnabled = canSubmit;
+        ToolbarExportButton.IsEnabled = canSubmit;
+        ToolbarExportAudioButton.IsEnabled = canSubmit;
+        ExportAudioButton.IsEnabled = canSubmit;
+        AudioExportOptions.IsEnabled = canSubmit;
+        ExportResolutionSelector.IsEnabled = canSubmit;
+        ExportCodecSelector.IsEnabled = canSubmit;
+        ExportFrameRateBox.IsEnabled = canSubmit;
+        ExportHardwareToggle.IsEnabled = canSubmit;
+        ExportQualitySlider.IsEnabled = canSubmit;
+        VideoAudioRateSelector.IsEnabled = canSubmit;
+        VideoAudioBitRateSelector.IsEnabled = canSubmit;
+        CheckAudioEncodersButton.IsEnabled = canSubmit && !_hasActiveExports &&
+            !_checkingAudioEncoders && !_checkingVideoEncoders;
+        CheckVideoEncodersButton.IsEnabled = canSubmit && !_hasActiveExports &&
+            !_checkingVideoEncoders && !_checkingAudioEncoders;
+        MeasureVideoPerformanceButton.IsEnabled = canSubmit && !_hasActiveExports &&
+            !_measuringVideoPerformance && !_checkingAudioEncoders && !_checkingVideoEncoders;
     }
 }

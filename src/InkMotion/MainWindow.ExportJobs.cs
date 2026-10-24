@@ -29,13 +29,15 @@ public sealed partial class MainWindow
     {
         _submittingExport = true;
         _exportSubmissionError = null;
-        SetExportRunning(true);
+        SetExportSubmissionBusy(true);
         try
         {
             string executable = Path.Combine(AppContext.BaseDirectory, "InkMotion.exe");
             ExportJobStatus job = await Task.Run(() => _exportJobStore.Launch(project, outputPath, audio, video, executable));
             _selectedExportJobId = job.Id;
-            StatusText.Text = "Export worker started. Export continues if the editor closes.";
+            StatusText.Text = job.Phase is ExportJobPhase.Queued or ExportJobPhase.Starting
+                ? "Export added to the queue. Queued exports continue after the editor closes."
+                : "Export worker started. Export continues if the editor closes.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {
@@ -46,7 +48,7 @@ public sealed partial class MainWindow
         finally
         {
             _submittingExport = false;
-            SetExportRunning(_hasActiveExports);
+            SetExportSubmissionBusy(false);
         }
 
         await RefreshExportJobsAsync();
@@ -62,7 +64,12 @@ public sealed partial class MainWindow
         _refreshingExportJobs = true;
         try
         {
-            ExportJobScan scan = await Task.Run(_exportJobStore.Scan);
+            string executable = Path.Combine(AppContext.BaseDirectory, "InkMotion.exe");
+            ExportJobScan scan = await Task.Run(() =>
+            {
+                _exportJobStore.StartNextQueued(executable);
+                return _exportJobStore.Scan();
+            });
             if (_exportJobsClosed)
             {
                 return;
@@ -71,10 +78,10 @@ public sealed partial class MainWindow
             _hasActiveExports = scan.Jobs.Any(job => job.IsActive);
             if (_exportJobsInitialScan && _hasActiveExports)
             {
-                StatusText.Text = $"Reconnected to {scan.Jobs.Count(job => job.IsActive)} active export job(s). Open Export to monitor or cancel.";
+                StatusText.Text = $"Reconnected to {scan.Jobs.Count(job => job.IsActive)} queued/running export job(s). Open Export to monitor or cancel.";
             }
             _exportJobsInitialScan = false;
-            SetExportRunning(_hasActiveExports);
+            SetExportSubmissionBusy(_submittingExport);
             _selectingExportJob = true;
             try
             {
@@ -87,7 +94,10 @@ public sealed partial class MainWindow
                 _selectingExportJob = false;
             }
 
-            ExportJobsSummaryText.Text = $"{scan.Jobs.Count(job => job.IsActive)} active · {scan.Jobs.Count} saved jobs." +
+            ExportJobsSummaryText.Text =
+                $"{scan.Jobs.Count(job => job.Phase == ExportJobPhase.Queued)} queued · " +
+                $"{scan.Jobs.Count(job => job.Phase is ExportJobPhase.Starting or ExportJobPhase.Running)} running · " +
+                $"{scan.Jobs.Count} saved jobs." +
                 (scan.Errors.Count == 0 ? "" : Environment.NewLine + string.Join(Environment.NewLine, scan.Errors)) +
                 (_exportSubmissionError is null ? "" : Environment.NewLine + _exportSubmissionError);
             UpdateExportJobDisplay();
@@ -123,17 +133,17 @@ public sealed partial class MainWindow
         ExportStatusText.Text = $"{job.OutputPath}{Environment.NewLine}{job.Phase}: {job.Message}" +
             (cancelling ? Environment.NewLine + "Cancellation requested; waiting for the worker." : "");
         ExportProgressBar.Visibility = job.IsActive ? Visibility.Visible : Visibility.Collapsed;
-        ExportProgressBar.IsIndeterminate = job.Phase == ExportJobPhase.Queued;
+        ExportProgressBar.IsIndeterminate = job.Phase is ExportJobPhase.Queued or ExportJobPhase.Starting;
         ExportProgressBar.Value = job.Fraction;
         CancelExportButton.Visibility = job.IsActive ? Visibility.Visible : Visibility.Collapsed;
         CancelExportButton.IsEnabled = job.IsActive && !cancelling;
-        RetryExportJobButton.IsEnabled = !_submittingExport && !_hasActiveExports &&
+        RetryExportJobButton.IsEnabled = !_submittingExport &&
             job.Phase is ExportJobPhase.Failed or ExportJobPhase.Cancelled or ExportJobPhase.Interrupted;
     }
 
     private async void RetryExportJob_Click(object sender, RoutedEventArgs e)
     {
-        if (_submittingExport || _hasActiveExports || ExportJobsSelector.SelectedItem is not ExportJobStatus job)
+        if (_submittingExport || ExportJobsSelector.SelectedItem is not ExportJobStatus job)
         {
             return;
         }
@@ -141,13 +151,15 @@ public sealed partial class MainWindow
         _submittingExport = true;
         _exportSubmissionError = null;
         RetryExportJobButton.IsEnabled = false;
-        SetExportRunning(true);
+        SetExportSubmissionBusy(true);
         try
         {
             ExportJobStatus retry = await Task.Run(() => _exportJobStore.Retry(job.Id,
                 Path.Combine(AppContext.BaseDirectory, "InkMotion.exe")));
             _selectedExportJobId = retry.Id;
-            StatusText.Text = "Retry started from the saved export snapshot, not the current editor.";
+            StatusText.Text = retry.Phase is ExportJobPhase.Queued or ExportJobPhase.Starting
+                ? "Retry added to the export queue from the saved snapshot, not the current editor."
+                : "Retry started from the saved export snapshot, not the current editor.";
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or
             InvalidOperationException or ArgumentException or System.Text.Json.JsonException)
@@ -157,7 +169,7 @@ public sealed partial class MainWindow
         finally
         {
             _submittingExport = false;
-            SetExportRunning(_hasActiveExports);
+            SetExportSubmissionBusy(false);
         }
 
         await RefreshExportJobsAsync();

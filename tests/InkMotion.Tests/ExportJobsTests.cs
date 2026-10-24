@@ -53,11 +53,17 @@ public sealed class ExportJobsTests : IDisposable
     }
 
     [Fact]
-    public void Scan_GivesNewWorkersStartupGraceButMarksAbandonedSubmissions()
+    public void Scan_PreservesQueuedJobsAndRecoversAbandonedWorkerStarts()
     {
         ExportJobStatus job = CreateAudioJob(new());
         Assert.Equal(ExportJobPhase.Queued, Assert.Single(_store.Scan().Jobs).Phase);
         _store.WriteStatus(job with { UpdatedUtc = DateTimeOffset.UtcNow.AddMinutes(-1) });
+        Assert.Equal(ExportJobPhase.Queued, Assert.Single(_store.Scan().Jobs).Phase);
+        _store.WriteStatus(job with
+        {
+            Phase = ExportJobPhase.Starting,
+            UpdatedUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+        });
         Assert.Equal(ExportJobPhase.Interrupted, Assert.Single(_store.Scan().Jobs).Phase);
     }
 
@@ -78,7 +84,7 @@ public sealed class ExportJobsTests : IDisposable
         ExportJobStatus job = CreateAudioJob(new());
         File.WriteAllText(job.OutputPath, "existing output");
         _store.Cancel(job.Id);
-        Assert.Equal(1, ExportJobWorker.Run(_store, job.Id));
+        Assert.Equal(3, ExportJobWorker.Run(_store, job.Id));
         Assert.Equal(ExportJobPhase.Cancelled, _store.ReadStatus(job.Id).Phase);
         Assert.Equal("existing output", File.ReadAllText(job.OutputPath));
         Assert.Equal(3, ExportJobWorker.Run(_store, job.Id));
@@ -132,6 +138,33 @@ public sealed class ExportJobsTests : IDisposable
         Assert.InRange(samples.Max(Math.Abs), 0.1f, 0.3f);
         ExportJobStatus recovered = Assert.Single(new ExportJobStore(Path.Combine(_root, "jobs")).Scan().Jobs);
         Assert.Equal(result, recovered);
+    }
+
+    [Fact]
+    public async Task ExportQueue_SubmitsWhileBusyAndAdvancesInOrder()
+    {
+        string input = WriteTone();
+        var project = new EditorProject { AudioTracks = [new() { AudioPath = input }] };
+        ExportJobStatus active = CreateAudioJob(project);
+        using FileStream? lease = _store.TryAcquireWorker(active.Id);
+        Assert.NotNull(lease);
+        _store.WriteStatus(active with { Phase = ExportJobPhase.Running, ProcessId = Environment.ProcessId });
+
+        ExportJobStatus first = _store.Launch(project, Path.Combine(_root, "first queued.wav"),
+            new(AudioExportCodec.PcmWave, 44100, 24), null, WorkerExecutable);
+        ExportJobStatus second = _store.Launch(project, Path.Combine(_root, "second queued.wav"),
+            new(AudioExportCodec.PcmWave, 44100, 24), null, WorkerExecutable);
+        Assert.Equal(ExportJobPhase.Queued, first.Phase);
+        Assert.Equal(ExportJobPhase.Queued, second.Phase);
+
+        _store.WriteStatus(active with { Phase = ExportJobPhase.Completed, Fraction = 1 });
+        lease.Dispose();
+        ExportJobStatus starting = Assert.IsType<ExportJobStatus>(_store.StartNextQueued(WorkerExecutable));
+        Assert.Equal(first.Id, starting.Id);
+        ExportJobStatus firstResult = await WaitForTerminal(first.Id);
+        ExportJobStatus secondResult = await WaitForTerminal(second.Id);
+        Assert.True(firstResult.Phase == ExportJobPhase.Completed, firstResult.Message);
+        Assert.True(secondResult.Phase == ExportJobPhase.Completed, secondResult.Message);
     }
 
     [Fact]
@@ -281,7 +314,7 @@ public sealed class ExportJobsTests : IDisposable
         ExportJobStatus original = CreateAudioJob(project);
         project.AudioTracks.Clear();
         _store.Cancel(original.Id);
-        Assert.Equal(1, ExportJobWorker.Run(_store, original.Id));
+        Assert.Equal(3, ExportJobWorker.Run(_store, original.Id));
         ExportJobStatus retry = _store.Retry(original.Id, WorkerExecutable);
         Assert.NotEqual(original.Id, retry.Id);
         Assert.Equal(original.OutputPath, retry.OutputPath);

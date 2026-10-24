@@ -10,12 +10,12 @@ public sealed record ExportVideoSettings(VideoExportProfile Profile, VideoExport
 public sealed record ExportJobRequest(string Id, string ProjectJson, string OutputPath,
     AudioExportSettings? Audio, ExportVideoSettings? Video, int Version = 1);
 
-public enum ExportJobPhase { Queued, Running, Completed, Cancelled, Failed, Interrupted }
+public enum ExportJobPhase { Queued, Starting, Running, Completed, Cancelled, Failed, Interrupted }
 
 public sealed record ExportJobStatus(string Id, string OutputPath, ExportJobPhase Phase, double Fraction,
     string Message, DateTimeOffset UpdatedUtc, int ProcessId = 0, long ProcessStartUtcTicks = 0)
 {
-    public bool IsActive => Phase is ExportJobPhase.Queued or ExportJobPhase.Running;
+    public bool IsActive => Phase is ExportJobPhase.Queued or ExportJobPhase.Starting or ExportJobPhase.Running;
     public string DisplayText => $"{Path.GetFileName(OutputPath)} | {Phase} | {Fraction:P0}\n{Message}";
 }
 
@@ -166,22 +166,84 @@ public sealed class ExportJobStore
             }
 
             ExportJobStatus status = Create(project, outputPath, audio, video);
-            try
+            _ = StartNextQueued(executable);
+            ExportJobStatus submitted = ReadStatus(status.Id);
+            if (submitted.Phase == ExportJobPhase.Failed &&
+                submitted.Message.StartsWith("Could not start worker:", StringComparison.Ordinal))
             {
-                using Process worker = Process.Start(CreateWorkerStartInfo(executable, status.Id))
-                    ?? throw new IOException("Windows did not start the export worker.");
-            }
-            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
-            {
-                WriteStatus(status with { Phase = ExportJobPhase.Failed, Message = $"Could not start worker: {ex.Message}", UpdatedUtc = DateTimeOffset.UtcNow });
-                throw new IOException("Could not start the export worker.", ex);
+                throw new IOException("Could not start the export worker.");
             }
 
-            return status;
+            return submitted;
         }
         finally
         {
             submission.ReleaseMutex();
+        }
+    }
+
+    public ExportJobStatus? StartNextQueued(string executable)
+    {
+        using var queue = new Mutex(false, @"Local\InkMotion.ExportJobQueue");
+        bool acquired;
+        try
+        {
+            acquired = queue.WaitOne(TimeSpan.FromSeconds(10));
+        }
+        catch (AbandonedMutexException)
+        {
+            acquired = true;
+        }
+
+        if (!acquired)
+        {
+            return null;
+        }
+
+        try
+        {
+            ExportJobScan scan = Scan();
+            if (scan.Errors.Count > 0)
+            {
+                throw new IOException(string.Join(Environment.NewLine, scan.Errors));
+            }
+            if (scan.Jobs.Any(job => job.Phase is ExportJobPhase.Starting or ExportJobPhase.Running))
+            {
+                return null;
+            }
+
+            foreach (ExportJobStatus queued in scan.Jobs.Where(job => job.Phase == ExportJobPhase.Queued)
+                .OrderBy(job => job.UpdatedUtc).ThenBy(job => job.Id, StringComparer.Ordinal))
+            {
+                ExportJobStatus starting = queued with
+                {
+                    Phase = ExportJobPhase.Starting,
+                    Message = "Starting queued export worker.",
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                };
+                WriteStatus(starting);
+                try
+                {
+                    using Process worker = Process.Start(CreateWorkerStartInfo(executable, starting.Id))
+                        ?? throw new IOException("Windows did not start the export worker.");
+                    return starting;
+                }
+                catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+                {
+                    WriteStatus(starting with
+                    {
+                        Phase = ExportJobPhase.Failed,
+                        Message = $"Could not start worker: {ex.Message}",
+                        UpdatedUtc = DateTimeOffset.UtcNow,
+                    });
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            queue.ReleaseMutex();
         }
     }
 
@@ -230,11 +292,48 @@ public sealed class ExportJobStore
 
     public void Cancel(string id)
     {
-        if (ReadStatus(id).IsActive)
+        using var queue = new Mutex(false, @"Local\InkMotion.ExportJobQueue");
+        bool acquired;
+        try
         {
-            using FileStream signal = new(Path.Combine(JobDirectory(id), "cancel"), FileMode.OpenOrCreate,
-                FileAccess.Write, FileShare.ReadWrite);
-            signal.Flush(true);
+            acquired = queue.WaitOne(TimeSpan.FromSeconds(10));
+        }
+        catch (AbandonedMutexException)
+        {
+            acquired = true;
+        }
+
+        if (!acquired)
+        {
+            throw new IOException("The export queue is busy. Try cancelling again.");
+        }
+
+        try
+        {
+            ExportJobStatus status = ReadStatus(id);
+            if (!status.IsActive)
+            {
+                return;
+            }
+            if (status.Phase == ExportJobPhase.Queued)
+            {
+                WriteStatus(status with
+                {
+                    Phase = ExportJobPhase.Cancelled,
+                    Message = "Queued export cancelled before it started.",
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                });
+            }
+            else
+            {
+                using FileStream signal = new(Path.Combine(JobDirectory(id), "cancel"), FileMode.OpenOrCreate,
+                    FileAccess.Write, FileShare.ReadWrite);
+                signal.Flush(true);
+            }
+        }
+        finally
+        {
+            queue.ReleaseMutex();
         }
     }
 
@@ -253,8 +352,9 @@ public sealed class ExportJobStore
             try
             {
                 ExportJobStatus status = ReadStatus(id);
-                if (status.IsActive && (status.Phase != ExportJobPhase.Queued ||
-                    DateTimeOffset.UtcNow - status.UpdatedUtc > TimeSpan.FromSeconds(30)))
+                if (status.Phase == ExportJobPhase.Running ||
+                    status.Phase == ExportJobPhase.Starting &&
+                    DateTimeOffset.UtcNow - status.UpdatedUtc > TimeSpan.FromSeconds(30))
                 {
                     using FileStream? lease = TryAcquireWorker(id);
                     if (lease is not null)
