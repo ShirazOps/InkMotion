@@ -1302,7 +1302,7 @@
                     <TextBlock Text="VIDEO TIMELINE" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
                     <ToggleButton x:Name="SelectTimelineToolButton" Content="Select" Tag="Select"
                                   IsChecked="True" Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Select and move clips" />
+                                  ToolTipService.ToolTip="Drag a clip body to move; drag either edge to shorten or extend" />
                     <ToggleButton x:Name="BladeTimelineToolButton" Content="Blade" Tag="Blade"
                                   Click="TimelineToolMode_Click"
                                   ToolTipService.ToolTip="Click inside a clip to split it" />
@@ -1320,7 +1320,7 @@
                                   ToolTipService.ToolTip="Drag a clip between adjacent clips" />
                     <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                     <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
-                    <TextBlock x:Name="VideoTimelineHint" Text="Select: move. Blade: split. Trim/Ripple: drag an edge. Roll: drag a cut. Slide: drag between adjacent clips." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="VideoTimelineHint" Text="Select: drag body to move, edges to resize. Blade: split. Trim/Ripple: drag an edge. Roll: drag a cut. Slide: drag between clips." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
@@ -1335,6 +1335,7 @@
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Top"
                                 ClearColor="#181B21"
+                                ManipulationMode="None"
                                 RegionsInvalidated="VideoTimelineCanvas_RegionsInvalidated"
                                 PointerPressed="VideoTimelineCanvas_PointerPressed"
                                 DoubleTapped="VideoTimelineCanvas_DoubleTapped"

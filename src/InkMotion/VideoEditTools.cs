@@ -26,28 +26,96 @@ public static class VideoEditTools
             return false;
         }
 
-        bool changed = edge switch
-        {
-            TimelineTrimEdge.Start => VideoTimelineEditing.TryTrimStart(workingTrack, workingClip, edgeFrame, frameRate),
-            TimelineTrimEdge.End => VideoTimelineEditing.TryTrimEnd(workingTrack, workingClip, edgeFrame, frameRate),
-            _ => false,
-        };
+        bool changed = ResizeEdge(workingTrack, workingClip, edge, edgeFrame, frameRate);
         if (!changed || VideoTimelineEditing.Validate([workingTrack], frameRate) is not null)
         {
             return false;
         }
 
-        clip.StartFrame = workingClip.StartFrame;
-        clip.SourceInSeconds = workingClip.SourceInSeconds;
-        clip.SourceOutSeconds = workingClip.SourceOutSeconds;
-        clip.PlaybackSpeed = workingClip.PlaybackSpeed;
-        clip.IsReversed = workingClip.IsReversed;
-        clip.ReverseEmbeddedAudio = workingClip.ReverseEmbeddedAudio;
-        clip.DurationSeconds = workingClip.DurationSeconds;
-        clip.FadeInSeconds = workingClip.FadeInSeconds;
-        clip.FadeOutSeconds = workingClip.FadeOutSeconds;
+        ResizeEdge(track, clip, edge, edgeFrame, frameRate);
         VideoTimelineEditing.SortClips(track);
         return true;
+    }
+
+    private static bool ResizeEdge(TimelineTrackProject track, TimelineClipProject clip,
+        TimelineTrimEdge edge, int edgeFrame, double frameRate)
+    {
+        double start = VideoTimelineEditing.GetStartSeconds(clip, frameRate);
+        double end = VideoTimelineEditing.GetEndSeconds(clip, track.Kind, frameRate);
+        double requested = (edgeFrame - 1d) / frameRate;
+        double duration = edge == TimelineTrimEdge.Start ? end - requested : requested - start;
+        if (!double.IsFinite(duration) || duration < 1 / frameRate - 1e-8 ||
+            Math.Abs(requested - (edge == TimelineTrimEdge.Start ? start : end)) < 1e-8 ||
+            edge is not (TimelineTrimEdge.Start or TimelineTrimEdge.End))
+        {
+            return false;
+        }
+
+        bool shortening = edge == TimelineTrimEdge.Start ? requested > start : requested < end;
+        if (shortening)
+        {
+            return edge == TimelineTrimEdge.Start
+                ? VideoTimelineEditing.TryTrimStart(track, clip, edgeFrame, frameRate)
+                : VideoTimelineEditing.TryTrimEnd(track, clip, edgeFrame, frameRate);
+        }
+
+        if (track.Kind == TimelineTrackKind.Video)
+        {
+            double delta = (requested - (edge == TimelineTrimEdge.Start ? start : end)) * clip.PlaybackSpeed;
+            double sourceIn = clip.SourceInSeconds;
+            double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+            if (edge == TimelineTrimEdge.Start)
+            {
+                if (clip.IsReversed) sourceOut -= delta;
+                else sourceIn += delta;
+            }
+            else
+            {
+                if (clip.IsReversed) sourceIn -= delta;
+                else sourceOut += delta;
+            }
+            if (!CanUseRange(clip, sourceIn, sourceOut, frameRate))
+            {
+                return false;
+            }
+            clip.SourceInSeconds = Math.Max(0, sourceIn);
+            clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, sourceOut);
+        }
+        else
+        {
+            clip.DurationSeconds = duration;
+        }
+
+        if (edge == TimelineTrimEdge.Start)
+        {
+            int addedFrames = clip.StartFrame - edgeFrame;
+            ShiftClipKeyframes(clip, addedFrames);
+            clip.StartFrame = edgeFrame;
+        }
+        return true;
+    }
+
+    private static void ShiftClipKeyframes(TimelineClipProject clip, int frames)
+    {
+        clip.TransformKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.CropKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.FlipKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.OpacityKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.VolumeKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.EmbeddedAudioBalanceKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ColourGradingKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.VignetteKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.BlurKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.SharpenKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ChromaKeyKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ChromaKeyEnabledKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ChromaKeyColourKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ChromaKeyFeatherKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.ChromaKeySpillKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.MaskKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.MaskShapeKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.MaskInversionKeyframes.ForEach(key => key.FrameOffset += frames);
+        clip.MaskFeatherKeyframes.ForEach(key => key.FrameOffset += frames);
     }
 
     public static bool CloseGapBefore(TimelineTrackProject track, TimelineClipProject clip, double frameRate)
