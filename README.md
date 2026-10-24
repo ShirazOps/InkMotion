@@ -50,13 +50,21 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - H.264 or HEVC MP4 at 720p, 1080p, 1440p or 4K UHD, with independent output frame rates from 24-120 fps.
 - Software encoding or a hardware preference with reported software fallback. Preview and export share the composition and effect pipeline.
 - Separate PCM/float WAV, MP3 and AAC/M4A mixes. Multichannel WAV supports the project layout; MP4 carries up to 5.1 AAC, with a companion full-layout WAV when needed.
+- Optional local FFmpeg adds 16/24-bit FLAC mixes up to 384 kHz and 8 channels, 48 kHz mono/stereo Opus, and Matroska video with AAC, PCM, FLAC or Opus audio.
+- FFmpeg video offers explicit CPU, NVIDIA NVENC, Intel Quick Sync and AMD AMF encoders with no automatic hardware-to-software substitution. Selected-profile probes report unsupported devices/codecs.
 - Persistent background export jobs with progress, cancellation and retries. Jobs use saved project snapshots and continue independently of the editor.
+
+For optional formats, choose a trusted local `ffmpeg.exe` under **Export > Optional FFmpeg** and check its capabilities. InkMotion does not download, bundle or redistribute FFmpeg; available encoders and licensing depend on your build. Existing Windows exports need no FFmpeg. Saved jobs retain the executable path.
+
+## Privacy
+
+Media is processed locally, without application analytics or automatic uploads. See the [privacy policy](PRIVACY.md) for microphone use, local working files, background exports and optional tools.
 
 ## Current limits
 
 Windows codecs and hardware determine playback and encoding availability; HEVC needs the HEVC Video Extensions. Encoder probes are local checks, not device certification. Reverse video preview mutes embedded audio; export can reverse it or leave it muted.
 
-Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include system-audio loopback or live input monitoring. Export retries restart the job rather than resume mid-file.
+Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include system-audio loopback or live input monitoring. FFmpeg video retries reuse completed five-second segments when linked media/settings are unchanged; the current segment and audio/mux stages restart. Windows and audio-only exports restart from the beginning. Failed/cancelled FFmpeg video jobs retain checkpoints locally until a successful retry.
 
 Project files automatically migrate older formats. Export snapshots, linked paths, recordings and proxies are stored locally; keep source files unchanged while jobs run.
 

@@ -5,7 +5,8 @@ using System.Text.Json.Serialization;
 namespace InkMotion;
 
 public sealed record ExportVideoSettings(VideoExportProfile Profile, VideoExportCodec Codec, double InkReferenceHeight,
-    bool PreferHardware, double Quality, int AudioSampleRate, int AudioBitRate);
+    bool PreferHardware, double Quality, int AudioSampleRate, int AudioBitRate,
+    FFmpegVideoSettings? FFmpeg = null, string? CheckpointKey = null);
 
 public sealed record ExportJobRequest(string Id, string ProjectJson, string OutputPath,
     AudioExportSettings? Audio, ExportVideoSettings? Video, int Version = 1);
@@ -119,6 +120,13 @@ public sealed class ExportJobStore
         ExportPlanning.ValidateOutputPath(snapshot, outputPath);
         audio?.Validate();
         string id = Guid.NewGuid().ToString("N");
+        if (video?.FFmpeg is not null)
+        {
+            video.FFmpeg.Validate(video.AudioSampleRate);
+            if (video.CheckpointKey is not null && !IsJobId(video.CheckpointKey))
+                throw new InvalidDataException("Invalid video export checkpoint identifier.");
+            video = video with { CheckpointKey = video.CheckpointKey ?? id };
+        }
         var request = new ExportJobRequest(id, EditorProjectSerialiser.Serialise(snapshot), outputPath, audio, video);
         var status = new ExportJobStatus(id, outputPath, ExportJobPhase.Queued, 0, "Waiting for export worker.",
             DateTimeOffset.UtcNow);
