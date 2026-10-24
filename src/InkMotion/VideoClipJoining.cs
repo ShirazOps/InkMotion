@@ -177,7 +177,8 @@ public static class VideoClipJoining
             left.FlipHorizontal != right.FlipHorizontal || left.FlipVertical != right.FlipVertical ||
             !left.MaskKeyframes.SequenceEqual(right.MaskKeyframes) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
-            left.FontSize != right.FontSize || left.Colour != right.Colour)
+            left.FontSize != right.FontSize || left.Colour != right.Colour ||
+            left.TextBackgroundColour != right.TextBackgroundColour)
         {
             throw new InvalidOperationException("Match the clip opacity, volume, transform, flips, colour, text and styling before joining; no clip properties will be discarded.");
         }

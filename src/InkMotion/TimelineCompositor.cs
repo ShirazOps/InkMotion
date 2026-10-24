@@ -243,25 +243,54 @@ public static class TimelineCompositor
         float fontSize,
         VideoTransformValue transform)
     {
-        using var format = new CanvasTextFormat
-        {
-            FontFamily = clip.FontFamily,
-            FontSize = fontSize,
-            HorizontalAlignment = CanvasHorizontalAlignment.Center,
-            VerticalAlignment = CanvasVerticalAlignment.Center,
-            WordWrapping = CanvasWordWrapping.WholeWord,
-        };
         float boxWidth = width * 0.9f * (float)transform.Scale;
         float boxHeight = height * (float)transform.Scale;
-        using var layout = new CanvasTextLayout(session, clip.Text, format, boxWidth, boxHeight);
+        using CanvasTextLayout layout = CreateTitleLayout(session, clip, boxWidth, boxHeight, fontSize);
         var origin = new Vector2(
             (float)(transform.X * width) - (boxWidth / 2),
             (float)(transform.Y * height) - (boxHeight / 2));
         Color colour = ToColour(clip.Colour);
         byte alpha = (byte)(colour.A * Math.Clamp(opacity, 0, 1));
+        Color background = ToColour(clip.TextBackgroundColour);
+        Rect textBounds = GetTitleBounds(layout, origin, fontSize);
+        session.FillRectangle(textBounds, Color.FromArgb(
+            (byte)(background.A * Math.Clamp(opacity, 0, 1)), background.R, background.G, background.B));
         float shadowOffset = Math.Max(1, fontSize * 0.04f);
         session.DrawTextLayout(layout, origin + new Vector2(shadowOffset), Color.FromArgb((byte)(alpha * 0.6), 0, 0, 0));
         session.DrawTextLayout(layout, origin, Color.FromArgb(alpha, colour.R, colour.G, colour.B));
+    }
+
+    public static Rect GetTitleBounds(ICanvasResourceCreator device, TimelineClipProject clip,
+        float width, float height, VideoTransformValue transform)
+    {
+        float fontSize = (float)(clip.FontSize * transform.Scale * height / TitleReferenceHeight);
+        float boxWidth = width * 0.9f * (float)transform.Scale;
+        float boxHeight = height * (float)transform.Scale;
+        using CanvasTextLayout layout = CreateTitleLayout(device, clip, boxWidth, boxHeight, fontSize);
+        return GetTitleBounds(layout, new Vector2((float)(transform.X * width) - boxWidth / 2,
+            (float)(transform.Y * height) - boxHeight / 2), fontSize);
+    }
+
+    private static CanvasTextLayout CreateTitleLayout(ICanvasResourceCreator device,
+        TimelineClipProject clip, float boxWidth, float boxHeight, float fontSize)
+    {
+        using var format = new CanvasTextFormat
+        {
+            FontFamily = clip.FontFamily,
+            FontSize = Math.Max(1, fontSize),
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+            WordWrapping = CanvasWordWrapping.WholeWord,
+        };
+        return new CanvasTextLayout(device, clip.Text, format, boxWidth, boxHeight);
+    }
+
+    private static Rect GetTitleBounds(CanvasTextLayout layout, Vector2 origin, float fontSize)
+    {
+        Rect bounds = layout.LayoutBounds;
+        double padding = fontSize * 0.12;
+        return new Rect(origin.X + bounds.X - padding, origin.Y + bounds.Y - padding,
+            Math.Max(1, bounds.Width) + padding * 2, Math.Max(1, bounds.Height) + padding * 2);
     }
 
     /// <summary>Draws a pressure-sensitive stroke; <paramref name="widthScale"/> maps authored brush sizes to the target.</summary>

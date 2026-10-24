@@ -237,6 +237,16 @@
                             PointerCaptureLost="InkSurface_PointerCaptureLost"
                             SizeChanged="InkSurface_SizeChanged"
                             Visibility="Collapsed" />
+                        <canvas:CanvasControl x:Name="TitleAdornerSurface" ClearColor="Transparent"
+                            ManipulationMode="None"
+                            AutomationProperties.Name="Title positioning, resize and rotation surface"
+                            Draw="TitleAdornerSurface_Draw"
+                            PointerPressed="TitleAdornerSurface_PointerPressed"
+                            PointerMoved="TitleAdornerSurface_PointerMoved"
+                            PointerReleased="TitleAdornerSurface_PointerReleased"
+                            PointerCaptureLost="TitleAdornerSurface_PointerCaptureLost"
+                            DoubleTapped="TitleAdornerSurface_DoubleTapped"
+                            Visibility="Collapsed" />
                         <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" IsHitTestVisible="False">
                             <TextBlock x:Name="EmptyPreviewHeading" Text="Your canvas is ready" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" />
                             <TextBlock x:Name="EmptyPreviewHint" Text="Add a video, image or title, then draw in Ink Editor." HorizontalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
@@ -745,6 +755,13 @@
                                     <ComboBoxItem Content="Blue" Tag="FF3E9BFF" />
                                 </ComboBox>
                             </Grid>
+                            <StackPanel x:Name="TitleBackgroundControls" Spacing="6" Visibility="Collapsed">
+                                <TextBlock Text="Title background colour and opacity" Style="{StaticResource LabelTextStyle}" />
+                                <ColorPicker x:Name="TitleBackgroundPicker" IsAlphaEnabled="True"
+                                    IsAlphaSliderVisible="True" IsAlphaTextInputVisible="True"
+                                    ColorChanged="TitleBackgroundPicker_ColorChanged" LostFocus="ClipProperty_LostFocus" />
+                                <TextBlock Text="Drag the title in Modified Video preview. Corner handles resize; the round handle rotates. Double-click a title to edit its text. Background opacity is controlled by the alpha slider." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
                             <Slider x:Name="ClipScaleSlider" Header="Scale" Minimum="0.05" Maximum="4" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <NumberBox x:Name="ClipRotationBox" Header="Rotation (degrees clockwise)" Minimum="-180" Maximum="180" Value="0" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="ClipRotation_Changed" LostFocus="ClipProperty_LostFocus" />
                             <Slider x:Name="ClipXSlider" Header="Horizontal position" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
@@ -1087,7 +1104,13 @@
                         <TextBlock Text="Rulers measure canvas coordinates in output pixels, not source-media pixels or physical units. They follow canvas zoom, pan and rotation, with adaptive tick spacing. Session-only overlays while paused in Modified Ink Editor; excluded from colour sampling, saved drawings and export." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Session-only guides follow canvas zoom, pan and rotation. They appear behind ink while paused in Ink Editor only, never in saved drawings or exports. The grid divides each canvas axis equally; it does not snap or constrain strokes." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
-                        <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged" />
+                        <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged">
+                            <ComboBox.ContextFlyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Ink layer properties..." Click="InkTrackProperties_Click" />
+                                </MenuFlyout>
+                            </ComboBox.ContextFlyout>
+                        </ComboBox>
                         <TextBox x:Name="InkLayerNameBox" Header="Layer name" MaxLength="200" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Content="Rename" Tag="rename" Click="InkLayerAction_Click" />
@@ -1314,6 +1337,8 @@
                                 ClearColor="#181B21"
                                 RegionsInvalidated="VideoTimelineCanvas_RegionsInvalidated"
                                 PointerPressed="VideoTimelineCanvas_PointerPressed"
+                                DoubleTapped="VideoTimelineCanvas_DoubleTapped"
+                                RightTapped="VideoTimelineCanvas_RightTapped"
                                 PointerMoved="VideoTimelineCanvas_PointerMoved"
                                 PointerReleased="VideoTimelineCanvas_PointerReleased"
                                 PointerCaptureLost="VideoTimelineCanvas_PointerCaptureLost" />
@@ -1336,6 +1361,11 @@
             </Grid>
 
             <Grid x:Name="InkTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" RowSpacing="10" Visibility="Collapsed">
+                <Grid.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Ink layer and cel properties..." Click="InkTrackProperties_Click" />
+                    </MenuFlyout>
+                </Grid.ContextFlyout>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />

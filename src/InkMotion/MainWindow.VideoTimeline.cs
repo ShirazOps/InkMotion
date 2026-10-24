@@ -882,6 +882,7 @@ public sealed partial class MainWindow
         }
 
         DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
+        TitleAdornerSurface.Invalidate();
     }
 
     private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height,
@@ -1904,6 +1905,7 @@ public sealed partial class MainWindow
         }
 
         TimelineTrackProject track = _videoTracks[index];
+        e.Handled = track.Kind != TimelineTrackKind.Text;
         _selectedTimelineTrackId = track.Id;
         TimelineClipLocation? location = VideoTimelineEditing.FindClipAt(track, seconds, _frameRate);
         if (location is null)
@@ -2229,6 +2231,7 @@ public sealed partial class MainWindow
                 Margin = new Thickness(0, 0, 6, TimelineLaneSpacing),
                 Padding = new Thickness(8, 0, 2, 0),
                 CornerRadius = new CornerRadius(4),
+                Tag = trackId,
                 Background = new SolidColorBrush(ReferenceEquals(track, selected)
                     ? Color.FromArgb(255, 0x2A, 0x32, 0x40)
                     : Color.FromArgb(255, 0x22, 0x26, 0x2E)),
@@ -2248,7 +2251,17 @@ public sealed partial class MainWindow
             };
             ToolTipService.SetToolTip(name, $"{track.Name} · {VideoTimelineEditing.KindLabel(track.Kind)} track");
             header.Children.Add(name);
-            header.Tapped += (_, _) => SelectTimelineTrack(trackId);
+            header.Tapped += (_, _) => SelectTimelineTrack(trackId, rebuildHeaders: false);
+            header.ContextFlyout = CreateTimelineTrackMenu(track);
+            header.DoubleTapped += (_, e) =>
+            {
+                if (track.Kind == TimelineTrackKind.Text)
+                {
+                    SelectTitleOnTrack(track);
+                    EditSelectedTitle();
+                    e.Handled = true;
+                }
+            };
 
             AddTrackToggle(header, 1, track.IsVisible ? "\uE890" : "\uED1A", track.IsVisible ? $"Hide {track.Name}" : $"Show {track.Name}", track.IsVisible ? "hidden" : "shown", trackId, item => item.IsVisible = !item.IsVisible);
             AddTrackToggle(header, 2, track.IsLocked ? "\uE72E" : "\uE785", track.IsLocked ? $"Unlock {track.Name}" : $"Lock {track.Name}", track.IsLocked ? "unlocked" : "locked", trackId, item => item.IsLocked = !item.IsLocked);
@@ -2297,7 +2310,7 @@ public sealed partial class MainWindow
         header.Children.Add(button);
     }
 
-    private void SelectTimelineTrack(string trackId)
+    private void SelectTimelineTrack(string trackId, bool rebuildHeaders = true)
     {
         if (_selectedTimelineTrackId == trackId)
         {
@@ -2311,7 +2324,19 @@ public sealed partial class MainWindow
             _selectedTimelineClipId = null;
         }
 
-        RefreshVideoTrackHeaders();
+        if (rebuildHeaders)
+        {
+            RefreshVideoTrackHeaders();
+        }
+        else
+        {
+            foreach (Grid header in VideoTrackHeadersPanel.Children.OfType<Grid>())
+            {
+                header.Background = new SolidColorBrush(Equals(header.Tag, trackId)
+                    ? Color.FromArgb(255, 0x2A, 0x32, 0x40)
+                    : Color.FromArgb(255, 0x22, 0x26, 0x2E));
+            }
+        }
         UpdateVideoInspector();
         InvalidateVideoTimeline();
     }
@@ -2767,6 +2792,8 @@ public sealed partial class MainWindow
         ClipPlaybackHintText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipDurationBox.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
+        TitleBackgroundControls.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
+        TitleBackgroundPicker.Color = ToColour(clip.TextBackgroundColour);
         ClipFontSelector.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ((FrameworkElement)ClipFontSizeBox.Parent).Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         ClipScaleSlider.Visibility = supportsTransform ? Visibility.Visible : Visibility.Collapsed;
@@ -5538,7 +5565,7 @@ public sealed partial class MainWindow
 
     private void ClipText_Changed(object sender, TextChangedEventArgs e)
     {
-        string text = ClipTextBox.Text.Replace("\r", "\n", StringComparison.Ordinal);
+        string text = ClipTextBox.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
         if (SelectedTimelineClip is not { } current || current.Clip.Text == text)
         {
             return;

@@ -347,6 +347,10 @@ public sealed partial class MainWindow : Window
 
     private void ShowWorkspace(string workspace)
     {
+        if (_titleGesture is not null)
+        {
+            FinishActiveEdit();
+        }
         _workspace = workspace;
         SetPageButtonState(VideoWorkspaceButton, workspace == "Video");
         SetPageButtonState(AudioWorkspaceButton, workspace == "Audio");
@@ -415,6 +419,9 @@ public sealed partial class MainWindow : Window
         }
         InkSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
         InkSurface.IsHitTestVisible = _workspace == "Ink" && !IsOriginalPreview;
+        TitleAdornerSurface.Visibility = _workspace == "Video" && !IsOriginalPreview
+            ? Visibility.Visible : Visibility.Collapsed;
+        TitleAdornerSurface.Invalidate();
         PreviewCaption.Text = IsOriginalPreview ? "ORIGINAL SOURCE · AT PLAYHEAD" : "MODIFIED";
         RenderCurrentInk();
         CompositionSurface.Invalidate();
@@ -1076,7 +1083,9 @@ public sealed partial class MainWindow : Window
         for (int i = 0; i < _audioTracks.Count; i++)
         {
             AudioTrackRuntime track = _audioTracks[i];
-            AudioTrackNamesPanel.Children.Add(CreateAudioTrackName($"A{i + 1}  Audio"));
+            FrameworkElement header = CreateAudioTrackName($"A{i + 1}  Audio");
+            header.ContextFlyout = CreateAudioPropertiesMenu(track);
+            AudioTrackNamesPanel.Children.Add(header);
             AudioTracksPanel.Children.Add(CreateAudioTrackLane(track, i));
         }
         UpdateAudioLaneHeights();
@@ -1129,6 +1138,7 @@ public sealed partial class MainWindow : Window
             Tag = index,
         };
         button.Click += AudioTrack_Click;
+        button.ContextFlyout = CreateAudioPropertiesMenu(track);
         return button;
     }
 
@@ -2433,6 +2443,11 @@ public sealed partial class MainWindow : Window
 
     private void FinishActiveEdit()
     {
+        if (_titleGesture is not null)
+        {
+            FinishTitleGesture();
+            TitleAdornerSurface.ReleasePointerCaptures();
+        }
         if (_activeStroke is { Count: 0 })
         {
             CurrentStrokes.Remove(_activeStroke);

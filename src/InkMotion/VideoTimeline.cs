@@ -233,6 +233,7 @@ public sealed class TimelineClipProject
     /// <summary>Font size in pixels relative to a 1080-pixel-high frame.</summary>
     public double FontSize { get; set; } = 72;
     public uint Colour { get; set; } = 0xFFFFFFFF;
+    public uint TextBackgroundColour { get; set; }
 }
 
 public sealed record VideoColourCurvePoint(double Input, double Output);
@@ -1084,6 +1085,7 @@ public static class VideoTimelineEditing
         FontFamily = clip.FontFamily,
         FontSize = clip.FontSize,
         Colour = clip.Colour,
+        TextBackgroundColour = clip.TextBackgroundColour,
     };
 
     /// <summary>Validates a timeline, returning an error message or null when it is valid.</summary>
