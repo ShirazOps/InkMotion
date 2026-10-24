@@ -169,6 +169,7 @@ public sealed class TimelineClipProject
     public List<VideoOpacityKeyframe> OpacityKeyframes { get; set; } = [];
     public double Volume { get; set; } = 1;
     public List<VideoClipVolumeKeyframe> VolumeKeyframes { get; set; } = [];
+    public double EmbeddedAudioBalance { get; set; }
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
     public double TransitionInSeconds { get; set; }
@@ -293,6 +294,7 @@ public static class VideoTimelineEditing
             SourceInSeconds = clip.SourceInSeconds,
             SourceOutSeconds = clip.SourceOutSeconds,
             Volume = originalPreview ? 1 : clip.Volume,
+            Balance = originalPreview ? 0 : clip.EmbeddedAudioBalance,
             FadeInSeconds = originalPreview ? 0 : clip.FadeInSeconds,
             FadeOutSeconds = originalPreview ? 0 : clip.FadeOutSeconds,
             TempoPercent = clip.PlaybackSpeed * 100,
@@ -1004,6 +1006,7 @@ public static class VideoTimelineEditing
         OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(clip.OpacityKeyframes),
         Volume = clip.Volume,
         VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(clip.VolumeKeyframes),
+        EmbeddedAudioBalance = clip.EmbeddedAudioBalance,
         FadeInSeconds = clip.FadeInSeconds,
         FadeOutSeconds = clip.FadeOutSeconds,
         TransitionInSeconds = clip.TransitionInSeconds,
@@ -1272,6 +1275,8 @@ public static class VideoTimelineEditing
                 double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
                 return !string.IsNullOrWhiteSpace(clip.SourcePath) &&
                     IsUnit(clip.Volume) &&
+                    double.IsFinite(clip.EmbeddedAudioBalance) &&
+                    clip.EmbeddedAudioBalance is >= -1 and <= 1 &&
                     IsFiniteNonNegative(clip.SourceInSeconds) &&
                     IsFiniteNonNegative(clip.SourceDurationSeconds) &&
                     double.IsFinite(clip.PlaybackSpeed) &&

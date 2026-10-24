@@ -767,6 +767,7 @@ public sealed partial class MainWindow
         left.SourceInSeconds == right.SourceInSeconds &&
         left.SourceOutSeconds == right.SourceOutSeconds &&
         left.Volume == right.Volume &&
+        left.Balance == right.Balance &&
         left.FadeInSeconds == right.FadeInSeconds &&
         left.FadeOutSeconds == right.FadeOutSeconds &&
         left.TempoPercent == right.TempoPercent &&
@@ -1753,6 +1754,7 @@ public sealed partial class MainWindow
         destination.Opacity = source.Opacity;
         destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
         destination.VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(source.VolumeKeyframes);
+        destination.EmbeddedAudioBalance = source.EmbeddedAudioBalance;
         destination.ColourGradingKeyframes =
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
@@ -2710,6 +2712,7 @@ public sealed partial class MainWindow
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
             : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipAudioBalanceSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipVolumeKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -2755,6 +2758,7 @@ public sealed partial class MainWindow
         ClipVolumeKeyframeStateText.Text = clip.VolumeKeyframes.Count == 0
             ? "No volume keyframes. Volume applies to the whole clip."
             : $"{clip.VolumeKeyframes.Count} volume keyframe(s); values interpolate at the playhead.";
+        ClipAudioBalanceSlider.Value = clip.EmbeddedAudioBalance;
         ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
         ClipReverseVideoCheck.IsChecked = clip.IsReversed;
         ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
@@ -3073,6 +3077,10 @@ public sealed partial class MainWindow
                 UpdateVideoInspector();
                 return;
             }
+        }
+        else if (ReferenceEquals(sender, ClipAudioBalanceSlider))
+        {
+            clip.EmbeddedAudioBalance = Math.Clamp(e.NewValue, -1, 1);
         }
         else if (ReferenceEquals(sender, ClipScaleSlider) ||
             ReferenceEquals(sender, ClipXSlider) ||

@@ -208,7 +208,7 @@ public sealed class ExportAudioMixer : IDisposable
             source,
             elapsed => ExportPlanning.GetVideoClipAudioGain(
                 clip, clipElapsedAtSourceStart + elapsed, transition, _frameRate));
-        AddSource(envelope, Math.Max(0, timelineStart), duration);
+        AddSource(envelope, Math.Max(0, timelineStart), duration, clip.EmbeddedAudioBalance);
     }
 
     private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,

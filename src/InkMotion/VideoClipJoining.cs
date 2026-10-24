@@ -143,6 +143,7 @@ public static class VideoClipJoining
         }
 
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
+            left.EmbeddedAudioBalance != right.EmbeddedAudioBalance ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.CropLeftPercent != right.CropLeftPercent || left.CropTopPercent != right.CropTopPercent ||
             left.CropRightPercent != right.CropRightPercent || left.CropBottomPercent != right.CropBottomPercent ||

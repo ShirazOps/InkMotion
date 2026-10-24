@@ -472,6 +472,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <Slider x:Name="ClipVolumeSlider" Header="Clip volume" Minimum="0" Maximum="1" StepFrequency="0.01" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
+                            <Slider x:Name="ClipAudioBalanceSlider" Header="Embedded audio balance (L/R)" Minimum="-1" Maximum="1" StepFrequency="0.05" ValueChanged="ClipProperty_Changed" LostFocus="ClipProperty_LostFocus" />
                             <StackPanel x:Name="ClipVolumeKeyframeActions" Spacing="6">
                                 <TextBlock x:Name="ClipVolumeKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <StackPanel Orientation="Horizontal" Spacing="8">
