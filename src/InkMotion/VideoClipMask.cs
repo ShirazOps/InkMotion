@@ -12,7 +12,7 @@ public enum VideoMaskShape
     Ellipse,
 }
 
-public readonly record struct VideoMaskValue(double X, double Y, double Width, double Height);
+public readonly record struct VideoMaskValue(double X, double Y, double Width, double Height, double RotationDegrees = 0);
 
 public sealed record VideoMaskKeyframe
 {
@@ -21,6 +21,7 @@ public sealed record VideoMaskKeyframe
     public double Y { get; set; } = 0.5;
     public double Width { get; set; } = 1;
     public double Height { get; set; } = 1;
+    public double RotationDegrees { get; set; }
 }
 
 public static class VideoClipMask
@@ -29,11 +30,11 @@ public static class VideoClipMask
     {
         ArgumentNullException.ThrowIfNull(clip);
         if (!Enum.IsDefined(clip.MaskShape) ||
-            !IsValid(clip.MaskX, clip.MaskY, clip.MaskWidth, clip.MaskHeight) ||
+            !IsValid(clip.MaskX, clip.MaskY, clip.MaskWidth, clip.MaskHeight, clip.MaskRotationDegrees) ||
             !double.IsFinite(clip.MaskFeather) || clip.MaskFeather is < 0 or > 0.25 ||
             clip.MaskKeyframes is null || clip.MaskKeyframes.Any(key => key is null ||
                 key.FrameOffset < 0 ||
-                !IsValid(key.X, key.Y, key.Width, key.Height) ||
+                !IsValid(key.X, key.Y, key.Width, key.Height, key.RotationDegrees) ||
                 !IsInClip(clip, kind, key.FrameOffset, frameRate)))
         {
             return "Video mask geometry or keyframes are not valid.";
@@ -58,7 +59,7 @@ public static class VideoClipMask
         VideoMaskKeyframe[] keys = clip.MaskKeyframes.OrderBy(key => key.FrameOffset).ToArray();
         if (keys.Length == 0)
         {
-            return new(clip.MaskX, clip.MaskY, clip.MaskWidth, clip.MaskHeight);
+            return new(clip.MaskX, clip.MaskY, clip.MaskWidth, clip.MaskHeight, clip.MaskRotationDegrees);
         }
 
         if (frameOffset <= keys[0].FrameOffset)
@@ -82,7 +83,8 @@ public static class VideoClipMask
                 Lerp(start.X, end.X, amount),
                 Lerp(start.Y, end.Y, amount),
                 Lerp(start.Width, end.Width, amount),
-                Lerp(start.Height, end.Height, amount));
+                Lerp(start.Height, end.Height, amount),
+                Lerp(start.RotationDegrees, end.RotationDegrees, amount));
         }
 
         return ToValue(keys[^1]);
@@ -104,7 +106,7 @@ public static class VideoClipMask
         }
 
         VideoMaskValue value = requestedValue ?? GetValue(clip, frameOffset);
-        if (!IsValid(value.X, value.Y, value.Width, value.Height))
+        if (!IsValid(value.X, value.Y, value.Width, value.Height, value.RotationDegrees))
         {
             return false;
         }
@@ -119,6 +121,7 @@ public static class VideoClipMask
         existing.Y = value.Y;
         existing.Width = value.Width;
         existing.Height = value.Height;
+        existing.RotationDegrees = value.RotationDegrees;
         clip.MaskKeyframes.Sort((left, right) => left.FrameOffset.CompareTo(right.FrameOffset));
         return true;
     }
@@ -148,6 +151,7 @@ public static class VideoClipMask
             clip.MaskY = value.Y;
             clip.MaskWidth = value.Width;
             clip.MaskHeight = value.Height;
+            clip.MaskRotationDegrees = value.RotationDegrees;
         }
 
         clip.MaskKeyframes.RemoveAt(index);
@@ -252,7 +256,7 @@ public static class VideoClipMask
 
                 clip.MaskKeyframes.RemoveAll(key => key.FrameOffset < 0 ||
                     !IsInClip(clip, track.Kind, key.FrameOffset, frameRate) ||
-                    !IsValid(key.X, key.Y, key.Width, key.Height));
+                    !IsValid(key.X, key.Y, key.Width, key.Height, key.RotationDegrees));
                 clip.MaskKeyframes = clip.MaskKeyframes.OrderBy(key => key.FrameOffset)
                     .GroupBy(key => key.FrameOffset).Select(group => group.Last()).ToList();
             }
@@ -270,13 +274,23 @@ public static class VideoClipMask
         float centreY = (float)(mask.Y * height);
         float halfWidth = (float)(mask.Width * width / 2);
         float halfHeight = (float)(mask.Height * height / 2);
-        return shape switch
+        CanvasGeometry geometry = shape switch
         {
             VideoMaskShape.Rectangle => CanvasGeometry.CreateRectangle(
                 session, new Rect(centreX - halfWidth, centreY - halfHeight, halfWidth * 2, halfHeight * 2)),
             VideoMaskShape.Ellipse => CanvasGeometry.CreateEllipse(session, centreX, centreY, halfWidth, halfHeight),
             _ => throw new ArgumentOutOfRangeException(nameof(shape)),
         };
+        if (mask.RotationDegrees == 0)
+        {
+            return geometry;
+        }
+
+        using (geometry)
+        {
+            return geometry.Transform(Matrix3x2.CreateRotation(
+                (float)(mask.RotationDegrees * Math.PI / 180), new Vector2(centreX, centreY)));
+        }
     }
 
     public static void DrawMaskedImage(
@@ -338,7 +352,8 @@ public static class VideoClipMask
                 mask.X,
                 mask.Y,
                 mask.Width - (2 * featherX * inset),
-                mask.Height - (2 * featherY * inset));
+                mask.Height - (2 * featherY * inset),
+                mask.RotationDegrees);
             using CanvasGeometry innerGeometry = CreateGeometry(session, shape, innerMask, width, height);
             using CanvasGeometry previousGeometry = CreateGeometry(session, shape, previousMask, width, height);
             using CanvasGeometry band = previousGeometry.CombineWith(
@@ -370,7 +385,8 @@ public static class VideoClipMask
         }
     }
 
-    private static VideoMaskValue ToValue(VideoMaskKeyframe key) => new(key.X, key.Y, key.Width, key.Height);
+    private static VideoMaskValue ToValue(VideoMaskKeyframe key) =>
+        new(key.X, key.Y, key.Width, key.Height, key.RotationDegrees);
 
     private static bool IsInClip(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate)
     {
@@ -391,6 +407,7 @@ public static class VideoClipMask
         Y = value.Y,
         Width = value.Width,
         Height = value.Height,
+        RotationDegrees = value.RotationDegrees,
     };
 
     private static VideoMaskKeyframe CloneKey(VideoMaskKeyframe key, int? frameOffset = null) => new()
@@ -400,11 +417,14 @@ public static class VideoClipMask
         Y = key.Y,
         Width = key.Width,
         Height = key.Height,
+        RotationDegrees = key.RotationDegrees,
     };
 
-    private static bool IsValid(double x, double y, double width, double height) =>
+    private static bool IsValid(double x, double y, double width, double height, double rotationDegrees) =>
         double.IsFinite(x) && double.IsFinite(y) && double.IsFinite(width) && double.IsFinite(height) &&
-        x is >= 0 and <= 1 && y is >= 0 and <= 1 && width is > 0 and <= 1 && height is > 0 and <= 1;
+        double.IsFinite(rotationDegrees) &&
+        x is >= 0 and <= 1 && y is >= 0 and <= 1 && width is > 0 and <= 1 && height is > 0 and <= 1 &&
+        rotationDegrees is >= -180 and <= 180;
 
     private static double Lerp(double start, double end, double amount) => start + ((end - start) * amount);
 }

@@ -1700,7 +1700,17 @@ public sealed partial class MainWindow
         destination.ChromaKeyColourKeyframes = VideoChromaKeyColourKeyframes.CloneKeys(source.ChromaKeyColourKeyframes);
         destination.ChromaKeyFeatherKeyframes = VideoChromaKeyFeatherKeyframes.CloneKeys(source.ChromaKeyFeatherKeyframes);
         destination.ChromaKeySpillKeyframes = VideoChromaKeySpillKeyframes.CloneKeys(source.ChromaKeySpillKeyframes);
+        destination.MaskKeyframes = source.MaskKeyframes.Select(key => new VideoMaskKeyframe
+        {
+            FrameOffset = key.FrameOffset,
+            X = key.X,
+            Y = key.Y,
+            Width = key.Width,
+            Height = key.Height,
+            RotationDegrees = key.RotationDegrees,
+        }).ToList();
         destination.MaskShapeKeyframes = VideoMaskShapeKeyframes.CloneKeys(source.MaskShapeKeyframes);
+        destination.MaskInversionKeyframes = VideoMaskInversionKeyframes.CloneKeys(source.MaskInversionKeyframes);
         destination.MaskFeatherKeyframes = VideoMaskFeatherKeyframes.CloneKeys(source.MaskFeatherKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
@@ -2848,6 +2858,7 @@ public sealed partial class MainWindow
         ClipMaskYBox.Value = mask.Y;
         ClipMaskWidthBox.Value = mask.Width;
         ClipMaskHeightBox.Value = mask.Height;
+        ClipMaskRotationBox.Value = mask.RotationDegrees;
         int maskFrameOffset = VideoTransformKeyframes.GetFrameOffset(
             clip, _playheadFramePosition / _frameRate, _frameRate);
         bool maskPlayheadInside = VideoClipMask.CanSetKeyframe(
@@ -4612,6 +4623,7 @@ public sealed partial class MainWindow
             !double.IsFinite(ClipMaskYBox.Value) || ClipMaskYBox.Value is < 0 or > 1 ||
             !double.IsFinite(ClipMaskWidthBox.Value) || ClipMaskWidthBox.Value is <= 0 or > 1 ||
             !double.IsFinite(ClipMaskHeightBox.Value) || ClipMaskHeightBox.Value is <= 0 or > 1 ||
+            !double.IsFinite(ClipMaskRotationBox.Value) || ClipMaskRotationBox.Value is < -180 or > 180 ||
             !double.IsFinite(ClipMaskFeatherBox.Value) || ClipMaskFeatherBox.Value is < 0 or > 0.25 ||
             !TryBeginClipPropertyEdit(out TimelineClipLocation location))
         {
@@ -4623,7 +4635,8 @@ public sealed partial class MainWindow
         VideoMaskShape currentShape = VideoMaskShapeKeyframes.GetValue(clip, currentFrameOffset);
         VideoMaskValue currentMask = VideoClipMask.GetValue(clip, currentFrameOffset);
         var newMask = new VideoMaskValue(
-            ClipMaskXBox.Value, ClipMaskYBox.Value, ClipMaskWidthBox.Value, ClipMaskHeightBox.Value);
+            ClipMaskXBox.Value, ClipMaskYBox.Value, ClipMaskWidthBox.Value, ClipMaskHeightBox.Value,
+            ClipMaskRotationBox.Value);
         bool inverted = ClipMaskInvertedCheck.IsChecked == true;
         bool currentInverted = VideoMaskInversionKeyframes.GetValue(clip, currentFrameOffset);
         if (currentShape == shape && currentMask == newMask &&
@@ -4667,6 +4680,7 @@ public sealed partial class MainWindow
             clip.MaskY = newMask.Y;
             clip.MaskWidth = newMask.Width;
             clip.MaskHeight = newMask.Height;
+            clip.MaskRotationDegrees = newMask.RotationDegrees;
         }
         ApplyClipPreview();
         CommitEdit();

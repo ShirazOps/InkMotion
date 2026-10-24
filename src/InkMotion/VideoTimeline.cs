@@ -209,6 +209,7 @@ public sealed class TimelineClipProject
     public double MaskY { get; set; } = 0.5;
     public double MaskWidth { get; set; } = 1;
     public double MaskHeight { get; set; } = 1;
+    public double MaskRotationDegrees { get; set; }
     public bool MaskInverted { get; set; }
     public List<VideoMaskShapeKeyframe> MaskShapeKeyframes { get; set; } = [];
     public List<VideoMaskInversionKeyframe> MaskInversionKeyframes { get; set; } = [];
@@ -1026,6 +1027,7 @@ public static class VideoTimelineEditing
         MaskY = clip.MaskY,
         MaskWidth = clip.MaskWidth,
         MaskHeight = clip.MaskHeight,
+        MaskRotationDegrees = clip.MaskRotationDegrees,
         MaskInverted = clip.MaskInverted,
         MaskShapeKeyframes = VideoMaskShapeKeyframes.CloneKeys(clip.MaskShapeKeyframes),
         MaskInversionKeyframes = VideoMaskInversionKeyframes.CloneKeys(clip.MaskInversionKeyframes),
@@ -1038,6 +1040,7 @@ public static class VideoTimelineEditing
             Y = key.Y,
             Width = key.Width,
             Height = key.Height,
+            RotationDegrees = key.RotationDegrees,
         }).ToList(),
         X = clip.X,
         Y = clip.Y,

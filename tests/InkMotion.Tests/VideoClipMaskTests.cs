@@ -45,6 +45,7 @@ public sealed class VideoClipMaskTests
             MaskHeight = 0.5,
             MaskInverted = true,
             MaskFeather = 0.08,
+            MaskRotationDegrees = 27,
             MaskKeyframes = [new VideoMaskKeyframe { FrameOffset = 8, X = 0.7, Y = 0.4, Width = 0.4, Height = 0.3 }],
         };
         EditorProject project = new()
@@ -60,8 +61,11 @@ public sealed class VideoClipMaskTests
         Assert.Equal(0.4, clone.MaskX);
         Assert.True(clone.MaskInverted);
         Assert.Equal(0.08, clone.MaskFeather);
+        Assert.Equal(27, clone.MaskRotationDegrees);
         Assert.Equal(0.4, Assert.Single(clone.MaskKeyframes).Width);
+        Assert.Equal(0, Assert.Single(clone.MaskKeyframes).RotationDegrees);
         Assert.Equal(clip.MaskKeyframes, restored.MaskKeyframes);
+        Assert.Equal(27, restored.MaskRotationDegrees);
     }
 
     [Fact]
@@ -460,6 +464,88 @@ public sealed class VideoClipMaskTests
         Assert.Equal(new[] { 0 }, remainders[1].MaskShapeKeyframes.Select(key => key.FrameOffset));
         Assert.Equal(VideoMaskShape.Ellipse, remainders[1].MaskShapeKeyframes[0].Shape);
         Assert.Null(VideoTimelineEditing.Validate([track], 24));
+    }
+
+    [Fact]
+    public void MaskRotation_InterpolatesPersistsAndSurvivesSplit()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 4,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskKeyframes =
+            [
+                new() { FrameOffset = 0, Width = 0.5, Height = 0.25, RotationDegrees = 0 },
+                new() { FrameOffset = 48, Width = 0.5, Height = 0.25, RotationDegrees = 90 },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.Equal(45, VideoClipMask.GetValue(clip, 24).RotationDegrees);
+        Assert.True(VideoClipMask.SetKeyframe(clip, track.Kind, 72, 24,
+            new VideoMaskValue(0.5, 0.5, 0.5, 0.25, 135)));
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 25, 24));
+        Assert.Equal(45, VideoClipMask.GetValue(right, 0).RotationDegrees, 3);
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(new EditorProject { VideoTracks = [track] }))
+            .VideoTracks).Clips, item => item.Id == clip.Id);
+        Assert.Equal(clip.MaskKeyframes.Select(key => (key.FrameOffset, key.RotationDegrees)),
+            VideoTimelineEditing.Clone(clip).MaskKeyframes.Select(key => (key.FrameOffset, key.RotationDegrees)));
+        Assert.Equal(clip.MaskKeyframes.Select(key => (key.FrameOffset, key.RotationDegrees)),
+            restored.MaskKeyframes.Select(key => (key.FrameOffset, key.RotationDegrees)));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject migrated = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            """{"Version":57,"VideoTracks":[{"Kind":"Video","Clips":[{"SourcePath":"scene.mp4","SourceDurationSeconds":2,"MaskShape":"Rectangle"}]}],"Frames":[{"Number":1}],"SelectedFrameIndex":0}""").VideoTracks).Clips);
+        Assert.Equal(0, migrated.MaskRotationDegrees);
+        Assert.All(migrated.MaskKeyframes, key => Assert.Equal(0, key.RotationDegrees));
+    }
+
+    [Fact]
+    public void Render_RotatedMaskChangesTheVisibleRegion()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index + 2] = 255;
+            pixels[index + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 64, 64, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 64, 64, 96);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "red.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskWidth = 0.5,
+            MaskHeight = 0.25,
+        };
+
+        void Draw(double rotation)
+        {
+            clip.MaskRotationDegrees = rotation;
+            using CanvasDrawingSession session = target.CreateDrawingSession();
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(session, source,
+                new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds, 1, clip, 0, 64, 64);
+        }
+
+        Draw(0);
+        byte[] unrotated = target.GetPixelBytes();
+        Draw(45);
+        byte[] rotated = target.GetPixelBytes();
+        int horizontal = (32 * 64 + 45) * 4;
+        int diagonal = (42 * 64 + 42) * 4;
+        Assert.True(unrotated[horizontal + 2] > 245);
+        Assert.True(rotated[horizontal] > 245);
+        Assert.True(unrotated[diagonal] > 245);
+        Assert.True(rotated[diagonal + 2] > 245);
     }
 
     [Fact]

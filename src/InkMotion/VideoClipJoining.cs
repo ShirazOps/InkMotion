@@ -157,6 +157,7 @@ public static class VideoClipJoining
             left.UseProxy != right.UseProxy ||
             left.MaskX != right.MaskX || left.MaskY != right.MaskY ||
             left.MaskWidth != right.MaskWidth || left.MaskHeight != right.MaskHeight ||
+            left.MaskRotationDegrees != right.MaskRotationDegrees ||
             !left.MaskKeyframes.SequenceEqual(right.MaskKeyframes) ||
             left.Text != right.Text || left.FontFamily != right.FontFamily ||
             left.FontSize != right.FontSize || left.Colour != right.Colour)

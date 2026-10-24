@@ -106,6 +106,7 @@ public static class VideoMaskTracking
                 Y = (double)centreY / (height - 1),
                 Width = initialMask.Width,
                 Height = initialMask.Height,
+                RotationDegrees = initialMask.RotationDegrees,
             });
         }
 

@@ -674,13 +674,15 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <NumberBox x:Name="ClipMaskXBox" Header="Centre X (0-1)" Minimum="0" Maximum="1" Value="0.5" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                     <NumberBox x:Name="ClipMaskYBox" Grid.Column="1" Header="Centre Y (0-1)" Minimum="0" Maximum="1" Value="0.5" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                     <NumberBox x:Name="ClipMaskWidthBox" Grid.Row="1" Header="Width (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                     <NumberBox x:Name="ClipMaskHeightBox" Grid.Row="1" Grid.Column="1" Header="Height (0-1)" Minimum="0.01" Maximum="1" Value="1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
+                                    <NumberBox x:Name="ClipMaskRotationBox" Grid.Row="2" Header="Rotation (-180 to 180 degrees)" Minimum="-180" Maximum="180" Value="0" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ClipMaskNumber_Changed" />
                                 </Grid>
-                                <TextBlock Text="Rectangle/ellipse mask geometry and feather can be keyframed on video and image clips; values interpolate between keys. Automatic subject tracking is available for video clips only." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Rectangle/ellipse mask geometry, rotation and feather can be keyframed on video and image clips; values interpolate between keys. Rotation is clockwise. Automatic subject tracking is available for video clips only." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                             </StackPanel>
                             <NumberBox x:Name="ClipDurationBox" Header="Duration (s)" Minimum="0.04" Maximum="3600" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="ClipNumber_Changed" />
                             <TextBox x:Name="ClipTextBox" Header="Title text" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="500" TextChanged="ClipText_Changed" LostFocus="ClipProperty_LostFocus" />
