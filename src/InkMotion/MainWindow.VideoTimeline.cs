@@ -2836,6 +2836,10 @@ public sealed partial class MainWindow
         SetMaskShapeKeyframeButton.IsEnabled = maskShapePlayheadInside && !location.Track.IsLocked;
         RemoveMaskShapeKeyframeButton.IsEnabled = maskShapePlayheadInside && !location.Track.IsLocked &&
             VideoMaskShapeKeyframes.IsKeyframeAt(clip, maskShapeFrameOffset);
+        PreviousMaskShapeKeyframeButton.IsEnabled =
+            VideoMaskShapeKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: false) is not null;
+        NextMaskShapeKeyframeButton.IsEnabled =
+            VideoMaskShapeKeyframes.FindAdjacentFrame(clip, maskShapeFrameOffset, next: true) is not null;
         MaskShapeKeyframeStateText.Text = clip.MaskShapeKeyframes.Count == 0
             ? "Mask shape applies to the whole clip."
             : $"{clip.MaskShapeKeyframes.Count} shape keyframe(s); each shape holds until the next key.";
@@ -4853,6 +4857,28 @@ public sealed partial class MainWindow
         StatusText.Text = removed
             ? "Mask shape keyframe removed."
             : "There is no mask shape keyframe at the playhead.";
+    }
+
+    private void NavigateMaskShapeKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            sender is not Button { Tag: string direction })
+        {
+            return;
+        }
+
+        int frameOffset = VideoMaskShapeKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        int? target = VideoMaskShapeKeyframes.FindAdjacentFrame(
+            selected.Clip, frameOffset, next: direction == "next");
+        if (target is null)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        MoveTimelinePlayhead(((selected.Clip.StartFrame - 1) + target.Value) / _frameRate);
     }
 
     private void SetMaskInversionKeyframe_Click(object sender, RoutedEventArgs e)

@@ -67,6 +67,16 @@ public static class VideoMaskShapeKeyframes
     public static bool IsKeyframeAt(TimelineClipProject clip, int frameOffset) =>
         clip.MaskShapeKeyframes.Any(key => key.FrameOffset == frameOffset);
 
+    public static int? FindAdjacentFrame(TimelineClipProject clip, int frameOffset, bool next)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return next
+            ? clip.MaskShapeKeyframes.Where(key => key.FrameOffset > frameOffset)
+                .Select(key => (int?)key.FrameOffset).Min()
+            : clip.MaskShapeKeyframes.Where(key => key.FrameOffset < frameOffset)
+                .Select(key => (int?)key.FrameOffset).Max();
+    }
+
     public static bool TryRemoveAtFrame(TimelineClipProject clip, int frameOffset)
     {
         ArgumentNullException.ThrowIfNull(clip);
