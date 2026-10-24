@@ -87,7 +87,7 @@ public static class TimelineCompositor
                 session.Transform = flip * rotation * previous;
                 VideoColourGradingValue gradingValue = animatedColourGrade ??
                     (colourGrade is null
-                        ? new VideoColourGradingValue(0, 0, 0, 0, 1)
+                        ? new VideoColourGradingValue(0, 0, 0, 0, 1, 1)
                         : VideoColourGradingKeyframes.GetStaticValue(colourGrade));
                 double vignetteAmount = animatedVignetteAmount ?? colourGrade?.VignetteAmount ?? 0;
                 double blurAmount = animatedBlurAmount ?? colourGrade?.BlurAmount ?? 0;

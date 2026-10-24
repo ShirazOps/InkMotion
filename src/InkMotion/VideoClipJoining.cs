@@ -143,7 +143,7 @@ public static class VideoClipJoining
             left.CropRightPercent != right.CropRightPercent || left.CropBottomPercent != right.CropBottomPercent ||
             left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
             left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
-            left.Saturation != right.Saturation ||
+            left.Saturation != right.Saturation || left.Gamma != right.Gamma ||
             !left.MasterCurve.SequenceEqual(right.MasterCurve) ||
             !left.RedCurve.SequenceEqual(right.RedCurve) ||
             !left.GreenCurve.SequenceEqual(right.GreenCurve) ||

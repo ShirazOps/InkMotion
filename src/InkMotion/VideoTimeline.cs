@@ -181,6 +181,7 @@ public sealed class TimelineClipProject
     public double WhiteBalanceTemperature { get; set; }
     public double WhiteBalanceTint { get; set; }
     public double Saturation { get; set; } = 1;
+    public double Gamma { get; set; } = 1;
     public List<VideoColourGradingKeyframe> ColourGradingKeyframes { get; set; } = [];
     public List<VideoColourCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
@@ -1008,6 +1009,7 @@ public static class VideoTimelineEditing
         WhiteBalanceTemperature = clip.WhiteBalanceTemperature,
         WhiteBalanceTint = clip.WhiteBalanceTint,
         Saturation = clip.Saturation,
+        Gamma = clip.Gamma,
         ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(clip.ColourGradingKeyframes),
         MasterCurve = clip.MasterCurve?.ToList() ?? [],
         RedCurve = clip.RedCurve?.ToList() ?? [],

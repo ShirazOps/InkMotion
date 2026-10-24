@@ -13,15 +13,15 @@ public sealed class VideoColourGradingTests
         TimelineClipProject clip = new() { SourcePath = "video.mp4", SourceDurationSeconds = 4 };
         clip.ColourGradingKeyframes =
         [
-            new() { FrameOffset = 12, Exposure = -1, Contrast = -0.5, Temperature = -0.25, Tint = 0.25, Saturation = 0.5 },
-            new() { FrameOffset = 60, Exposure = 1, Contrast = 0.5, Temperature = 0.25, Tint = -0.25, Saturation = 1.5 },
+            new() { FrameOffset = 12, Exposure = -1, Contrast = -0.5, Temperature = -0.25, Tint = 0.25, Saturation = 0.5, Gamma = 0.5 },
+            new() { FrameOffset = 60, Exposure = 1, Contrast = 0.5, Temperature = 0.25, Tint = -0.25, Saturation = 1.5, Gamma = 1.5 },
         ];
 
-        Assert.Equal(new VideoColourGradingValue(-1, -0.5, -0.25, 0.25, 0.5),
+        Assert.Equal(new VideoColourGradingValue(-1, -0.5, -0.25, 0.25, 0.5, 0.5),
             VideoColourGradingKeyframes.GetValue(clip, 0));
-        Assert.Equal(new VideoColourGradingValue(0, 0, 0, 0, 1),
+        Assert.Equal(new VideoColourGradingValue(0, 0, 0, 0, 1, 1),
             VideoColourGradingKeyframes.GetValue(clip, 36));
-        Assert.Equal(new VideoColourGradingValue(1, 0.5, 0.25, -0.25, 1.5),
+        Assert.Equal(new VideoColourGradingValue(1, 0.5, 0.25, -0.25, 1.5, 1.5),
             VideoColourGradingKeyframes.GetValue(clip, 90));
     }
 
@@ -125,6 +125,7 @@ public sealed class VideoColourGradingTests
             SourcePath = "video.mp4",
             SourceDurationSeconds = 4,
             Exposure = 1.25,
+            Gamma = 1.7,
             Contrast = -0.3,
             WhiteBalanceTemperature = 0.4,
             WhiteBalanceTint = -0.2,
@@ -134,6 +135,7 @@ public sealed class VideoColourGradingTests
         };
         TimelineClipProject clone = VideoTimelineEditing.Clone(video);
         Assert.Equal(video.Exposure, clone.Exposure);
+        Assert.Equal(video.Gamma, clone.Gamma);
         Assert.Equal(video.Contrast, clone.Contrast);
         Assert.Equal(video.WhiteBalanceTemperature, clone.WhiteBalanceTemperature);
         Assert.Equal(video.WhiteBalanceTint, clone.WhiteBalanceTint);
@@ -169,6 +171,7 @@ public sealed class VideoColourGradingTests
 
         Assert.Equal(EditorProject.CurrentVersion, restored.Version);
         Assert.Equal(1.25, restored.VideoTracks[0].Clips[0].Exposure);
+        Assert.Equal(1.7, restored.VideoTracks[0].Clips[0].Gamma);
         Assert.Equal(-0.3, restored.VideoTracks[0].Clips[0].Contrast);
         Assert.Equal(0.4, restored.VideoTracks[0].Clips[0].WhiteBalanceTemperature);
         Assert.Equal(-0.2, restored.VideoTracks[0].Clips[0].WhiteBalanceTint);
@@ -200,6 +203,7 @@ public sealed class VideoColourGradingTests
         clipJson.Remove("WhiteBalanceTemperature");
         clipJson.Remove("WhiteBalanceTint");
         clipJson.Remove("Saturation");
+        clipJson.Remove("Gamma");
         clipJson.Remove("MasterCurve");
         clipJson.Remove("RedCurve");
         clipJson.Remove("GreenCurve");
@@ -209,6 +213,32 @@ public sealed class VideoColourGradingTests
         TimelineClipProject clip = restored.VideoTracks[0].Clips[0];
         Assert.Equal(EditorProject.CurrentVersion, restored.Version);
         Assert.True(VideoColourGrading.IsNeutral(clip));
+    }
+
+    [Fact]
+    public void VersionSixtyProjectsMigrateWithNeutralGamma()
+    {
+        EditorProject original = new()
+        {
+            VideoTracks =
+            [
+                new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Image,
+                    Clips = [new TimelineClipProject { SourcePath = "image.png", Gamma = 1.8 }],
+                },
+            ],
+        };
+        JsonObject json = JsonNode.Parse(EditorProjectSerialiser.Serialise(original))!.AsObject();
+        json["Version"] = 60;
+        JsonObject clipJson = json["VideoTracks"]![0]!["Clips"]![0]!.AsObject();
+        clipJson.Remove("Gamma");
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(json.ToJsonString());
+        TimelineClipProject clip = Assert.Single(Assert.Single(restored.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Equal(1, clip.Gamma);
+        Assert.Empty(clip.ColourGradingKeyframes);
     }
 
     [Fact]
@@ -480,6 +510,42 @@ public sealed class VideoColourGradingTests
 
         byte[] rendered = target.GetPixelBytes();
         Assert.InRange(rendered[(8 * 16 + 8) * 4], 100, 254);
+    }
+
+    [Fact]
+    public void GammaCorrection_DarkensOrBrightensThroughSharedCompositor()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] sourcePixels = Enumerable.Range(0, 16)
+            .SelectMany(_ => new byte[] { 64, 64, 64, 255 })
+            .ToArray();
+        using var source = CanvasBitmap.CreateFromBytes(
+            device,
+            sourcePixels,
+            4,
+            4,
+            DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 16, 16, 96);
+        var clip = new TimelineClipProject { SourcePath = "image.png" };
+
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
+        }
+
+        byte[] neutral = target.GetPixelBytes();
+        clip.Gamma = 0.5;
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1, colourGrade: clip);
+        }
+
+        byte[] rendered = target.GetPixelBytes();
+        int pixel = (8 * 16 + 8) * 4;
+        Assert.InRange(rendered[pixel], 14, 22);
+        Assert.Equal(neutral[pixel + 3], rendered[pixel + 3]);
     }
 
     [Fact]

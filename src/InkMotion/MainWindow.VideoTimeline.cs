@@ -2754,6 +2754,7 @@ public sealed partial class MainWindow
         ClipWhiteBalanceTemperatureBox.Value = grading.Temperature;
         ClipWhiteBalanceTintBox.Value = grading.Tint;
         ClipSaturationBox.Value = grading.Saturation;
+        ClipGammaBox.Value = grading.Gamma;
         int gradingFrameOffset = VideoColourGradingKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
         bool gradingPlayheadInside = VideoColourGradingKeyframes.CanSetAtFrame(
             clip, kind, gradingFrameOffset, _frameRate);
@@ -3545,6 +3546,10 @@ public sealed partial class MainWindow
         {
             updated = updated with { Saturation = args.NewValue };
         }
+        else if (ReferenceEquals(sender, ClipGammaBox))
+        {
+            updated = updated with { Gamma = args.NewValue };
+        }
         else
         {
             CommitEdit();
@@ -3557,6 +3562,7 @@ public sealed partial class MainWindow
         candidate.WhiteBalanceTemperature = updated.Temperature;
         candidate.WhiteBalanceTint = updated.Tint;
         candidate.Saturation = updated.Saturation;
+        candidate.Gamma = updated.Gamma;
         if (VideoColourGrading.Validate(candidate, location.Track.Kind) is string error)
         {
             CommitEdit();
@@ -3589,6 +3595,7 @@ public sealed partial class MainWindow
             clip.WhiteBalanceTemperature = updated.Temperature;
             clip.WhiteBalanceTint = updated.Tint;
             clip.Saturation = updated.Saturation;
+            clip.Gamma = updated.Gamma;
         }
         ApplyClipPreview();
     }

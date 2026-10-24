@@ -5,7 +5,8 @@ public readonly record struct VideoColourGradingValue(
     double Contrast,
     double Temperature,
     double Tint,
-    double Saturation);
+    double Saturation,
+    double Gamma = 1);
 
 public sealed class VideoColourGradingKeyframe
 {
@@ -15,6 +16,7 @@ public sealed class VideoColourGradingKeyframe
     public double Temperature { get; set; }
     public double Tint { get; set; }
     public double Saturation { get; set; } = 1;
+    public double Gamma { get; set; } = 1;
 }
 
 public static class VideoColourGradingKeyframes
@@ -22,7 +24,7 @@ public static class VideoColourGradingKeyframes
     private const double Tolerance = 1e-6;
 
     public static VideoColourGradingValue GetStaticValue(TimelineClipProject clip) => new(
-        clip.Exposure, clip.Contrast, clip.WhiteBalanceTemperature, clip.WhiteBalanceTint, clip.Saturation);
+        clip.Exposure, clip.Contrast, clip.WhiteBalanceTemperature, clip.WhiteBalanceTint, clip.Saturation, clip.Gamma);
 
     public static VideoColourGradingValue GetValue(TimelineClipProject clip, double frameOffset)
     {
@@ -291,10 +293,12 @@ public static class VideoColourGradingKeyframes
         double.IsFinite(value.Tint) &&
         value.Tint is >= VideoColourGrading.MinimumTint and <= VideoColourGrading.MaximumTint &&
         double.IsFinite(value.Saturation) &&
-        value.Saturation is >= VideoColourGrading.MinimumSaturation and <= VideoColourGrading.MaximumSaturation;
+        value.Saturation is >= VideoColourGrading.MinimumSaturation and <= VideoColourGrading.MaximumSaturation &&
+        double.IsFinite(value.Gamma) &&
+        value.Gamma is >= VideoColourGrading.MinimumGamma and <= VideoColourGrading.MaximumGamma;
 
     private static VideoColourGradingValue GetValue(VideoColourGradingKeyframe key) =>
-        new(key.Exposure, key.Contrast, key.Temperature, key.Tint, key.Saturation);
+        new(key.Exposure, key.Contrast, key.Temperature, key.Tint, key.Saturation, key.Gamma);
 
     private static void SetStaticValue(TimelineClipProject clip, VideoColourGradingValue value)
     {
@@ -303,6 +307,7 @@ public static class VideoColourGradingKeyframes
         clip.WhiteBalanceTemperature = value.Temperature;
         clip.WhiteBalanceTint = value.Tint;
         clip.Saturation = value.Saturation;
+        clip.Gamma = value.Gamma;
     }
 
     private static VideoColourGradingValue Lerp(
@@ -313,7 +318,8 @@ public static class VideoColourGradingKeyframes
             left.Contrast + ((right.Contrast - left.Contrast) * amount),
             left.Temperature + ((right.Temperature - left.Temperature) * amount),
             left.Tint + ((right.Tint - left.Tint) * amount),
-            left.Saturation + ((right.Saturation - left.Saturation) * amount));
+            left.Saturation + ((right.Saturation - left.Saturation) * amount),
+            left.Gamma + ((right.Gamma - left.Gamma) * amount));
 
     private static VideoColourGradingKeyframe ToKeyframe(int frameOffset, VideoColourGradingValue value) => new()
     {
@@ -323,6 +329,7 @@ public static class VideoColourGradingKeyframes
         Temperature = value.Temperature,
         Tint = value.Tint,
         Saturation = value.Saturation,
+        Gamma = value.Gamma,
     };
 
     private static VideoColourGradingKeyframe Clone(VideoColourGradingKeyframe key, int? frameOffset = null) =>

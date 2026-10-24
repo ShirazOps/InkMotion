@@ -24,6 +24,8 @@ public static class VideoColourGrading
     public const double MaximumTint = 1;
     public const double MinimumSaturation = 0;
     public const double MaximumSaturation = 2;
+    public const double MinimumGamma = 0.1;
+    public const double MaximumGamma = 4;
     public const int MaximumCurvePoints = 32;
     public const int CurveTableSize = 256;
 
@@ -36,6 +38,7 @@ public static class VideoColourGrading
         value.Temperature == 0 &&
         value.Tint == 0 &&
         value.Saturation == 1 &&
+        value.Gamma == 1 &&
         string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
         IsNeutralCurve(clip.MasterCurve) &&
         IsNeutralCurve(clip.RedCurve) &&
@@ -132,6 +135,7 @@ public static class VideoColourGrading
             clip.WhiteBalanceTemperature is >= MinimumTemperature and <= MaximumTemperature &&
             double.IsFinite(clip.WhiteBalanceTint) && clip.WhiteBalanceTint is >= MinimumTint and <= MaximumTint &&
             double.IsFinite(clip.Saturation) && clip.Saturation is >= MinimumSaturation and <= MaximumSaturation &&
+            double.IsFinite(clip.Gamma) && clip.Gamma is >= MinimumGamma and <= MaximumGamma &&
             IsValidCurve(clip.MasterCurve) && IsValidCurve(clip.RedCurve) &&
             IsValidCurve(clip.GreenCurve) && IsValidCurve(clip.BlueCurve);
         if (!valid)
@@ -165,6 +169,7 @@ public sealed class VideoColourGradingEffect : IDisposable
     private VideoColourCurvePoint[]? _redCurve;
     private VideoColourCurvePoint[]? _greenCurve;
     private VideoColourCurvePoint[]? _blueCurve;
+    private double _tableGamma = double.NaN;
 
     public ICanvasImage GetOutput(
         CanvasBitmap source,
@@ -182,7 +187,7 @@ public sealed class VideoColourGradingEffect : IDisposable
         _saturation.Source = _temperatureAndTint;
         _saturation.Saturation = (float)value.Saturation;
         _curves.Source = _saturation;
-        UpdateCurveTables(clip);
+        UpdateCurveTables(clip, value.Gamma);
         if (string.IsNullOrWhiteSpace(clip.ColourLutPath))
         {
             return _curves;
@@ -201,12 +206,13 @@ public sealed class VideoColourGradingEffect : IDisposable
         return _lutEffect;
     }
 
-    private void UpdateCurveTables(TimelineClipProject clip)
+    private void UpdateCurveTables(TimelineClipProject clip, double gamma)
     {
         if (CurveMatches(_masterCurve, clip.MasterCurve) &&
             CurveMatches(_redCurve, clip.RedCurve) &&
             CurveMatches(_greenCurve, clip.GreenCurve) &&
-            CurveMatches(_blueCurve, clip.BlueCurve))
+            CurveMatches(_blueCurve, clip.BlueCurve) &&
+            _tableGamma == gamma)
         {
             return;
         }
@@ -215,20 +221,24 @@ public sealed class VideoColourGradingEffect : IDisposable
         _redCurve = clip.RedCurve.ToArray();
         _greenCurve = clip.GreenCurve.ToArray();
         _blueCurve = clip.BlueCurve.ToArray();
-        _curves.RedTable = BuildChannelTable(_masterCurve, _redCurve);
-        _curves.GreenTable = BuildChannelTable(_masterCurve, _greenCurve);
-        _curves.BlueTable = BuildChannelTable(_masterCurve, _blueCurve);
+        _tableGamma = gamma;
+        _curves.RedTable = BuildChannelTable(_masterCurve, _redCurve, gamma);
+        _curves.GreenTable = BuildChannelTable(_masterCurve, _greenCurve, gamma);
+        _curves.BlueTable = BuildChannelTable(_masterCurve, _blueCurve, gamma);
     }
 
     private static float[] BuildChannelTable(
         IReadOnlyList<VideoColourCurvePoint> master,
-        IReadOnlyList<VideoColourCurvePoint> channel)
+        IReadOnlyList<VideoColourCurvePoint> channel,
+        double gamma)
     {
-        float[] masterTable = VideoColourGrading.BuildTransferTable(master);
-        var table = new float[masterTable.Length];
+        var table = new float[VideoColourGrading.CurveTableSize];
         for (int index = 0; index < table.Length; index++)
         {
-            table[index] = (float)VideoColourGrading.Evaluate(channel, masterTable[index]);
+            double input = index / (double)(table.Length - 1);
+            double gammaCorrected = Math.Pow(input, 1 / gamma);
+            double masterCorrected = VideoColourGrading.Evaluate(master, gammaCorrected);
+            table[index] = (float)VideoColourGrading.Evaluate(channel, masterCorrected);
         }
 
         return table;
