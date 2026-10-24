@@ -62,6 +62,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove transform keyframes before joining; keyframed motion cannot be combined without changing its timing.");
         }
 
+        if (left.FlipKeyframes.Count != 0 || right.FlipKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove flip keyframes before joining; animated flips cannot be combined without changing their timing.");
+        }
+
         if (left.CropKeyframes.Count != 0 || right.CropKeyframes.Count != 0)
         {
             throw new InvalidOperationException("Remove crop keyframes before joining; animated crop cannot be combined without changing its timing.");

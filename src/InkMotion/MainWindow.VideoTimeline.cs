@@ -1021,6 +1021,7 @@ public sealed partial class MainWindow
             (int x, int y, int sourceWidth, int sourceHeight) = source.Aperture;
             VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _frameRate);
+            VideoClipFlipValue flip = VideoClipFlipKeyframes.GetValueAtTime(clip, seconds, _frameRate);
             VideoColourGradingEffect? colourGradingEffect = GetPreviewColourGradingEffect(clip, seconds);
             if (opacity > 0)
             {
@@ -1051,8 +1052,8 @@ public sealed partial class MainWindow
                     VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    flipHorizontal: clip.FlipHorizontal,
-                    flipVertical: clip.FlipVertical);
+                    flipHorizontal: flip.Horizontal,
+                    flipVertical: flip.Vertical);
             }
             if (updateScopes)
             {
@@ -1108,6 +1109,8 @@ public sealed partial class MainWindow
 
         VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
         VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, _playheadFramePosition / _frameRate, _frameRate);
+        VideoClipFlipValue flip = VideoClipFlipKeyframes.GetValueAtTime(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
         try
         {
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
@@ -1135,8 +1138,8 @@ public sealed partial class MainWindow
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoChromaKeyEnabledKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
-                flipHorizontal: clip.FlipHorizontal,
-                flipVertical: clip.FlipVertical);
+                flipHorizontal: flip.Horizontal,
+                flipVertical: flip.Vertical);
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
             UnauthorizedAccessException or InvalidOperationException or ArgumentException))
@@ -1736,6 +1739,7 @@ public sealed partial class MainWindow
         destination.CropBottomPercent = source.CropBottomPercent;
         destination.FlipHorizontal = source.FlipHorizontal;
         destination.FlipVertical = source.FlipVertical;
+        destination.FlipKeyframes = VideoClipFlipKeyframes.CloneKeys(source.FlipKeyframes);
         destination.CropKeyframes = VideoCropKeyframes.CloneKeys(source.CropKeyframes);
         destination.TransformKeyframes = VideoTransformKeyframes.CloneKeys(source.TransformKeyframes);
     }
@@ -2714,8 +2718,19 @@ public sealed partial class MainWindow
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipScaleSlider.Value = transform.Scale;
         ClipRotationBox.Value = transform.RotationDegrees;
-        ClipFlipHorizontalCheck.IsChecked = clip.FlipHorizontal;
-        ClipFlipVerticalCheck.IsChecked = clip.FlipVertical;
+        VideoClipFlipValue flip = VideoClipFlipKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        ClipFlipHorizontalCheck.IsChecked = flip.Horizontal;
+        ClipFlipVerticalCheck.IsChecked = flip.Vertical;
+        int flipFrameOffset = VideoClipFlipKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool flipPlayheadInside = VideoClipFlipKeyframes.CanSetAtFrame(
+            clip, kind, flipFrameOffset, _frameRate);
+        SetFlipKeyframeButton.IsEnabled = flipPlayheadInside && !location.Track.IsLocked;
+        RemoveFlipKeyframeButton.IsEnabled = flipPlayheadInside && !location.Track.IsLocked &&
+            VideoClipFlipKeyframes.IsKeyframeAt(clip, flipFrameOffset);
+        FlipKeyframeStateText.Text = clip.FlipKeyframes.Count == 0
+            ? "No flip keyframes. Flip settings apply to the whole clip."
+            : $"{clip.FlipKeyframes.Count} flip keyframe(s); horizontal and vertical states hold until the next key.";
         VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(
             clip, _playheadFramePosition / _frameRate, _frameRate);
         ClipCropLeftBox.Value = crop.Left;
@@ -2873,7 +2888,7 @@ public sealed partial class MainWindow
         int maskKeyframeCount = VideoMaskTimelineKeyframes.GetFrameOffsets(clip).Count();
         MaskShapeKeyframeStateText.Text = maskKeyframeCount == 0
             ? "Mask shape applies to the whole clip."
-            : $"{maskKeyframeCount} mask key time(s); keys may set shape, geometry, inversion or feather.";
+            : $"{maskKeyframeCount} mask/flip key time(s); keys may set shape, geometry, inversion, feather or flips.";
         int maskInversionFrameOffset = VideoMaskInversionKeyframes.GetFrameOffset(
             clip, opacitySeconds, _frameRate);
         ClipMaskInvertedCheck.IsChecked = VideoMaskInversionKeyframes.GetValue(
@@ -3056,15 +3071,33 @@ public sealed partial class MainWindow
         if (_isInitialising || _isRestoringProject ||
             SelectedTimelineClip is not TimelineClipLocation selected ||
             selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
-            (selected.Clip.FlipHorizontal == (ClipFlipHorizontalCheck.IsChecked == true) &&
-             selected.Clip.FlipVertical == (ClipFlipVerticalCheck.IsChecked == true)) ||
+            (VideoClipFlipKeyframes.GetValueAtTime(selected.Clip, CurrentPlaybackSeconds, _frameRate) ==
+                new VideoClipFlipValue(
+                    ClipFlipHorizontalCheck.IsChecked == true,
+                    ClipFlipVerticalCheck.IsChecked == true)) ||
             !TryBeginClipPropertyEdit(out TimelineClipLocation location))
         {
             return;
         }
 
-        location.Clip.FlipHorizontal = ClipFlipHorizontalCheck.IsChecked == true;
-        location.Clip.FlipVertical = ClipFlipVerticalCheck.IsChecked == true;
+        VideoClipFlipValue value = new(
+            ClipFlipHorizontalCheck.IsChecked == true,
+            ClipFlipVerticalCheck.IsChecked == true);
+        VideoClipFlipValue current = VideoClipFlipKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == value)
+        {
+            CommitEdit();
+            return;
+        }
+        if (!VideoClipFlipKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, value))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit its flip keyframes.";
+            UpdateVideoInspector();
+            return;
+        }
         ApplyClipPreview();
     }
 
@@ -4061,6 +4094,61 @@ public sealed partial class MainWindow
         StatusText.Text = set
             ? $"Chroma-key enable keyframe set at clip frame {frameOffset + 1}."
             : "Move the playhead inside the selected video or image clip to add an enable keyframe.";
+    }
+
+    private void SetFlipKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipFlipKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoClipFlipKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Flip keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a flip keyframe.";
+    }
+
+    private void RemoveFlipKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipFlipKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoClipFlipKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Flip keyframe removed."
+            : "There is no flip keyframe at the playhead.";
     }
 
     private void RemoveChromaKeyEnabledKeyframe_Click(object sender, RoutedEventArgs e)

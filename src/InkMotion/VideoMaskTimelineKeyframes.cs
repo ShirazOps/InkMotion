@@ -9,6 +9,7 @@ public static class VideoMaskTimelineKeyframes
             .Concat(clip.MaskShapeKeyframes.Select(key => key.FrameOffset))
             .Concat(clip.MaskInversionKeyframes.Select(key => key.FrameOffset))
             .Concat(clip.MaskFeatherKeyframes.Select(key => key.FrameOffset))
+            .Concat(clip.FlipKeyframes.Select(key => key.FrameOffset))
             .Distinct()
             .OrderBy(frameOffset => frameOffset);
     }

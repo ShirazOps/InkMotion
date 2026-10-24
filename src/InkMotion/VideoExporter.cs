@@ -333,6 +333,8 @@ public static class VideoExporter
                                 layer.Clip, seconds, _project.FrameRate);
                             VideoCropValue imageCrop = VideoCropKeyframes.GetValueAtTime(
                                 layer.Clip, seconds, _project.FrameRate);
+                            VideoClipFlipValue imageFlip = VideoClipFlipKeyframes.GetValueAtTime(
+                                layer.Clip, seconds, _project.FrameRate);
                             TimelineCompositor.DrawFitted(session, image, VideoCrop.GetSourceRect(image.Bounds, imageCrop), width, height,
                                 imageTransform.Scale, imageTransform.X, imageTransform.Y, opacity,
                                 imageTransform.RotationDegrees, layer.Clip, GetColourGradingEffect(layer.Clip, seconds),
@@ -349,8 +351,8 @@ public static class VideoExporter
                                 VideoChromaKeyFeatherKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
                                 VideoChromaKeyColourKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
                                 VideoChromaKeyEnabledKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
-                                flipHorizontal: layer.Clip.FlipHorizontal,
-                                flipVertical: layer.Clip.FlipVertical);
+                                flipHorizontal: imageFlip.Horizontal,
+                                flipVertical: imageFlip.Vertical);
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
@@ -441,6 +443,7 @@ public static class VideoExporter
                 (int x, int y, int w, int h) = video.Aperture;
                 VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 VideoCropValue crop = VideoCropKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
+                VideoClipFlipValue flip = VideoClipFlipKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate);
                 TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(new Rect(x, y, w, h), crop), width, height,
                     transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
                     GetColourGradingEffect(clip, seconds), GetChromaKeyEffect(clip, seconds), GetBlurEffect(clip, seconds),
@@ -456,8 +459,8 @@ public static class VideoExporter
                     VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
                     VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
                     VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
-                    flipHorizontal: clip.FlipHorizontal,
-                    flipVertical: clip.FlipVertical);
+                    flipHorizontal: flip.Horizontal,
+                    flipVertical: flip.Vertical);
             }
         }
 

@@ -2397,6 +2397,7 @@ public sealed partial class MainWindow : Window
         VideoSharpenKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoChromaKeyKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoChromaKeyEnabledKeyframes.ClearInvalid(_videoTracks, _frameRate);
+        VideoClipFlipKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoMaskInversionKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoMaskShapeKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoChromaKeyColourKeyframes.ClearInvalid(_videoTracks, _frameRate);
