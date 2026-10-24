@@ -165,6 +165,36 @@ public sealed class AudioMasterAnalysisTests : IDisposable
         Assert.False(result.Overall.Clipped);
     }
 
+    [Fact]
+    public void MeasuresIntegratedLoudnessWithKWeightingAndReturnsNoValueForSubBlockOrSilence()
+    {
+        const int frames = 96000;
+        float[] tone = Enumerable.Range(0, frames)
+            .Select(index => (float)(0.1 * Math.Sin(2 * Math.PI * 997 * index / 48000)))
+            .ToArray();
+        AudioMasterAnalysisResult result = AudioMasterAnalysis.Analyse(new EditorProject
+        {
+            AudioMixLayout = AudioChannelLayout.Mono,
+            AudioTracks = [new() { AudioPath = WriteSource(1, tone) }],
+        }, CancellationToken.None);
+        Assert.NotNull(result.IntegratedLufs);
+        Assert.InRange(result.IntegratedLufs!.Value, -24, -23);
+
+        AudioMasterAnalysisResult silent = AudioMasterAnalysis.Analyse(new EditorProject
+        {
+            AudioMixLayout = AudioChannelLayout.Mono,
+            AudioTracks = [new() { AudioPath = WriteSource(1, new float[48000]) }],
+        }, CancellationToken.None);
+        Assert.Null(silent.IntegratedLufs);
+
+        AudioMasterAnalysisResult shortSignal = AudioMasterAnalysis.Analyse(new EditorProject
+        {
+            AudioMixLayout = AudioChannelLayout.Mono,
+            AudioTracks = [new() { AudioPath = WriteSource(1, new float[12000]) }],
+        }, CancellationToken.None);
+        Assert.Null(shortSignal.IntegratedLufs);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

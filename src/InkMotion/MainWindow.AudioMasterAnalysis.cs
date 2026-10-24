@@ -69,6 +69,7 @@ public sealed partial class MainWindow
                 $"Export mix snapshot: {layout.DisplayName}, {result.SampleFrames:N0} frames at {result.SampleRate:N0} Hz\n" +
                 $"Peak {MeterDecibels(result.Overall.PeakDecibels)} / RMS {MeterDecibels(result.Overall.RmsDecibels)} dBFS" +
                 (result.Overall.Clipped ? " - CLIP (held)" : string.Empty) + "\n" +
+                $"Integrated loudness {FormatIntegratedLufs(result.IntegratedLufs)}\n" +
                 string.Join("\n", channels) +
                 (result.Warnings.Count > 0 ? "\nWarnings:\n" + string.Join("\n", result.Warnings) : string.Empty);
         }
@@ -97,4 +98,7 @@ public sealed partial class MainWindow
             }
         }
     }
+
+    private static string FormatIntegratedLufs(double? lufs) =>
+        lufs is double value && double.IsFinite(value) ? $"{value:F1} LUFS" : "below gate / insufficient duration";
 }

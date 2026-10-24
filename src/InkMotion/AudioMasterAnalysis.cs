@@ -6,6 +6,7 @@ public sealed record AudioMasterAnalysisResult(
     AudioChannelLayout Layout,
     AudioMeterReading Overall,
     IReadOnlyList<AudioMeterReading> Channels,
+    double? IntegratedLufs,
     IReadOnlyList<string> Warnings);
 
 public static class AudioMasterAnalysis
@@ -30,7 +31,9 @@ public static class AudioMasterAnalysis
 
         var peaks = new float[mixer.Channels];
         var squares = new double[mixer.Channels];
+        AudioIntegratedLoudness loudness = new(mixer.SampleRate, AudioChannelLayouts.Get(mixer.Layout).Speakers);
         var buffer = new float[4096 * mixer.Channels];
+        var frameSamples = new float[mixer.Channels];
         long processed = 0;
         int reportedPercent = -1;
         while (processed < frames)
@@ -54,6 +57,11 @@ public static class AudioMasterAnalysis
                 int channel = index % mixer.Channels;
                 peaks[channel] = Math.Max(peaks[channel], Math.Abs(sample));
                 squares[channel] += (double)sample * sample;
+                frameSamples[channel] = sample;
+                if (channel == mixer.Channels - 1)
+                {
+                    loudness.AddFrame(frameSamples);
+                }
             }
 
             processed += read / mixer.Channels;
@@ -72,6 +80,6 @@ public static class AudioMasterAnalysis
         float peak = peaks.Max();
         return new(mixer.SampleRate, frames, mixer.Layout,
             new(peak, Math.Sqrt(squares.Sum() / frames / mixer.Channels), peak >= 1),
-            Array.AsReadOnly(channels), mixer.Warnings.ToArray());
+            Array.AsReadOnly(channels), loudness.GetIntegratedLufs(), mixer.Warnings.ToArray());
     }
 }
