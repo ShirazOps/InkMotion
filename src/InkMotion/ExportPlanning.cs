@@ -173,6 +173,22 @@ public static class ExportPlanning
         return clip.Volume * GetVideoClipAudioEnvelope(clip, clipElapsedSeconds, transition);
     }
 
+    public static double GetVideoClipAudioGain(
+        TimelineClipProject clip,
+        double clipElapsedSeconds,
+        VideoAudioTransition transition,
+        double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (!double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameRate));
+        }
+
+        return clip.Volume * VideoClipVolumeKeyframes.GetValue(clip, clipElapsedSeconds * frameRate) *
+            GetVideoClipAudioEnvelope(clip, clipElapsedSeconds, transition);
+    }
+
     public static double GetVideoClipAudioEnvelope(
         TimelineClipProject clip,
         double clipElapsedSeconds,

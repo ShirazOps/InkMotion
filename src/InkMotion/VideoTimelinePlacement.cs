@@ -133,6 +133,7 @@ public static class VideoTimelinePlacement
                 VideoMaskInversionKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoMaskFeatherKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoOpacityKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoClipVolumeKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoColourGradingKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoVignetteKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoBlurKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
@@ -173,6 +174,7 @@ public static class VideoTimelinePlacement
                 VideoMaskInversionKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoMaskFeatherKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoOpacityKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoClipVolumeKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoColourGradingKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoVignetteKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoBlurKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
@@ -213,6 +215,7 @@ public static class VideoTimelinePlacement
                 existing.MaskShapeKeyframes = VideoMaskShapeKeyframes.CloneKeys(candidate.MaskShapeKeyframes);
                 existing.MaskInversionKeyframes = VideoMaskInversionKeyframes.CloneKeys(candidate.MaskInversionKeyframes);
                 existing.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(candidate.OpacityKeyframes);
+                existing.VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(candidate.VolumeKeyframes);
                 existing.ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(candidate.ColourGradingKeyframes);
                 existing.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(candidate.VignetteKeyframes);
                 existing.BlurKeyframes = VideoBlurKeyframes.CloneKeys(candidate.BlurKeyframes);

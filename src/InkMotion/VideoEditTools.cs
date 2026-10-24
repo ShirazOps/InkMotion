@@ -93,6 +93,9 @@ public static class VideoEditTools
 
         clip.SourceInSeconds = Math.Max(0, sourceIn);
         clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, sourceOut);
+        int retainedFrames = (int)Math.Ceiling(
+            VideoTimelineEditing.GetDurationSeconds(clip, track.Kind) * frameRate - 1e-6);
+        VideoClipVolumeKeyframes.TrimEnd(clip, retainedFrames);
         return true;
     }
 

@@ -206,7 +206,8 @@ public sealed class ExportAudioMixer : IDisposable
 
         var envelope = new GainEnvelopeSampleProvider(
             source,
-            elapsed => ExportPlanning.GetVideoClipAudioGain(clip, clipElapsedAtSourceStart + elapsed, transition));
+            elapsed => ExportPlanning.GetVideoClipAudioGain(
+                clip, clipElapsedAtSourceStart + elapsed, transition, _frameRate));
         AddSource(envelope, Math.Max(0, timelineStart), duration);
     }
 

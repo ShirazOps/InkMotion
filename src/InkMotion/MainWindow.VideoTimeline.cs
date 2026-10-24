@@ -55,7 +55,8 @@ public sealed partial class MainWindow
         bool IsReversed,
         double SourceInSeconds,
         double SourceOutSeconds,
-        VideoAudioTransition Transition);
+        VideoAudioTransition Transition,
+        string VolumeKeyframes);
 
     private const float TimelineRulerHeight = 22;
     private const float TimelineLaneHeight = 34;
@@ -539,7 +540,8 @@ public sealed partial class MainWindow
                 VideoTimelineEditing.GetSourceSeconds(transition.IncomingClip, seconds, _frameRate),
                 forceSeek,
                 incomingEnvelope);
-            _previewMediaPlayer.Volume = mainClip.Volume;
+            _previewMediaPlayer.Volume = VideoClipVolumeKeyframes.GetVolumeAtTime(
+                mainClip, seconds, _frameRate);
             _previewMediaPlayer.IsMuted = mainClip.IsReversed || outgoingRouted || incomingRouted ||
                 active.Track.IsMuted || HasSoloAudio;
             return;
@@ -607,7 +609,9 @@ public sealed partial class MainWindow
         bool videoAudioRouted = synchronizeAudio
             ? SyncVideoAudioPreview(_videoAudioPreview, active, sourceSeconds, forceSeek, null)
             : false;
-        _previewMediaPlayer.Volume = IsOriginalPreview ? 1 : clip.Volume;
+        _previewMediaPlayer.Volume = IsOriginalPreview
+            ? 1
+            : VideoClipVolumeKeyframes.GetVolumeAtTime(clip, seconds, _frameRate);
         _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
             (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
         _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
@@ -653,28 +657,22 @@ public sealed partial class MainWindow
         AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio);
         Func<double, double>? gainEnvelope = null;
         VideoAudioEnvelopeKey? envelopeKey = null;
-        if (!IsOriginalPreview && transition is { } audioTransition &&
-            (audioTransition.InSeconds > 0 || audioTransition.OutSeconds > 0))
+        if (!IsOriginalPreview)
         {
-            VideoAudioSourceRange sourceRange = VideoTransitions.GetAudioSourceRange(clip, audioTransition);
-            project.SourceInSeconds = sourceRange.StartSeconds;
-            project.SourceOutSeconds = sourceRange.EndSeconds;
+            VideoAudioTransition audioTransition = transition ?? default;
+            if (audioTransition.InSeconds > 0 || audioTransition.OutSeconds > 0)
+            {
+                VideoAudioSourceRange sourceRange = VideoTransitions.GetAudioSourceRange(clip, audioTransition);
+                project.SourceInSeconds = sourceRange.StartSeconds;
+                project.SourceOutSeconds = sourceRange.EndSeconds;
+            }
+            project.Volume = 1;
             project.FadeInSeconds = 0;
             project.FadeOutSeconds = 0;
             double sourceIn = clip.SourceInSeconds;
             double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
             double playbackSpeed = clip.PlaybackSpeed;
             bool reversed = clip.IsReversed;
-            var envelopeClip = new TimelineClipProject
-            {
-                SourceInSeconds = sourceIn,
-                SourceOutSeconds = sourceOut,
-                SourceDurationSeconds = clip.SourceDurationSeconds,
-                PlaybackSpeed = playbackSpeed,
-                Volume = clip.Volume,
-                FadeInSeconds = clip.FadeInSeconds,
-                FadeOutSeconds = clip.FadeOutSeconds,
-            };
             envelopeKey = new VideoAudioEnvelopeKey(
                 clip.Volume,
                 clip.FadeInSeconds,
@@ -683,13 +681,14 @@ public sealed partial class MainWindow
                 reversed,
                 sourceIn,
                 sourceOut,
-                audioTransition);
+                audioTransition,
+                string.Join(';', clip.VolumeKeyframes.Select(key => $"{key.FrameOffset}:{key.Volume:R}")));
             gainEnvelope = sourcePosition =>
             {
                 double clipElapsed = reversed
                     ? (sourceOut - sourcePosition) / playbackSpeed
                     : (sourcePosition - sourceIn) / playbackSpeed;
-                return ExportPlanning.GetVideoClipAudioEnvelope(envelopeClip, clipElapsed, audioTransition);
+                return ExportPlanning.GetVideoClipAudioGain(clip, clipElapsed, audioTransition, _frameRate);
             };
         }
 
@@ -1709,6 +1708,7 @@ public sealed partial class MainWindow
         destination.DurationSeconds = source.DurationSeconds;
         destination.Opacity = source.Opacity;
         destination.OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(source.OpacityKeyframes);
+        destination.VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(source.VolumeKeyframes);
         destination.ColourGradingKeyframes =
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
@@ -2666,6 +2666,7 @@ public sealed partial class MainWindow
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
             : string.Empty;
         ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipVolumeKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseAudioCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -2694,7 +2695,18 @@ public sealed partial class MainWindow
         OpacityKeyframeStateText.Text = clip.OpacityKeyframes.Count == 0
             ? "No opacity keyframes. Opacity applies to the whole clip."
             : $"{clip.OpacityKeyframes.Count} opacity keyframe(s); values interpolate at the playhead.";
-        ClipVolumeSlider.Value = clip.Volume;
+        int volumeFrameOffset = VideoClipVolumeKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool volumePlayheadInside = VideoClipVolumeKeyframes.CanSetAtFrame(
+            clip, kind, volumeFrameOffset, _frameRate);
+        ClipVolumeSlider.Maximum = clip.VolumeKeyframes.Count == 0 ? 1 : clip.Volume;
+        ClipVolumeSlider.Value = VideoClipVolumeKeyframes.GetVolumeAtTime(clip, opacitySeconds, _frameRate);
+        ClipVolumeSlider.IsEnabled = clip.VolumeKeyframes.Count == 0 || volumePlayheadInside;
+        SetClipVolumeKeyframeButton.IsEnabled = volumePlayheadInside && isVideo && !location.Track.IsLocked;
+        RemoveClipVolumeKeyframeButton.IsEnabled = volumePlayheadInside && isVideo && !location.Track.IsLocked &&
+            VideoClipVolumeKeyframes.IsKeyframeAt(clip, volumeFrameOffset);
+        ClipVolumeKeyframeStateText.Text = clip.VolumeKeyframes.Count == 0
+            ? "No volume keyframes. Volume applies to the whole clip."
+            : $"{clip.VolumeKeyframes.Count} volume keyframe(s); values interpolate at the playhead.";
         ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
         ClipReverseVideoCheck.IsChecked = clip.IsReversed;
         ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
@@ -3005,7 +3017,14 @@ public sealed partial class MainWindow
         }
         else if (ReferenceEquals(sender, ClipVolumeSlider))
         {
-            clip.Volume = Math.Clamp(e.NewValue, 0, 1);
+            if (!VideoClipVolumeKeyframes.SetVolumeAtTime(
+                clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate,
+                Math.Clamp(e.NewValue, 0, ClipVolumeSlider.Maximum)))
+            {
+                CommitEdit();
+                UpdateVideoInspector();
+                return;
+            }
         }
         else if (ReferenceEquals(sender, ClipScaleSlider) ||
             ReferenceEquals(sender, ClipXSlider) ||
@@ -4014,6 +4033,63 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Opacity keyframe removed." : "There is no opacity keyframe at the playhead.";
+    }
+
+    private void SetClipVolumeKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipVolumeKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoClipVolumeKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Volume keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video clip to add a volume keyframe.";
+    }
+
+    private void RemoveClipVolumeKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoClipVolumeKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoClipVolumeKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed ? "Volume keyframe removed." : "There is no volume keyframe at the playhead.";
     }
 
     private void SetChromaKeyKeyframe_Click(object sender, RoutedEventArgs e)

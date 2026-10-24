@@ -168,6 +168,7 @@ public sealed class TimelineClipProject
     public double Opacity { get; set; } = 1;
     public List<VideoOpacityKeyframe> OpacityKeyframes { get; set; } = [];
     public double Volume { get; set; } = 1;
+    public List<VideoClipVolumeKeyframe> VolumeKeyframes { get; set; } = [];
     public double FadeInSeconds { get; set; }
     public double FadeOutSeconds { get; set; }
     public double TransitionInSeconds { get; set; }
@@ -462,6 +463,7 @@ public static class VideoTimelineEditing
         VideoMaskFeatherKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoClipFlipKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoClipVolumeKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoBlurKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
@@ -507,6 +509,7 @@ public static class VideoTimelineEditing
         VideoMaskFeatherKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoClipFlipKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoClipVolumeKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoBlurKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
@@ -540,6 +543,7 @@ public static class VideoTimelineEditing
         VideoMaskFeatherKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoClipFlipKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoClipVolumeKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoColourGradingKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoVignetteKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoBlurKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
@@ -773,6 +777,7 @@ public static class VideoTimelineEditing
             VideoMaskFeatherKeyframes.TrimEnd(clip, retainedFrames);
             VideoClipFlipKeyframes.TrimEnd(clip, retainedFrames);
             VideoOpacityKeyframes.TrimEnd(clip, retainedFrames);
+            VideoClipVolumeKeyframes.TrimEnd(clip, retainedFrames);
             VideoColourGradingKeyframes.TrimEnd(clip, retainedFrames);
             VideoVignetteKeyframes.TrimEnd(clip, retainedFrames);
             VideoBlurKeyframes.TrimEnd(clip, retainedFrames);
@@ -880,6 +885,7 @@ public static class VideoTimelineEditing
         VideoMaskFeatherKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoClipFlipKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoClipVolumeKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoColourGradingKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoVignetteKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoBlurKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
@@ -931,6 +937,7 @@ public static class VideoTimelineEditing
                 VideoMaskFeatherKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoClipFlipKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoOpacityKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
+                VideoClipVolumeKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoColourGradingKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoVignetteKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoBlurKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
@@ -996,6 +1003,7 @@ public static class VideoTimelineEditing
         Opacity = clip.Opacity,
         OpacityKeyframes = VideoOpacityKeyframes.CloneKeys(clip.OpacityKeyframes),
         Volume = clip.Volume,
+        VolumeKeyframes = VideoClipVolumeKeyframes.CloneKeys(clip.VolumeKeyframes),
         FadeInSeconds = clip.FadeInSeconds,
         FadeOutSeconds = clip.FadeOutSeconds,
         TransitionInSeconds = clip.TransitionInSeconds,
@@ -1112,6 +1120,11 @@ public static class VideoTimelineEditing
                 if (VideoOpacityKeyframes.Validate(clip, track.Kind, frameRate) is string opacityError)
                 {
                     return opacityError;
+                }
+
+                if (VideoClipVolumeKeyframes.Validate(clip, track.Kind, frameRate) is string volumeKeyframeError)
+                {
+                    return volumeKeyframeError;
                 }
 
                 if (VideoColourGradingKeyframes.Validate(clip, track.Kind, frameRate) is string gradingKeyframeError)

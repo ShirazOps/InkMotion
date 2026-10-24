@@ -77,6 +77,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove opacity keyframes before joining; animated opacity cannot be combined without changing its timing.");
         }
 
+        if (left.VolumeKeyframes.Count != 0 || right.VolumeKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove volume keyframes before joining; animated audio volume cannot be combined without changing its timing.");
+        }
+
         if (left.ColourGradingKeyframes.Count != 0 || right.ColourGradingKeyframes.Count != 0)
         {
             throw new InvalidOperationException("Remove colour grading keyframes before joining; animated grading cannot be combined without changing its timing.");
