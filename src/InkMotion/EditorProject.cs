@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 48;
+    public const int CurrentVersion = 49;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -451,6 +451,10 @@ public static class EditorProjectSerialiser
             project.Version = 47;
         }
         if (project.Version == 47)
+        {
+            project.Version = 48;
+        }
+        if (project.Version == 48)
         {
             project.Version = EditorProject.CurrentVersion;
         }

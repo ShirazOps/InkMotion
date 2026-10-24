@@ -28,10 +28,10 @@ public sealed class VideoSharpenCanvasEffect : IDisposable
 {
     private readonly SharpenEffect _effect = new();
 
-    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip)
+    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip, double? animatedAmount = null)
     {
         _effect.Source = source;
-        _effect.Amount = (float)clip.SharpenAmount;
+        _effect.Amount = (float)(animatedAmount ?? clip.SharpenAmount);
         return _effect;
     }
 

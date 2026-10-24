@@ -339,10 +339,11 @@ public static class VideoExporter
                                 GetChromaKeyEffect(layer.Clip), GetBlurEffect(layer.Clip, seconds),
                                 GetVignetteEffect(layer.Clip, seconds),
                                 VideoTransformKeyframes.GetFrameOffset(layer.Clip, seconds, _project.FrameRate),
-                                GetSharpenEffect(layer.Clip),
+                                GetSharpenEffect(layer.Clip, seconds),
                                 VideoColourGradingKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
                                 VideoVignetteKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
-                                VideoBlurKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
+                                VideoBlurKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
+                                VideoSharpenKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
                             break;
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
@@ -438,10 +439,11 @@ public static class VideoExporter
                     GetColourGradingEffect(clip, seconds), GetChromaKeyEffect(clip), GetBlurEffect(clip, seconds),
                     GetVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _project.FrameRate),
-                    GetSharpenEffect(clip),
+                    GetSharpenEffect(clip, seconds),
                     VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
                     VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
-                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
+                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate),
+                    VideoSharpenKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate));
             }
         }
 
@@ -511,9 +513,9 @@ public static class VideoExporter
             return effect;
         }
 
-        private VideoSharpenCanvasEffect? GetSharpenEffect(TimelineClipProject clip)
+        private VideoSharpenCanvasEffect? GetSharpenEffect(TimelineClipProject clip, double seconds)
         {
-            if (clip.SharpenAmount <= 0)
+            if (VideoSharpenKeyframes.GetValueAtTime(clip, seconds, _project.FrameRate) <= 0)
             {
                 return null;
             }

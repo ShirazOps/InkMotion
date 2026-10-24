@@ -1041,10 +1041,11 @@ public sealed partial class MainWindow
                     GetPreviewBlurEffect(clip, seconds),
                     GetPreviewVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
-                    GetPreviewSharpenEffect(clip),
+                    GetPreviewSharpenEffect(clip, seconds),
                     VideoColourGradingKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoVignetteKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoBlurKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoSharpenKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1107,12 +1108,14 @@ public sealed partial class MainWindow
                 GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds), GetPreviewChromaKeyEffect(clip),
                 GetPreviewBlurEffect(clip, CurrentPlaybackSeconds), GetPreviewVignetteEffect(clip, CurrentPlaybackSeconds),
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
-                GetPreviewSharpenEffect(clip),
+                GetPreviewSharpenEffect(clip, CurrentPlaybackSeconds),
                 VideoColourGradingKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoVignetteKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoBlurKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoSharpenKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1191,9 +1194,10 @@ public sealed partial class MainWindow
         return effect;
     }
 
-    private VideoSharpenCanvasEffect? GetPreviewSharpenEffect(TimelineClipProject clip)
+    private VideoSharpenCanvasEffect? GetPreviewSharpenEffect(TimelineClipProject clip, double? seconds = null)
     {
-        if (clip.SharpenAmount <= 0)
+        if (VideoSharpenKeyframes.GetValueAtTime(
+            clip, seconds ?? _playheadFramePosition / _frameRate, _frameRate) <= 0)
         {
             return null;
         }
@@ -1674,6 +1678,7 @@ public sealed partial class MainWindow
             VideoColourGradingKeyframes.CloneKeys(source.ColourGradingKeyframes);
         destination.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(source.VignetteKeyframes);
         destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
+        destination.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(source.SharpenKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2704,7 +2709,16 @@ public sealed partial class MainWindow
         BlurKeyframeStateText.Text = clip.BlurKeyframes.Count == 0
             ? "No blur keyframes. Blur applies to the whole clip."
             : $"{clip.BlurKeyframes.Count} blur keyframe(s); values interpolate at the playhead.";
-        ClipSharpenAmountBox.Value = clip.SharpenAmount;
+        ClipSharpenAmountBox.Value = VideoSharpenKeyframes.GetValueAtTime(clip, opacitySeconds, _frameRate);
+        int sharpenFrameOffset = VideoSharpenKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
+        bool sharpenPlayheadInside = VideoSharpenKeyframes.CanSetAtFrame(
+            clip, kind, sharpenFrameOffset, _frameRate);
+        SetSharpenKeyframeButton.IsEnabled = sharpenPlayheadInside && !location.Track.IsLocked;
+        RemoveSharpenKeyframeButton.IsEnabled = sharpenPlayheadInside && !location.Track.IsLocked &&
+            VideoSharpenKeyframes.IsKeyframeAt(clip, sharpenFrameOffset);
+        SharpenKeyframeStateText.Text = clip.SharpenKeyframes.Count == 0
+            ? "No sharpening keyframes. Sharpening applies to the whole clip."
+            : $"{clip.SharpenKeyframes.Count} sharpening keyframe(s); values interpolate at the playhead.";
         ClipVignetteAmountBox.Value = VideoVignetteKeyframes.GetValueAtTime(
             clip, opacitySeconds, _frameRate);
         int vignetteFrameOffset = VideoVignetteKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
@@ -3125,12 +3139,20 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (location.Clip.SharpenAmount == args.NewValue)
+        double current = VideoSharpenKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == args.NewValue)
         {
             return;
         }
 
-        location.Clip.SharpenAmount = args.NewValue;
+        if (!VideoSharpenKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, args.NewValue))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated sharpening.";
+            return;
+        }
         ApplyClipPreview();
     }
 
@@ -3734,6 +3756,66 @@ public sealed partial class MainWindow
         StatusText.Text = removed
             ? "Blur keyframe removed."
             : "There is no blur keyframe at the playhead.";
+    }
+
+    private void SetSharpenKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoSharpenKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoSharpenKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Sharpening keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add a sharpening keyframe.";
+    }
+
+    private void RemoveSharpenKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoSharpenKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoSharpenKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            MarkEditChanged();
+            CompositionSurface.Invalidate();
+            SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: false);
+            InvalidateVideoTimeline();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Sharpening keyframe removed."
+            : "There is no sharpening keyframe at the playhead.";
     }
 
     private void SetVignetteKeyframe_Click(object sender, RoutedEventArgs e)
