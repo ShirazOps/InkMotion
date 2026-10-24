@@ -94,6 +94,7 @@ public sealed class ExportJobsTests : IDisposable
     public void UnsupportedRequestVersion_PersistsExplicitFailure()
     {
         ExportJobStatus job = CreateAudioJob(new());
+        _store.WriteStatus(job with { AutomaticRetriesRemaining = 0 });
         string path = Path.Combine(_store.JobDirectory(job.Id), "request.json");
         JsonObject json = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         json["Version"] = 999;
@@ -106,16 +107,30 @@ public sealed class ExportJobsTests : IDisposable
     }
 
     [Fact]
-    public void WorkerFailure_IsRetainedAndNotRerunOnDiscovery()
+    public async Task WorkerFailure_IsRetriedAutomaticallyOnce()
     {
         ExportJobStatus job = CreateAudioJob(new());
-        int exitCode = ExportJobWorker.Run(_store, job.Id);
-        string diagnostic = Path.Combine(_store.JobDirectory(job.Id), "worker-error.txt");
-        Assert.True(exitCode == 1, File.Exists(diagnostic) ? File.ReadAllText(diagnostic) : $"Worker exit code: {exitCode}");
-        ExportJobStatus status = Assert.Single(_store.Scan().Jobs);
+        ExportJobStatus starting = Assert.IsType<ExportJobStatus>(
+            _store.StartNextQueued(WorkerExecutable));
+        Assert.Equal(job.Id, starting.Id);
+
+        var clock = Stopwatch.StartNew();
+        ExportJobStatus status;
+        do
+        {
+            status = _store.ReadStatus(job.Id);
+            if (status.AutomaticRetriesRemaining == 0)
+            {
+                break;
+            }
+            await Task.Delay(20);
+        } while (clock.Elapsed < TimeSpan.FromSeconds(30));
+
+        Assert.Equal(0, status.AutomaticRetriesRemaining);
+        status = await WaitForTerminal(job.Id);
         Assert.Equal(ExportJobPhase.Failed, status.Phase);
         Assert.Contains("Nothing to export", status.Message);
-        Assert.Equal(3, ExportJobWorker.Run(_store, job.Id));
+        Assert.Null(_store.StartNextQueued(WorkerExecutable));
     }
 
     [Fact]

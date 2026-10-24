@@ -112,7 +112,13 @@ public static class ExportJobWorker
             catch (Exception ex)
             {
                 // This is the worker boundary: persist every managed failure for the next editor session.
-                status = status with { Phase = ExportJobPhase.Failed, Message = $"Export failed: {ex.Message}" };
+                status = cancellation.IsCancellationRequested || store.IsCancellationRequested(id)
+                    ? status with
+                    {
+                        Phase = ExportJobPhase.Cancelled,
+                        Message = "Export cancelled; any partial output created by this export was removed.",
+                    }
+                    : status with { Phase = ExportJobPhase.Failed, Message = $"Export failed: {ex.Message}" };
             }
             finally
             {

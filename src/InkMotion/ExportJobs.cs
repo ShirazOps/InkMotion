@@ -158,7 +158,9 @@ public sealed class ExportJobStore
 
             string[] outputs = ReservedPaths(Path.GetFullPath(outputPath), video is not null);
             foreach (ExportJobStatus active in scan.Jobs.Where(job =>
-                job.IsActive || job.Phase == ExportJobPhase.Interrupted && job.AutomaticRetriesRemaining > 0))
+                job.IsActive ||
+                (job.Phase is ExportJobPhase.Interrupted or ExportJobPhase.Failed) &&
+                job.AutomaticRetriesRemaining > 0))
             {
                 ExportJobRequest existing = ReadRequest(active.Id);
                 if (ReservedPaths(existing.OutputPath, existing.Video is not null)
@@ -217,24 +219,36 @@ public sealed class ExportJobStore
 
             foreach (ExportJobStatus queued in scan.Jobs.Where(job =>
                 job.Phase == ExportJobPhase.Queued ||
-                job.Phase == ExportJobPhase.Interrupted && job.AutomaticRetriesRemaining > 0)
+                (job.Phase is ExportJobPhase.Interrupted or ExportJobPhase.Failed) &&
+                job.AutomaticRetriesRemaining > 0)
                 .OrderBy(job => job.UpdatedUtc).ThenBy(job => job.Id, StringComparer.Ordinal))
             {
                 bool retryingInterrupted = queued.Phase == ExportJobPhase.Interrupted;
+                bool retryingFailed = queued.Phase == ExportJobPhase.Failed;
+                bool retrying = retryingInterrupted || retryingFailed;
                 string cancelPath = Path.Combine(JobDirectory(queued.Id), "cancel");
-                if (retryingInterrupted && File.Exists(cancelPath))
+                if (retrying && File.Exists(cancelPath))
                 {
-                    File.Delete(cancelPath);
+                    WriteStatus(queued with
+                    {
+                        Phase = ExportJobPhase.Cancelled,
+                        Message = "Export cancelled before its automatic retry started.",
+                        UpdatedUtc = DateTimeOffset.UtcNow,
+                    });
+                    continue;
                 }
 
                 ExportJobStatus starting = queued with
                 {
                     Phase = ExportJobPhase.Starting,
+                    Fraction = retrying ? 0 : queued.Fraction,
                     Message = retryingInterrupted
-                        ? "Automatically retrying an interrupted export (one attempt maximum)."
-                        : "Starting queued export worker.",
+                        ? "Automatically retrying an interrupted export once from its saved snapshot."
+                        : retryingFailed
+                            ? "Automatically retrying a failed export once from its saved snapshot."
+                            : "Starting queued export worker.",
                     UpdatedUtc = DateTimeOffset.UtcNow,
-                    AutomaticRetriesRemaining = retryingInterrupted
+                    AutomaticRetriesRemaining = retrying
                         ? queued.AutomaticRetriesRemaining - 1
                         : queued.AutomaticRetriesRemaining,
                 };

@@ -138,8 +138,9 @@ public sealed partial class MainWindow
         CancelExportButton.Visibility = job.IsActive ? Visibility.Visible : Visibility.Collapsed;
         CancelExportButton.IsEnabled = job.IsActive && !cancelling;
         RetryExportJobButton.IsEnabled = !_submittingExport &&
-            (job.Phase is ExportJobPhase.Failed or ExportJobPhase.Cancelled ||
-             job.Phase == ExportJobPhase.Interrupted && job.AutomaticRetriesRemaining == 0);
+            (job.Phase == ExportJobPhase.Cancelled ||
+             (job.Phase is ExportJobPhase.Failed or ExportJobPhase.Interrupted) &&
+             job.AutomaticRetriesRemaining == 0);
     }
 
     private async void RetryExportJob_Click(object sender, RoutedEventArgs e)
