@@ -7,6 +7,11 @@ public sealed partial class MainWindow
 {
     private bool EnsureInkLayerEditable()
     {
+        if (CurrentInkLayer.ObjectTracking is { Enabled: true })
+        {
+            StatusText.Text = "Turn off Follow object before editing the original layer drawing; re-enable it to review the attached motion.";
+            return false;
+        }
         if (!CurrentInkLayer.IsLocked)
         {
             return true;

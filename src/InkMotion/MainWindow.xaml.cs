@@ -152,6 +152,7 @@ public sealed partial class MainWindow : Window
         InkLayerNameBox.Text = CurrentInkLayer.Name;
         InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
         InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
+        UpdateInkTrackingControls();
     }
 
     private void InkLayer_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -162,6 +163,7 @@ public sealed partial class MainWindow : Window
         }
 
         FinishActiveEdit();
+        CancelInkTrackingSelection();
         _activeInkLayerId = layer.Id;
         UpdateInkLayerControls();
         RefreshTimeline();
@@ -348,6 +350,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWorkspace(string workspace)
     {
+        if (InkSurface is not null && workspace != "Ink") CancelInkTrackingSelection();
         if (_titleGesture is not null)
         {
             FinishActiveEdit();
@@ -402,6 +405,7 @@ public sealed partial class MainWindow : Window
 
         PausePlayback();
         FinishActiveEdit();
+        CancelInkTrackingSelection();
         UpdatePreviewMode();
         SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: true);
         SyncAudioTracks(TimeSpan.FromSeconds(CurrentPlaybackSeconds), startPlayback: false);
@@ -1732,6 +1736,7 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        if (InkTrackingPointerPressed(e)) return;
         if (_activePointerId is not null)
         {
             return;
@@ -1760,7 +1765,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!_isInkLasso && !EnsureInkLayerEditable())
+        if (!EnsureInkLayerEditable())
         {
             e.Handled = true;
             return;
@@ -1808,6 +1813,7 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (InkTrackingPointerMoved(e)) return;
         var pointerPoint = e.GetCurrentPoint(InkSurface);
         if (_activePointerId == e.Pointer.PointerId && _isInkLasso)
         {
@@ -1834,6 +1840,7 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (InkTrackingPointerReleased(e)) return;
         if (_activePointerId == e.Pointer.PointerId)
         {
             var pointerPoint = e.GetCurrentPoint(InkSurface);
@@ -1866,6 +1873,7 @@ public sealed partial class MainWindow : Window
 
     private void InkSurface_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        _inkTrackingPointer = null;
         FinishActiveEdit();
     }
 
@@ -2019,14 +2027,17 @@ public sealed partial class MainWindow : Window
 
     private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
     {
+        double seconds = _playheadFramePosition / _frameRate;
         foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
         {
+            if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+                !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks)) continue;
             double opacity = layer.Opacity * opacityScale;
-            foreach (List<InkPoint> stroke in GetDisplayedLayerStrokes(frameIndex, layer.Id))
+            foreach (List<InkPoint> stroke in InkObjectMotion.Strokes(_frames, frameIndex, layer, _frameRate))
             {
                 if (stroke.Count > 0)
                 {
-                    _renderedStrokes.Add(new RenderedStroke(stroke, colour, opacity));
+                    _renderedStrokes.Add(new RenderedStroke(stroke, colour, opacity, layer.ObjectTracking, seconds));
                 }
             }
         }
@@ -2039,11 +2050,15 @@ public sealed partial class MainWindow : Window
         DrawInkGuides(args.DrawingSession, width, height);
         foreach (RenderedStroke renderedStroke in _renderedStrokes)
         {
+            if (!InkObjectMotion.IsSourceCurrent(renderedStroke.Tracking, _videoTracks)) continue;
             List<InkPoint> stroke = renderedStroke.Points;
             Windows.UI.Color colour = TimelineCompositor.WithOpacity(
                 ToColour(renderedStroke.Colour ?? stroke[0].BrushColour),
                 renderedStroke.Opacity);
-            TimelineCompositor.DrawInkStroke(args.DrawingSession, stroke, colour, width, height, 1);
+            var originalTransform = args.DrawingSession.Transform;
+            args.DrawingSession.Transform = InkObjectMotion.Transform(renderedStroke.Tracking, renderedStroke.Seconds, width, height) * originalTransform;
+            try { TimelineCompositor.DrawInkStroke(args.DrawingSession, stroke, colour, width, height, 1); }
+            finally { args.DrawingSession.Transform = originalTransform; }
         }
 
         foreach (RenderedText renderedText in _renderedText)
@@ -2054,6 +2069,7 @@ public sealed partial class MainWindow : Window
         DrawInkSelection(args.DrawingSession, width, height);
         DrawSelectedInkText(args.DrawingSession, width, height);
         DrawInkRulers(args.DrawingSession, width, height);
+        DrawInkTrackingBox(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
@@ -2719,6 +2735,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _inkTrackingCancellation?.Cancel();
         StopAudioRecordingForClose();
         _mediaBinClosed = true;
         _mediaDiscoveryCancellation?.Cancel();
@@ -2757,7 +2774,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity);
+    private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity,
+        InkObjectTracking? Tracking = null, double Seconds = 0);
     private sealed record RenderedText(InkTextOverlay Overlay, double Opacity);
 
     private void UpdateFrameStatus()

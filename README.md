@@ -42,6 +42,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Mouse, touch and pressure-sensitive pen drawing, textured brushes, lines, rectangles, ellipses, solid shapes and enclosed-area bucket fill.
 - Partial/whole-stroke erasing and lasso selection, drawing transforms, independent layers with visibility/opacity/locks, layer duplication, merging and flips.
 - Cel exposures, keyframes, eased in-between animation, configurable onion skinning, named cel groups, range editing and independent or linked drawing cycles.
+- Per-layer **Follow object**: draw on a cel, select a textured object box in Modified preview, then track its position, rotation and size until the chosen end time. Other layers remain untracked. Loss stops and hides that layer until you correct the box at the flagged time and resume; motion is saved and shared by preview/export.
 - Cel text overlays with character-range styling; drawing-only or full-preview colour sampling.
 - Canvas zoom, pan, rotation, grids and output-pixel rulers. Import footage or images as references beneath the artwork.
 
@@ -67,6 +68,8 @@ Windows codecs and hardware determine playback and encoding availability; HEVC n
 Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include system-audio loopback or live input monitoring. FFmpeg video retries reuse completed five-second segments when linked media/settings are unchanged; the current segment and audio/mux stages restart. Windows and audio-only exports restart from the beginning. Failed/cancelled FFmpeg video jobs retain checkpoints locally until a successful retry.
 
 Project files automatically migrate older formats. Export snapshots, linked paths, recordings and proxies are stored locally; keep source files unchanged while jobs run.
+
+Object following is local feature tracking for textured, approximately rigid objects, not semantic AI or deformable-surface tracking. Review the result for drift. Empty cels hold the drawing at the reference time; existing cel animation still plays, so changing cel timing can change that reference drawing. Cel-global text is not attached. Disable following to edit original strokes; new/duplicated layers do not inherit motion, and tracked layers must have tracking cleared before merging. Source-clip property changes require clearing and recalculating tracking; replacing a source file in place also requires recalculation.
 
 ## Build from source
 
