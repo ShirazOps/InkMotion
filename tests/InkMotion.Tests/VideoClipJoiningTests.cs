@@ -226,6 +226,9 @@ public sealed class VideoClipJoiningTests
             case "sharpen-keyframes":
                 right.SharpenKeyframes = [new() { FrameOffset = 0, Amount = 2 }];
                 break;
+            case "chroma-key-keyframes":
+                right.ChromaKeyKeyframes = [new() { FrameOffset = 0, Tolerance = 0.5 }];
+                break;
         }
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(
@@ -234,7 +237,8 @@ public sealed class VideoClipJoiningTests
             setting == "stabilised" ? "keyframes" :
                 setting == "vignette-keyframes" ? "vignette" :
                 setting == "blur-keyframes" ? "blur" :
-                setting == "sharpen-keyframes" ? "sharpening" : "styling",
+                setting == "sharpen-keyframes" ? "sharpening" :
+                setting == "chroma-key-keyframes" ? "chroma-key" : "styling",
             error.Message,
             StringComparison.OrdinalIgnoreCase);
     }
@@ -322,6 +326,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("vignette-keyframes")]
     [InlineData("blur-keyframes")]
     [InlineData("sharpen-keyframes")]
+    [InlineData("chroma-key-keyframes")]
     [InlineData("colour")]
     [InlineData("style")]
     [InlineData("locked")]
@@ -359,6 +364,7 @@ public sealed class VideoClipJoiningTests
             case "vignette-keyframes": right.VignetteKeyframes = [new() { FrameOffset = 0, Amount = 0.5 }]; break;
             case "blur-keyframes": right.BlurKeyframes = [new() { FrameOffset = 0, Amount = 2 }]; break;
             case "sharpen-keyframes": right.SharpenKeyframes = [new() { FrameOffset = 0, Amount = 2 }]; break;
+            case "chroma-key-keyframes": right.ChromaKeyKeyframes = [new() { FrameOffset = 0, Tolerance = 0.5 }]; break;
             case "colour": right.Exposure = 1; break;
             case "style": right.Colour = 0xFF123456; break;
             case "locked": track.IsLocked = true; break;

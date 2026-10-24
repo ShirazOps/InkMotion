@@ -2395,6 +2395,7 @@ public sealed partial class MainWindow : Window
         VideoVignetteKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoBlurKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoSharpenKeyframes.ClearInvalid(_videoTracks, _frameRate);
+        VideoChromaKeyKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoClipMask.ClearInvalid(_videoTracks, _frameRate);
         ClearAudioMasterAnalysis();
         _pendingEditChanged = true;

@@ -591,6 +591,11 @@
                                     <ComboBoxItem Content="Magenta screen" Tag="FFFF00FF" />
                                 </ComboBox>
                                 <NumberBox x:Name="ClipChromaKeyToleranceBox" Header="Colour tolerance (0-1)" Minimum="0" Maximum="1" Value="0.1" SmallChange="0.01" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeyTolerance_Changed" LostFocus="ClipProperty_LostFocus" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetChromaKeyKeyframeButton" Content="Add/update tolerance keyframe" Click="SetChromaKeyKeyframe_Click" />
+                                    <Button x:Name="RemoveChromaKeyKeyframeButton" Content="Remove tolerance keyframe" Click="RemoveChromaKeyKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ChromaKeyKeyframeStateText" Text="No tolerance keyframes. Chroma-key tolerance applies to the whole clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKey_Changed" />
                                 <NumberBox x:Name="ClipChromaKeySpillBox" Header="Spill suppression (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeySpill_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Reduces excess key-colour channels without changing the key's transparency. Applies across the foreground, so genuine green/blue/magenta objects may also lose colour. Zero preserves the original foreground." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

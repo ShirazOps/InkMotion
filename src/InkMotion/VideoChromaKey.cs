@@ -40,7 +40,7 @@ public sealed class VideoChromaKeyEffect : IDisposable
     private readonly ArithmeticCompositeEffect _amount = new() { MultiplyAmount = 0 };
     private readonly CompositeEffect _masked = new() { Mode = CanvasComposite.DestinationIn };
 
-    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip)
+    public ICanvasImage GetOutput(ICanvasImage source, TimelineClipProject clip, double? animatedTolerance = null)
     {
         _effect.Source = source;
         _effect.Color = Color.FromArgb(
@@ -48,7 +48,7 @@ public sealed class VideoChromaKeyEffect : IDisposable
             (byte)(clip.ChromaKeyColour >> 16),
             (byte)(clip.ChromaKeyColour >> 8),
             (byte)clip.ChromaKeyColour);
-        _effect.Tolerance = (float)clip.ChromaKeyTolerance;
+        _effect.Tolerance = (float)(animatedTolerance ?? clip.ChromaKeyTolerance);
         _effect.Feather = clip.ChromaKeyFeather;
         if (clip.ChromaKeySpillSuppression <= 0)
         {

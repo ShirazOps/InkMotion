@@ -63,7 +63,8 @@ public static class TimelineCompositor
         VideoColourGradingValue? animatedColourGrade = null,
         double? animatedVignetteAmount = null,
         double? animatedBlurAmount = null,
-        double? animatedSharpenAmount = null)
+        double? animatedSharpenAmount = null,
+        double? animatedChromaKeyTolerance = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -81,6 +82,7 @@ public static class TimelineCompositor
                 double vignetteAmount = animatedVignetteAmount ?? colourGrade?.VignetteAmount ?? 0;
                 double blurAmount = animatedBlurAmount ?? colourGrade?.BlurAmount ?? 0;
                 double sharpenAmount = animatedSharpenAmount ?? colourGrade?.SharpenAmount ?? 0;
+                double chromaKeyTolerance = animatedChromaKeyTolerance ?? colourGrade?.ChromaKeyTolerance ?? 0;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
@@ -95,7 +97,7 @@ public static class TimelineCompositor
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, chromaKeyTolerance);
                     }
 
                     if (colourGrade is not null && blurAmount > 0)
@@ -130,7 +132,7 @@ public static class TimelineCompositor
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))
-                            .GetOutput(output, colourGrade);
+                            .GetOutput(output, colourGrade, chromaKeyTolerance);
                     }
 
                     if (blurAmount > 0)

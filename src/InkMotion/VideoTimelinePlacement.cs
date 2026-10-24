@@ -134,6 +134,7 @@ public static class VideoTimelinePlacement
                 VideoVignetteKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoBlurKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 VideoSharpenKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
+                VideoChromaKeyKeyframes.TrimEnd(left, (int)Math.Round((overwriteStart - clipStart) * frameRate));
                 left.FadeOutSeconds = 0;
                 VideoTimelineEditing.ClampFades(left, track.Kind);
                 track.Clips.Add(left);
@@ -166,6 +167,7 @@ public static class VideoTimelinePlacement
                 VideoVignetteKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoBlurKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 VideoSharpenKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
+                VideoChromaKeyKeyframes.TrimStart(right, (int)Math.Round((overwriteEnd - clipStart) * frameRate));
                 right.FadeInSeconds = 0;
                 VideoTimelineEditing.ClampFades(right, track.Kind);
                 track.Clips.Add(right);
@@ -198,6 +200,7 @@ public static class VideoTimelinePlacement
                 existing.VignetteKeyframes = VideoVignetteKeyframes.CloneKeys(candidate.VignetteKeyframes);
                 existing.BlurKeyframes = VideoBlurKeyframes.CloneKeys(candidate.BlurKeyframes);
                 existing.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(candidate.SharpenKeyframes);
+                existing.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(candidate.ChromaKeyKeyframes);
                 result.Add(existing);
             }
             else

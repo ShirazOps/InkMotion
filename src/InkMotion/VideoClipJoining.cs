@@ -92,6 +92,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove sharpen keyframes before joining; animated sharpening cannot be combined without changing its timing.");
         }
 
+        if (left.ChromaKeyKeyframes.Count != 0 || right.ChromaKeyKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove chroma-key keyframes before joining; animated tolerance cannot be combined without changing its timing.");
+        }
+
         if (left.Opacity != right.Opacity || left.Volume != right.Volume ||
             left.X != right.X || left.Y != right.Y || left.Scale != right.Scale || left.RotationDegrees != right.RotationDegrees ||
             left.CropLeftPercent != right.CropLeftPercent || left.CropTopPercent != right.CropTopPercent ||
