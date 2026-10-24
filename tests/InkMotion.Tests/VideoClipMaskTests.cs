@@ -7,6 +7,18 @@ namespace InkMotion.Tests;
 public sealed class VideoClipMaskTests
 {
     [Fact]
+    public void VersionFiftyProject_MigratesWithoutChangingStaticMaskFeather()
+    {
+        EditorProject project = EditorProjectSerialiser.Deserialise(
+            """{"Version":50,"VideoTracks":[{"Id":"video","Kind":"Video","Name":"Video 1","Clips":[{"Id":"clip","SourcePath":"scene.mp4","SourceDurationSeconds":3,"MaskShape":"Ellipse","MaskFeather":0.12}]}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        TimelineClipProject clip = Assert.Single(Assert.Single(project.VideoTracks).Clips);
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
+        Assert.Equal(0.12, clip.MaskFeather);
+        Assert.Empty(clip.MaskFeatherKeyframes);
+    }
+
+    [Fact]
     public void VersionTwentyNineProject_MigratesWithMaskDisabled()
     {
         EditorProject project = EditorProjectSerialiser.Deserialise(
@@ -156,6 +168,110 @@ public sealed class VideoClipMaskTests
     }
 
     [Fact]
+    public void MaskFeatherKeyframes_InterpolatePersistAndFollowSplitTrimAndOverwrite()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 6,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskFeather = 0.03,
+            MaskFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = 0 },
+                new() { FrameOffset = 143, Feather = 0.24 },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.Equal(0.12, VideoMaskFeatherKeyframes.GetValue(clip, 71.5), 6);
+        Assert.True(VideoMaskFeatherKeyframes.SetValueAtFrame(clip, track.Kind, 72, 24, 0.18));
+        Assert.Equal(0.18, VideoMaskFeatherKeyframes.GetValue(clip, 72));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(
+            EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(
+                new EditorProject { VideoTracks = [track] })).VideoTracks).Clips);
+        Assert.Equal(clip.MaskFeatherKeyframes, restored.MaskFeatherKeyframes);
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 49, 24));
+        Assert.Equal(0, right.MaskFeatherKeyframes[0].FrameOffset);
+        Assert.Equal(0.12, right.MaskFeatherKeyframes[0].Feather, 6);
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 61, 24));
+        Assert.Equal(0, right.MaskFeatherKeyframes[0].FrameOffset);
+        Assert.Equal(0.15, right.MaskFeatherKeyframes[0].Feather, 6);
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 48);
+        Assert.Null(VideoTimelineEditing.Validate([track], 48));
+
+        TimelineClipProject still = new()
+        {
+            SourcePath = "still.png",
+            DurationSeconds = 4,
+            MaskShape = VideoMaskShape.Ellipse,
+            MaskFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = 0 },
+                new() { FrameOffset = 72, Feather = 0.24 },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [still] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, still, 2, 24));
+        Assert.Equal(47, still.MaskFeatherKeyframes[^1].FrameOffset);
+        Assert.Equal(0.24 * 47 / 72, still.MaskFeatherKeyframes[^1].Feather, 6);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
+
+        TimelineClipProject overwriteSource = new()
+        {
+            Id = "overwrite-source",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            MaskShape = VideoMaskShape.Ellipse,
+            MaskFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = 0 },
+                new() { FrameOffset = 143, Feather = 0.24 },
+            ],
+        };
+        TimelineTrackProject overwriteTrack = new() { Kind = TimelineTrackKind.Video, Clips = [overwriteSource] };
+        TimelineClipProject replacement = new()
+        {
+            Id = "replacement",
+            SourcePath = "new.mp4",
+            SourceDurationSeconds = 2,
+        };
+
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            overwriteTrack, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = overwriteTrack.Clips
+            .Where(item => item.Id != replacement.Id).ToArray();
+        Assert.Equal(2, remainders.Length);
+        Assert.Equal(new[] { 0, 47 }, remainders[0].MaskFeatherKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(new[] { 0, 47 }, remainders[1].MaskFeatherKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(0.24 * 47 / 143, remainders[0].MaskFeatherKeyframes[^1].Feather, 6);
+        Assert.Equal(0.24 * 96 / 143, remainders[1].MaskFeatherKeyframes[0].Feather, 6);
+        Assert.Null(VideoTimelineEditing.Validate([overwriteTrack], 24));
+    }
+
+    [Fact]
+    public void RemovingOnlyMaskFeatherKeyframe_BakesItsValueIntoStaticFeather()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "still.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.Ellipse,
+            MaskFeather = 0.04,
+            MaskFeatherKeyframes = [new() { FrameOffset = 12, Feather = 0.2 }],
+        };
+
+        Assert.True(VideoMaskFeatherKeyframes.TryRemoveAtFrame(clip, 12));
+        Assert.Empty(clip.MaskFeatherKeyframes);
+        Assert.Equal(0.2, clip.MaskFeather);
+        Assert.Equal(0.2, VideoMaskFeatherKeyframes.GetValue(clip, 0));
+    }
+
+    [Fact]
     public void Render_EllipseMaskRevealsBackgroundOutsideShape()
     {
         using var device = new CanvasDevice(true);
@@ -287,5 +403,54 @@ public sealed class VideoClipMaskTests
         Assert.InRange(rendered[centre + 2], 0, 10);
         Assert.InRange(rendered[feather], 20, 235);
         Assert.InRange(rendered[feather + 2], 20, 235);
+    }
+
+    [Fact]
+    public void Render_AnimatedMaskFeatherChangesTheComposite()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index + 2] = 255;
+            pixels[index + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 64, 64, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 64, 64, 96);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "red.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.Rectangle,
+            MaskWidth = 0.5,
+            MaskHeight = 0.5,
+            MaskFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = 0 },
+                new() { FrameOffset = 23, Feather = 0.25 },
+            ],
+        };
+
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(
+                session, source, new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds,
+                1, clip, 0, 64, 64);
+        }
+        byte[] unfeathered = target.GetPixelBytes();
+
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(
+                session, source, new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds,
+                1, clip, 23, 64, 64);
+        }
+        byte[] feathered = target.GetPixelBytes();
+
+        Assert.False(unfeathered.SequenceEqual(feathered));
     }
 }

@@ -2397,6 +2397,7 @@ public sealed partial class MainWindow : Window
         VideoSharpenKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoChromaKeyKeyframes.ClearInvalid(_videoTracks, _frameRate);
         VideoClipMask.ClearInvalid(_videoTracks, _frameRate);
+        VideoMaskFeatherKeyframes.ClearInvalid(_videoTracks, _frameRate);
         ClearAudioMasterAnalysis();
         _pendingEditChanged = true;
         UnsavedIndicator.Visibility = Visibility.Visible;

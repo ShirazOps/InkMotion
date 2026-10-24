@@ -290,7 +290,8 @@ public static class VideoClipMask
         float height)
     {
         VideoMaskValue mask = GetValue(clip, clipFrameOffset);
-        if (clip.MaskFeather <= 0)
+        double feather = VideoMaskFeatherKeyframes.GetValue(clip, clipFrameOffset);
+        if (feather <= 0)
         {
             using CanvasGeometry geometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
             if (clip.MaskInverted)
@@ -309,8 +310,8 @@ public static class VideoClipMask
         }
 
         const int featherSteps = 8;
-        double featherX = Math.Min(clip.MaskFeather * Math.Min(width, height) / width, mask.Width * 0.49);
-        double featherY = Math.Min(clip.MaskFeather * Math.Min(width, height) / height, mask.Height * 0.49);
+        double featherX = Math.Min(feather * Math.Min(width, height) / width, mask.Width * 0.49);
+        double featherY = Math.Min(feather * Math.Min(width, height) / height, mask.Height * 0.49);
         VideoMaskValue previousMask = mask;
         using CanvasGeometry outerGeometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
         if (clip.MaskInverted)

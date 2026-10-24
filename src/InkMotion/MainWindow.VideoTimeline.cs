@@ -1683,6 +1683,7 @@ public sealed partial class MainWindow
         destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
         destination.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(source.SharpenKeyframes);
         destination.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(source.ChromaKeyKeyframes);
+        destination.MaskFeatherKeyframes = VideoMaskFeatherKeyframes.CloneKeys(source.MaskFeatherKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
         destination.FadeOutSeconds = source.FadeOutSeconds;
         destination.TransitionInSeconds = source.TransitionInSeconds;
@@ -2748,7 +2749,6 @@ public sealed partial class MainWindow
             .FirstOrDefault(item => item.Tag is string tag &&
                 Enum.TryParse(tag, out VideoMaskShape shape) && shape == clip.MaskShape);
         ClipMaskInvertedCheck.IsChecked = clip.MaskInverted;
-        ClipMaskFeatherBox.Value = clip.MaskFeather;
         VideoMaskValue mask = VideoClipMask.GetValue(
             clip,
             VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate));
@@ -2766,6 +2766,17 @@ public sealed partial class MainWindow
         MaskKeyframeStateText.Text = clip.MaskKeyframes.Count == 0
             ? "Mask values apply to the whole clip. Add a keyframe to animate the mask."
             : $"{clip.MaskKeyframes.Count} mask keyframe(s); geometry interpolates at the playhead.";
+        int maskFeatherFrameOffset = VideoMaskFeatherKeyframes.GetFrameOffset(
+            clip, _playheadFramePosition / _frameRate, _frameRate);
+        ClipMaskFeatherBox.Value = VideoMaskFeatherKeyframes.GetValue(clip, maskFeatherFrameOffset);
+        bool maskFeatherPlayheadInside = VideoMaskFeatherKeyframes.CanSetAtFrame(
+            clip, kind, maskFeatherFrameOffset, _frameRate);
+        SetMaskFeatherKeyframeButton.IsEnabled = maskFeatherPlayheadInside && !location.Track.IsLocked;
+        RemoveMaskFeatherKeyframeButton.IsEnabled = maskFeatherPlayheadInside && !location.Track.IsLocked &&
+            VideoMaskFeatherKeyframes.IsKeyframeAt(clip, maskFeatherFrameOffset);
+        MaskFeatherKeyframeStateText.Text = clip.MaskFeatherKeyframes.Count == 0
+            ? "Mask feather applies to the whole clip."
+            : $"{clip.MaskFeatherKeyframes.Count} feather keyframe(s); values interpolate at the playhead.";
         TrackMaskSubjectButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         TrackMaskSubjectButton.IsEnabled = isVideo && !location.Track.IsLocked &&
             clip.MaskShape != VideoMaskShape.None && !_isMaskTrackingRunning;
@@ -4175,7 +4186,39 @@ public sealed partial class MainWindow
         ApplyClipMaskSettings();
 
     private void ClipMaskFeather_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e) =>
-        ApplyClipMaskSettings();
+        ApplyClipMaskFeatherSettings(e.NewValue);
+
+    private void ApplyClipMaskFeatherSettings(double feather)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !double.IsFinite(feather) || feather is < 0 or > 0.25 ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        int frameOffset = VideoMaskFeatherKeyframes.GetFrameOffset(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        double current = VideoMaskFeatherKeyframes.GetValue(location.Clip, frameOffset);
+        if (current == feather)
+        {
+            CommitEdit();
+            return;
+        }
+        if (!VideoMaskFeatherKeyframes.SetValueAtFrame(
+            location.Clip, location.Track.Kind, frameOffset, _frameRate, feather))
+        {
+            CommitEdit();
+            StatusText.Text = "Choose a rectangle or ellipse mask and move the playhead inside the clip to edit animated feather.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
 
     private void ClipMaskSettings_Changed(object sender, RoutedEventArgs e) =>
         ApplyClipMaskSettings();
@@ -4203,9 +4246,8 @@ public sealed partial class MainWindow
         var newMask = new VideoMaskValue(
             ClipMaskXBox.Value, ClipMaskYBox.Value, ClipMaskWidthBox.Value, ClipMaskHeightBox.Value);
         bool inverted = ClipMaskInvertedCheck.IsChecked == true;
-        double feather = ClipMaskFeatherBox.Value;
         if (clip.MaskShape == shape && currentMask == newMask &&
-            clip.MaskInverted == inverted && clip.MaskFeather == feather)
+            clip.MaskInverted == inverted)
         {
             CommitEdit();
             return;
@@ -4213,7 +4255,6 @@ public sealed partial class MainWindow
 
         clip.MaskShape = shape;
         clip.MaskInverted = inverted;
-        clip.MaskFeather = feather;
         if (shape != VideoMaskShape.None && clip.MaskKeyframes.Count > 0)
         {
             VideoClipMask.SetKeyframe(clip, location.Track.Kind, currentFrameOffset, _frameRate, newMask);
@@ -4336,6 +4377,61 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateVideoInspector();
         StatusText.Text = removed ? "Mask keyframe removed." : "There is no mask keyframe at the playhead.";
+    }
+
+    private void SetMaskFeatherKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoMaskFeatherKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool added = VideoMaskFeatherKeyframes.SetKeyframe(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (added)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = added
+            ? $"Mask feather keyframe set at clip frame {frameOffset + 1}."
+            : "Choose a rectangle or ellipse mask and move the playhead inside the clip.";
+    }
+
+    private void RemoveMaskFeatherKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoMaskFeatherKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoMaskFeatherKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Mask feather keyframe removed."
+            : "There is no mask feather keyframe at the playhead.";
     }
 
     private void ClipNumber_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
