@@ -100,9 +100,10 @@ jobs:
           path: release
 
       - name: Download MSIX package
+        if: needs.store-package.outputs.package-ready == 'true'
         uses: actions/download-artifact@v4
         with:
-          pattern: InkMotion-Microsoft-Store
+          name: InkMotion-Microsoft-Store
           path: store
 
       - name: Create GitHub release
@@ -110,6 +111,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: build-${{ github.run_number }}
+          STORE_PACKAGE_READY: ${{ needs.store-package.outputs.package-ready }}
         run: |
           short_sha="${GITHUB_SHA::7}"
           if gh release view "$TAG" > /dev/null 2>&1; then
@@ -120,10 +122,21 @@ jobs:
             mv "release/InkMotion-win-${platform}.zip" "release/InkMotion-${TAG}-win-${platform}.zip"
           done
           msix_note="No MSIX package was built because the Microsoft Store repository secrets are not set."
-          upload="$(find store -name '*.msixupload' -print -quit 2>/dev/null || true)"
-          if [ -n "$upload" ]; then
-            mv "$upload" "release/InkMotion-${TAG}-x86-x64.msixupload"
-            msix_note="\`InkMotion-${TAG}-x86-x64.msixupload\` is the MSIX bundle (x86 and x64, package build ${{ github.run_number }}) to upload to Partner Centre. Microsoft signs it when it is certified, so it cannot be installed directly."
+          if [ "$STORE_PACKAGE_READY" = "true" ]; then
+            mapfile -d '' uploads < <(find store -type f -name '*.msixupload' -print0)
+            if [ "${#uploads[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one verified Store upload package; found ${#uploads[@]}."
+              exit 1
+            fi
+            msix_name="InkMotion-${TAG}-x86-x64.msixupload"
+            mv "${uploads[0]}" "release/${msix_name}"
+            msix_note="**Microsoft Store update (manual submission):**
+
+          1. Download \`${msix_name}\` from this release. It contains the x86 and x64 Store packages (package build ${{ github.run_number }}).
+          2. In [Partner Center](https://partner.microsoft.com/dashboard), open InkMotion and create an update submission after the previous submission finishes processing.
+          3. Upload the \`.msixupload\` under **Packages**, review the inherited listing and availability settings, and submit for certification.
+
+          GitHub Actions builds and attaches the package automatically; it does **not** submit to or publish in the Microsoft Store. Microsoft signs the certified package; this upload file is not a direct installer."
           fi
           cat > notes.md <<EOF
           Automatic build of \`main\` at ${short_sha}, created after the x86 and x64 builds and tests passed.
@@ -137,3 +150,10 @@ jobs:
             --title "InkMotion build ${{ github.run_number }} (${short_sha})" \
             --notes-file notes.md \
             --latest
+          {
+            echo "## Release ready"
+            echo
+            echo "[Open release ${TAG}](https://github.com/${GH_REPO}/releases/tag/${TAG})"
+            echo
+            echo "${msix_note}"
+          } >> "$GITHUB_STEP_SUMMARY"

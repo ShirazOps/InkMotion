@@ -81,6 +81,12 @@ dotnet test InkMotion.sln -c Release -p:Platform=x64 --no-build --no-restore
 
 For x86, use `Platform=x86` and the corresponding output directory. [Windows CI](.github/workflows/windows-ci.yml) builds and tests both architectures and publishes portable releases from `main`. [Store packaging](.github/workflows/windows-store-package.yml) uses repository secrets for the Partner Centre identity; never commit credentials or signing certificates.
 
+### Microsoft Store updates
+
+Each successful `main` release automatically includes an x86/x64 `.msixupload` package when the Store identity secrets are configured. Download it from [GitHub Releases](https://github.com/ShirazOps/InkMotion/releases), create an update in [Partner Center](https://partner.microsoft.com/dashboard), upload it under **Packages**, review the submission and send it for certification. Release notes and the Actions summary include these steps. Store submission remains manual; no Partner Center API credentials are required.
+
+Package versions use the CI build number (`1.0.<build>.0` with the current manifest). Keep manually submitted versions below subsequent generated versions; if you change the major/minor version in Partner Center, update the manifest base version accordingly. Wait for an existing submission to finish before submitting another update.
+
 <details>
 <summary>Workspace screenshots (empty-project layout examples)</summary>
 

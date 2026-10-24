@@ -3,6 +3,10 @@ name: Microsoft Store package
 on:
   workflow_dispatch:
   workflow_call:
+    outputs:
+      package-ready:
+        description: Whether a verified Store upload package was built.
+        value: ${{ jobs.create-store-package.outputs.package-ready }}
     inputs:
       build-number:
         description: Third part of the package version, for example the CI run number.
@@ -22,6 +26,8 @@ permissions:
 jobs:
   create-store-package:
     runs-on: windows-2022
+    outputs:
+      package-ready: ${{ steps.identity.outputs.ready }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
