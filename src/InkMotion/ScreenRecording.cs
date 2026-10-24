@@ -12,6 +12,18 @@ public sealed record ScreenRegion(int X, int Y, int Width, int Height)
     public long Bottom => (long)Y + Height;
     public override string ToString() => $"{X}, {Y} · {Width} × {Height}" + (Polygon is null ? "" : " · freeform");
 
+    public ScreenRegion ResizeTo(ScreenRegion bounds)
+    {
+        if (Width < 2 || Height < 2 || bounds.Width < 2 || bounds.Height < 2)
+            throw new ArgumentException("Selection dimensions must be at least two pixels.");
+        return bounds with
+        {
+            Polygon = Polygon?.Select(p => new ScreenPoint(
+                checked(bounds.X + (int)Math.Round((p.X - (double)X) * bounds.Width / Width)),
+                checked(bounds.Y + (int)Math.Round((p.Y - (double)Y) * bounds.Height / Height)))).ToArray(),
+        };
+    }
+
     public static ScreenRegion Freeform(IReadOnlyList<ScreenPoint> points)
     {
         if (points.Count is < 3 or > 16384)
