@@ -190,7 +190,7 @@ public static class TimelineCompositor
         float width,
         float height)
     {
-        if (clip is null || clip.MaskShape == VideoMaskShape.None)
+        if (clip is null || VideoMaskShapeKeyframes.GetValue(clip, clipFrameOffset) == VideoMaskShape.None)
         {
             session.DrawImage(output, destination, sourceRect, opacity);
             return;

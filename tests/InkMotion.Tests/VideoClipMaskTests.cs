@@ -357,6 +357,161 @@ public sealed class VideoClipMaskTests
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(
             () => VideoClipJoining.Join(joinTrack, left, right, 24));
         Assert.Contains("inversion", error.Message, StringComparison.OrdinalIgnoreCase);
+        right.MaskInversionKeyframes.Clear();
+        right.MaskShapeKeyframes = [new() { FrameOffset = 0, Shape = VideoMaskShape.Ellipse }];
+        error = Assert.Throws<InvalidOperationException>(
+            () => VideoClipJoining.Join(joinTrack, left, right, 24));
+        Assert.Contains("shape", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MaskShapeKeyframes_HoldPersistAndFollowTimelineEdits()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 4,
+            MaskShape = VideoMaskShape.None,
+            MaskShapeKeyframes =
+            [
+                new() { FrameOffset = 0, Shape = VideoMaskShape.Rectangle },
+                new() { FrameOffset = 24, Shape = VideoMaskShape.Ellipse },
+                new() { FrameOffset = 72, Shape = VideoMaskShape.None },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.Equal(VideoMaskShape.Rectangle, VideoMaskShapeKeyframes.GetValue(clip, 23));
+        Assert.Equal(VideoMaskShape.Ellipse, VideoMaskShapeKeyframes.GetValue(clip, 24));
+        Assert.Equal(VideoMaskShape.Ellipse, VideoMaskShapeKeyframes.GetValue(clip, 71));
+        Assert.Equal(VideoMaskShape.None, VideoMaskShapeKeyframes.GetValue(clip, 72));
+        Assert.True(VideoMaskShapeKeyframes.SetValueAtTime(
+            clip, track.Kind, 2, 24, VideoMaskShape.Rectangle));
+        Assert.Equal(VideoMaskShape.Rectangle, VideoMaskShapeKeyframes.GetValue(clip, 48));
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 25, 24));
+        Assert.Equal(VideoMaskShape.Ellipse, VideoMaskShapeKeyframes.GetValue(right, 0));
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 26, 24));
+        Assert.Equal(VideoMaskShape.Ellipse, VideoMaskShapeKeyframes.GetValue(right, 0));
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 60);
+        Assert.Null(VideoTimelineEditing.Validate([track], 60));
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(new EditorProject { FrameRate = 60, VideoTracks = [track] }))
+            .VideoTracks).Clips, item => item.Id == clip.Id);
+        Assert.Equal(clip.MaskShapeKeyframes.Select(key => (key.FrameOffset, key.Shape)),
+            VideoTimelineEditing.Clone(clip).MaskShapeKeyframes.Select(key => (key.FrameOffset, key.Shape)));
+        Assert.Equal(clip.MaskShapeKeyframes.Select(key => (key.FrameOffset, key.Shape)),
+            restored.MaskShapeKeyframes.Select(key => (key.FrameOffset, key.Shape)));
+
+        TimelineClipProject migrated = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            """{"Version":56,"VideoTracks":[{"Kind":"Video","Clips":[{"SourcePath":"scene.mp4","SourceDurationSeconds":2,"MaskShape":"Ellipse"}]}],"Frames":[{"Number":1}],"SelectedFrameIndex":0}""").VideoTracks).Clips);
+        Assert.Equal(VideoMaskShape.Ellipse, migrated.MaskShape);
+        Assert.Empty(migrated.MaskShapeKeyframes);
+
+        TimelineClipProject still = new()
+        {
+            SourcePath = "still.png",
+            DurationSeconds = 4,
+            MaskShape = VideoMaskShape.None,
+            MaskShapeKeyframes =
+            [
+                new() { FrameOffset = 0, Shape = VideoMaskShape.Rectangle },
+                new() { FrameOffset = 72, Shape = VideoMaskShape.Ellipse },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [still] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, still, 2, 24));
+        Assert.Equal(47, still.MaskShapeKeyframes[^1].FrameOffset);
+        Assert.Equal(VideoMaskShape.Rectangle, still.MaskShapeKeyframes[^1].Shape);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
+    }
+
+    [Fact]
+    public void MaskShapeKeyframes_ArePreservedByOverwrite()
+    {
+        TimelineClipProject source = new()
+        {
+            Id = "source",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            MaskShape = VideoMaskShape.None,
+            MaskShapeKeyframes =
+            [
+                new() { FrameOffset = 0, Shape = VideoMaskShape.Rectangle },
+                new() { FrameOffset = 96, Shape = VideoMaskShape.Ellipse },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [source] };
+        TimelineClipProject replacement = new()
+        {
+            Id = "replacement",
+            SourcePath = "new.mp4",
+            SourceDurationSeconds = 2,
+        };
+
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            track, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = track.Clips.Where(clip => clip.Id != replacement.Id).ToArray();
+        Assert.Equal(new[] { 0, 47 }, remainders[0].MaskShapeKeyframes.Select(key => key.FrameOffset));
+        Assert.All(remainders[0].MaskShapeKeyframes, key => Assert.Equal(VideoMaskShape.Rectangle, key.Shape));
+        Assert.Equal(new[] { 0 }, remainders[1].MaskShapeKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(VideoMaskShape.Ellipse, remainders[1].MaskShapeKeyframes[0].Shape);
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+    }
+
+    [Fact]
+    public void Render_AnimatedMaskShapeChangesMaskAndCanDisableIt()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[64 * 64 * 4];
+        for (int index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index + 2] = 255;
+            pixels[index + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 64, 64, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 64, 64, 96);
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "red.png",
+            DurationSeconds = 2,
+            MaskShape = VideoMaskShape.None,
+            MaskWidth = 0.5,
+            MaskHeight = 0.5,
+            MaskShapeKeyframes =
+            [
+                new() { FrameOffset = 0, Shape = VideoMaskShape.Rectangle },
+                new() { FrameOffset = 23, Shape = VideoMaskShape.Ellipse },
+                new() { FrameOffset = 46, Shape = VideoMaskShape.None },
+            ],
+        };
+
+        void Draw(int frameOffset)
+        {
+            using CanvasDrawingSession session = target.CreateDrawingSession();
+            session.Clear(Microsoft.UI.Colors.Blue);
+            VideoClipMask.DrawMaskedImage(session, source,
+                new Windows.Foundation.Rect(0, 0, 64, 64), source.Bounds, 1, clip, frameOffset, 64, 64);
+        }
+
+        Draw(0);
+        byte[] rectangle = target.GetPixelBytes();
+        Draw(23);
+        byte[] ellipse = target.GetPixelBytes();
+        Draw(46);
+        byte[] none = target.GetPixelBytes();
+        int centre = (32 * 64 + 32) * 4;
+        int corner = (18 * 64 + 18) * 4;
+        Assert.True(rectangle[corner + 2] > 245);
+        Assert.True(ellipse[corner] > 245);
+        Assert.True(none[corner + 2] > 245);
+        Assert.True(rectangle[centre + 2] > 245);
+        Assert.True(ellipse[centre + 2] > 245);
     }
 
     [Fact]

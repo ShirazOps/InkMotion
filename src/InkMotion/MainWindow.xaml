@@ -653,6 +653,11 @@
                                     <ComboBoxItem Content="Rectangle" Tag="Rectangle" />
                                     <ComboBoxItem Content="Ellipse" Tag="Ellipse" />
                                 </ComboBox>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetMaskShapeKeyframeButton" Content="Add/update shape keyframe" Click="SetMaskShapeKeyframe_Click" />
+                                    <Button x:Name="RemoveMaskShapeKeyframeButton" Content="Remove shape keyframe" Click="RemoveMaskShapeKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="MaskShapeKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ToggleButton x:Name="ClipMaskInvertedCheck" Content="Invert mask" Click="ClipMaskSettings_Changed" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <Button x:Name="SetMaskInversionKeyframeButton" Content="Add/update inversion keyframe" Click="SetMaskInversionKeyframe_Click" />

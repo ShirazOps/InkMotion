@@ -79,7 +79,7 @@ public static class VideoMaskFeatherKeyframes
 
     public static bool CanSetAtFrame(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate) =>
         kind is TimelineTrackKind.Video or TimelineTrackKind.Image &&
-        clip.MaskShape != VideoMaskShape.None &&
+        VideoMaskShapeKeyframes.GetValue(clip, frameOffset) != VideoMaskShape.None &&
         double.IsFinite(frameRate) && frameRate > 0 &&
         IsInClip(clip, kind, frameOffset, frameRate);
 

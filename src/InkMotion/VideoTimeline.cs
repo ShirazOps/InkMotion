@@ -210,6 +210,7 @@ public sealed class TimelineClipProject
     public double MaskWidth { get; set; } = 1;
     public double MaskHeight { get; set; } = 1;
     public bool MaskInverted { get; set; }
+    public List<VideoMaskShapeKeyframe> MaskShapeKeyframes { get; set; } = [];
     public List<VideoMaskInversionKeyframe> MaskInversionKeyframes { get; set; } = [];
     public double MaskFeather { get; set; }
     public List<VideoMaskFeatherKeyframe> MaskFeatherKeyframes { get; set; } = [];
@@ -451,6 +452,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimStart(clip, (int)Math.Round(offset * frameRate));
+        VideoMaskShapeKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoMaskInversionKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoMaskFeatherKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
@@ -494,6 +496,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoClipMask.TrimEnd(clip, (int)Math.Round(offset * frameRate));
+        VideoMaskShapeKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoMaskInversionKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoMaskFeatherKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
@@ -525,6 +528,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoCropKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoClipMask.Split(clip, right, (int)Math.Round(offset * frameRate));
+        VideoMaskShapeKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoMaskInversionKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoMaskFeatherKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
         VideoOpacityKeyframes.Split(clip, right, (int)Math.Round(offset * frameRate));
@@ -756,6 +760,7 @@ public static class VideoTimelineEditing
             VideoTransformKeyframes.TrimEnd(clip, retainedFrames);
             VideoCropKeyframes.TrimEnd(clip, retainedFrames);
             VideoClipMask.TrimEnd(clip, retainedFrames);
+            VideoMaskShapeKeyframes.TrimEnd(clip, retainedFrames);
             VideoMaskInversionKeyframes.TrimEnd(clip, retainedFrames);
             VideoMaskFeatherKeyframes.TrimEnd(clip, retainedFrames);
             VideoOpacityKeyframes.TrimEnd(clip, retainedFrames);
@@ -861,6 +866,7 @@ public static class VideoTimelineEditing
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoClipMask.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
+        VideoMaskShapeKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoMaskInversionKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoMaskFeatherKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoOpacityKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
@@ -910,6 +916,7 @@ public static class VideoTimelineEditing
                     .ToList();
                 VideoCropKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoClipMask.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
+                VideoMaskShapeKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoMaskInversionKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoMaskFeatherKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
                 VideoOpacityKeyframes.RescaleFrameRate(clip, oldFrameRate, newFrameRate);
@@ -1020,6 +1027,7 @@ public static class VideoTimelineEditing
         MaskWidth = clip.MaskWidth,
         MaskHeight = clip.MaskHeight,
         MaskInverted = clip.MaskInverted,
+        MaskShapeKeyframes = VideoMaskShapeKeyframes.CloneKeys(clip.MaskShapeKeyframes),
         MaskInversionKeyframes = VideoMaskInversionKeyframes.CloneKeys(clip.MaskInversionKeyframes),
         MaskFeather = clip.MaskFeather,
         MaskFeatherKeyframes = VideoMaskFeatherKeyframes.CloneKeys(clip.MaskFeatherKeyframes),
@@ -1183,6 +1191,10 @@ public static class VideoTimelineEditing
                 if (VideoMaskInversionKeyframes.Validate(clip, track.Kind, frameRate) is string maskInversionError)
                 {
                     return maskInversionError;
+                }
+                if (VideoMaskShapeKeyframes.Validate(clip, track.Kind, frameRate) is string maskShapeKeyframeError)
+                {
+                    return maskShapeKeyframeError;
                 }
             }
 

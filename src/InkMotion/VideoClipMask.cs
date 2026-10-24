@@ -98,7 +98,7 @@ public static class VideoClipMask
         ArgumentNullException.ThrowIfNull(clip);
         if (kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) || !double.IsFinite(frameRate) || frameRate <= 0 ||
             !IsInClip(clip, kind, frameOffset, frameRate) ||
-            clip.MaskShape == VideoMaskShape.None)
+            VideoMaskShapeKeyframes.GetValue(clip, frameOffset) == VideoMaskShape.None)
         {
             return false;
         }
@@ -126,7 +126,8 @@ public static class VideoClipMask
     public static bool CanSetKeyframe(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate) =>
         (kind is TimelineTrackKind.Video or TimelineTrackKind.Image) &&
         double.IsFinite(frameRate) && frameRate > 0 &&
-        clip.MaskShape != VideoMaskShape.None && IsInClip(clip, kind, frameOffset, frameRate);
+        VideoMaskShapeKeyframes.GetValue(clip, frameOffset) != VideoMaskShape.None &&
+        IsInClip(clip, kind, frameOffset, frameRate);
 
     public static bool IsKeyframeAt(TimelineClipProject clip, int frameOffset) =>
         clip.MaskKeyframes.Any(key => key.FrameOffset == frameOffset);
@@ -290,11 +291,18 @@ public static class VideoClipMask
         float height)
     {
         VideoMaskValue mask = GetValue(clip, clipFrameOffset);
+        VideoMaskShape shape = VideoMaskShapeKeyframes.GetValue(clip, clipFrameOffset);
+        if (shape == VideoMaskShape.None)
+        {
+            session.DrawImage(image, destination, sourceRect, opacity);
+            return;
+        }
+
         double feather = VideoMaskFeatherKeyframes.GetValue(clip, clipFrameOffset);
         bool inverted = VideoMaskInversionKeyframes.GetValue(clip, clipFrameOffset);
         if (feather <= 0)
         {
-            using CanvasGeometry geometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
+            using CanvasGeometry geometry = CreateGeometry(session, shape, mask, width, height);
             if (inverted)
             {
                 using CanvasGeometry bounds = CanvasGeometry.CreateRectangle(session, new Rect(0, 0, width, height));
@@ -314,7 +322,7 @@ public static class VideoClipMask
         double featherX = Math.Min(feather * Math.Min(width, height) / width, mask.Width * 0.49);
         double featherY = Math.Min(feather * Math.Min(width, height) / height, mask.Height * 0.49);
         VideoMaskValue previousMask = mask;
-        using CanvasGeometry outerGeometry = CreateGeometry(session, clip.MaskShape, mask, width, height);
+        using CanvasGeometry outerGeometry = CreateGeometry(session, shape, mask, width, height);
         if (inverted)
         {
             using CanvasGeometry bounds = CanvasGeometry.CreateRectangle(session, new Rect(0, 0, width, height));
@@ -331,8 +339,8 @@ public static class VideoClipMask
                 mask.Y,
                 mask.Width - (2 * featherX * inset),
                 mask.Height - (2 * featherY * inset));
-            using CanvasGeometry innerGeometry = CreateGeometry(session, clip.MaskShape, innerMask, width, height);
-            using CanvasGeometry previousGeometry = CreateGeometry(session, clip.MaskShape, previousMask, width, height);
+            using CanvasGeometry innerGeometry = CreateGeometry(session, shape, innerMask, width, height);
+            using CanvasGeometry previousGeometry = CreateGeometry(session, shape, previousMask, width, height);
             using CanvasGeometry band = previousGeometry.CombineWith(
                 innerGeometry, Matrix3x2.Identity, CanvasGeometryCombine.Exclude);
             double bandAmount = (step + 0.5) / featherSteps;
@@ -343,7 +351,7 @@ public static class VideoClipMask
 
         if (!inverted)
         {
-            using CanvasGeometry centre = CreateGeometry(session, clip.MaskShape, previousMask, width, height);
+            using CanvasGeometry centre = CreateGeometry(session, shape, previousMask, width, height);
             DrawInLayer(session, centre, image, destination, sourceRect, opacity);
         }
     }
