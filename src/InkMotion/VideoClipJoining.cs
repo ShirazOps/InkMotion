@@ -97,6 +97,11 @@ public static class VideoClipJoining
             throw new InvalidOperationException("Remove chroma-key keyframes before joining; animated tolerance cannot be combined without changing its timing.");
         }
 
+        if (left.ChromaKeyEnabledKeyframes.Count != 0 || right.ChromaKeyEnabledKeyframes.Count != 0)
+        {
+            throw new InvalidOperationException("Remove chroma-key enable keyframes before joining; animated keying cannot be combined without changing its timing.");
+        }
+
         if (left.ChromaKeyColourKeyframes.Count != 0 || right.ChromaKeyColourKeyframes.Count != 0)
         {
             throw new InvalidOperationException("Remove chroma-key colour keyframes before joining; animated key colour cannot be combined without changing its timing.");

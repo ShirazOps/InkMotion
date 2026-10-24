@@ -1037,7 +1037,7 @@ public sealed partial class MainWindow
                     transform.RotationDegrees,
                     clip,
                     colourGradingEffect,
-                    GetPreviewChromaKeyEffect(clip),
+                    GetPreviewChromaKeyEffect(clip, seconds),
                     GetPreviewBlurEffect(clip, seconds),
                     GetPreviewVignetteEffect(clip, seconds),
                     VideoTransformKeyframes.GetFrameOffset(clip, seconds, _frameRate),
@@ -1049,7 +1049,8 @@ public sealed partial class MainWindow
                     VideoChromaKeyKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoChromaKeyColourKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoChromaKeyEnabledKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1109,7 +1110,8 @@ public sealed partial class MainWindow
         {
             TimelineCompositor.DrawFitted(session, bitmap, VideoCrop.GetSourceRect(bitmap.Bounds, crop), width, height,
                 transform.Scale, transform.X, transform.Y, opacity, transform.RotationDegrees, clip,
-                GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds), GetPreviewChromaKeyEffect(clip),
+                GetPreviewColourGradingEffect(clip, CurrentPlaybackSeconds),
+                GetPreviewChromaKeyEffect(clip, _playheadFramePosition / _frameRate),
                 GetPreviewBlurEffect(clip, CurrentPlaybackSeconds), GetPreviewVignetteEffect(clip, CurrentPlaybackSeconds),
                 VideoTransformKeyframes.GetFrameOffset(clip, _playheadFramePosition / _frameRate, _frameRate),
                 GetPreviewSharpenEffect(clip, CurrentPlaybackSeconds),
@@ -1128,6 +1130,8 @@ public sealed partial class MainWindow
                 VideoChromaKeyFeatherKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoChromaKeyColourKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoChromaKeyEnabledKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1155,9 +1159,10 @@ public sealed partial class MainWindow
         return effect;
     }
 
-    private VideoChromaKeyEffect? GetPreviewChromaKeyEffect(TimelineClipProject clip)
+    private VideoChromaKeyEffect? GetPreviewChromaKeyEffect(TimelineClipProject clip, double? seconds = null)
     {
-        if (!clip.ChromaKeyEnabled)
+        if (!VideoChromaKeyEnabledKeyframes.GetValueAtTime(
+            clip, seconds ?? _playheadFramePosition / _frameRate, _frameRate))
         {
             return null;
         }
@@ -2708,7 +2713,20 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(ClipColourLutLabel, clip.ColourLutPath);
         RemoveClipColourLutButton.IsEnabled = !location.Track.IsLocked &&
             !string.IsNullOrWhiteSpace(clip.ColourLutPath);
-        ClipChromaKeyEnabled.IsChecked = clip.ChromaKeyEnabled;
+        ClipChromaKeyEnabled.IsChecked = VideoChromaKeyEnabledKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        int chromaKeyEnabledFrameOffset = VideoChromaKeyEnabledKeyframes.GetFrameOffset(
+            clip, opacitySeconds, _frameRate);
+        bool chromaKeyEnabledPlayheadInside = VideoChromaKeyEnabledKeyframes.CanSetAtFrame(
+            clip, kind, chromaKeyEnabledFrameOffset, _frameRate);
+        SetChromaKeyEnabledKeyframeButton.IsEnabled =
+            chromaKeyEnabledPlayheadInside && !location.Track.IsLocked;
+        RemoveChromaKeyEnabledKeyframeButton.IsEnabled =
+            chromaKeyEnabledPlayheadInside && !location.Track.IsLocked &&
+            VideoChromaKeyEnabledKeyframes.IsKeyframeAt(clip, chromaKeyEnabledFrameOffset);
+        ChromaKeyEnabledKeyframeStateText.Text = clip.ChromaKeyEnabledKeyframes.Count == 0
+            ? "No enable keyframes. Chroma key uses the clip-wide setting."
+            : $"{clip.ChromaKeyEnabledKeyframes.Count} enable keyframe(s); enabled/disabled state holds until the next key.";
         uint chromaKeyColour = VideoChromaKeyColourKeyframes.GetValueAtTime(
             clip, opacitySeconds, _frameRate);
         ClipChromaKeyColourSelector.SelectedItem = ClipChromaKeyColourSelector.Items.OfType<ComboBoxItem>()
@@ -3084,8 +3102,37 @@ public sealed partial class MainWindow
         StatusText.Text = removed ? "Crop keyframe removed." : "There is no crop keyframe at the playhead.";
     }
 
-    private void ClipChromaKey_Changed(object sender, RoutedEventArgs e) =>
-        ApplyClipChromaKeySettings(commitEdit: true);
+    private void ClipChromaKey_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        bool value = ClipChromaKeyEnabled.IsChecked == true;
+        bool current = VideoChromaKeyEnabledKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == value)
+        {
+            CommitEdit();
+            return;
+        }
+        if (!VideoChromaKeyEnabledKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, value))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated chroma-key enable.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = value ? "Chroma key enabled." : "Chroma key disabled.";
+    }
 
     private void ClipChromaKeyFeather_Changed(object sender, RoutedEventArgs e)
     {
@@ -3341,75 +3388,6 @@ public sealed partial class MainWindow
             return;
         }
         ApplyClipPreview();
-    }
-
-    private void ApplyClipChromaKeySettings(bool commitEdit)
-    {
-        if (_isInitialising || _isRestoringProject ||
-            SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
-            ClipChromaKeyColourSelector.SelectedItem is not ComboBoxItem { Tag: string colourTag } ||
-            !uint.TryParse(colourTag, System.Globalization.NumberStyles.HexNumber,
-                System.Globalization.CultureInfo.InvariantCulture, out uint colour) ||
-            !double.IsFinite(ClipChromaKeyToleranceBox.Value) ||
-            ClipChromaKeyToleranceBox.Value is < 0 or > 1 ||
-            !double.IsFinite(ClipChromaKeySpillBox.Value) ||
-            ClipChromaKeySpillBox.Value is < 0 or > 1 ||
-            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
-        {
-            return;
-        }
-
-        TimelineClipProject clip = location.Clip;
-        bool enabled = ClipChromaKeyEnabled.IsChecked == true;
-        double tolerance = ClipChromaKeyToleranceBox.Value;
-        bool feather = ClipChromaKeyFeather.IsChecked == true;
-        double spill = ClipChromaKeySpillBox.Value;
-        uint currentColour = VideoChromaKeyColourKeyframes.GetValueAtTime(
-            clip, CurrentPlaybackSeconds, _frameRate);
-        bool colourMatches = clip.ChromaKeyColourKeyframes.Count == 0
-            ? clip.ChromaKeyColour == colour
-            : currentColour == colour;
-        bool toleranceMatches = clip.ChromaKeyKeyframes.Count == 0
-            ? clip.ChromaKeyTolerance == tolerance
-            : VideoChromaKeyKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == tolerance;
-        bool spillMatches = clip.ChromaKeySpillKeyframes.Count == 0
-            ? clip.ChromaKeySpillSuppression == spill
-            : VideoChromaKeySpillKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == spill;
-        bool featherMatches = clip.ChromaKeyFeatherKeyframes.Count == 0
-            ? clip.ChromaKeyFeather == feather
-            : VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == feather;
-        if (clip.ChromaKeyEnabled == enabled && colourMatches &&
-            toleranceMatches && featherMatches && spillMatches)
-        {
-            CommitEdit();
-            return;
-        }
-
-        clip.ChromaKeyEnabled = enabled;
-        if (clip.ChromaKeyColourKeyframes.Count == 0)
-        {
-            clip.ChromaKeyColour = colour;
-        }
-        if (clip.ChromaKeyKeyframes.Count == 0)
-        {
-            clip.ChromaKeyTolerance = tolerance;
-        }
-        if (clip.ChromaKeyFeatherKeyframes.Count == 0)
-        {
-            clip.ChromaKeyFeather = feather;
-        }
-        if (clip.ChromaKeySpillKeyframes.Count == 0)
-        {
-            clip.ChromaKeySpillSuppression = spill;
-        }
-        ApplyClipPreview();
-        if (commitEdit)
-        {
-            CommitEdit();
-            UpdateVideoInspector();
-            StatusText.Text = enabled ? "Chroma key applied to the selected clip." : "Chroma key disabled.";
-        }
     }
 
     private void ClipColourGrading_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -3967,6 +3945,61 @@ public sealed partial class MainWindow
         StatusText.Text = set
             ? $"Chroma-key colour keyframe set at clip frame {frameOffset + 1}."
             : "Move the playhead inside the selected video or image clip to add a key-colour keyframe.";
+    }
+
+    private void SetChromaKeyEnabledKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeyEnabledKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoChromaKeyEnabledKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Chroma-key enable keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add an enable keyframe.";
+    }
+
+    private void RemoveChromaKeyEnabledKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeyEnabledKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoChromaKeyEnabledKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Chroma-key enable keyframe removed."
+            : "There is no enable keyframe at the playhead.";
     }
 
     private void RemoveChromaKeyColourKeyframe_Click(object sender, RoutedEventArgs e)

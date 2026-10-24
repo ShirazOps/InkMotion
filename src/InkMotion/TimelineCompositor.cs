@@ -67,7 +67,8 @@ public static class TimelineCompositor
         double? animatedChromaKeyTolerance = null,
         double? animatedChromaKeySpillSuppression = null,
         bool? animatedChromaKeyFeather = null,
-        uint? animatedChromaKeyColour = null)
+        uint? animatedChromaKeyColour = null,
+        bool? animatedChromaKeyEnabled = null)
     {
         Rect destination = GetFitRect(new Size(sourceRect.Width, sourceRect.Height), width, height, scale, x, y);
         if (!destination.IsEmpty && opacity > 0)
@@ -90,6 +91,7 @@ public static class TimelineCompositor
                     colourGrade?.ChromaKeySpillSuppression ?? 0;
                 bool chromaKeyFeather = animatedChromaKeyFeather ?? colourGrade?.ChromaKeyFeather ?? false;
                 uint chromaKeyColour = animatedChromaKeyColour ?? colourGrade?.ChromaKeyColour ?? 0xFF00FF00;
+                bool chromaKeyEnabled = animatedChromaKeyEnabled ?? colourGrade?.ChromaKeyEnabled ?? false;
                 if (colourGrade is null || VideoColourGrading.IsNeutral(colourGrade, gradingValue))
                 {
                     ICanvasImage output = bitmap;
@@ -100,7 +102,7 @@ public static class TimelineCompositor
                         output = effect.GetOutput(bitmap, colourGrade, gradingValue);
                     }
 
-                    if (colourGrade?.ChromaKeyEnabled == true)
+                    if (chromaKeyEnabled && colourGrade is not null)
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))
@@ -136,7 +138,7 @@ public static class TimelineCompositor
                     VideoColourGradingEffect effect = colourGradeEffect ??
                         (temporaryColourGradeEffect = new VideoColourGradingEffect());
                     ICanvasImage output = effect.GetOutput(bitmap, colourGrade, gradingValue);
-                    if (colourGrade.ChromaKeyEnabled)
+                    if (chromaKeyEnabled)
                     {
                         output = (chromaKeyEffect ??
                             throw new InvalidOperationException("The active chroma-key effect was not provided."))

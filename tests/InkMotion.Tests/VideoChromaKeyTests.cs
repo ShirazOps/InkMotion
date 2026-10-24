@@ -438,6 +438,159 @@ public sealed class VideoChromaKeyTests
     }
 
     [Fact]
+    public void EnabledKeyframes_HoldPreserveTimingAndRoundTrip()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 6,
+            ChromaKeyEnabled = false,
+            ChromaKeyEnabledKeyframes =
+            [
+                new() { FrameOffset = 0, Enabled = false },
+                new() { FrameOffset = 72, Enabled = true },
+                new() { FrameOffset = 96, Enabled = false },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.False(VideoChromaKeyEnabledKeyframes.GetValue(clip, 71));
+        Assert.True(VideoChromaKeyEnabledKeyframes.GetValue(clip, 72));
+        Assert.False(VideoChromaKeyEnabledKeyframes.GetValue(clip, 96));
+        Assert.True(VideoChromaKeyEnabledKeyframes.SetValueAtTime(
+            clip, track.Kind, 3.5, 24, true));
+        Assert.True(VideoChromaKeyEnabledKeyframes.GetValue(clip, 84));
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 49, 24));
+        Assert.False(right.ChromaKeyEnabledKeyframes[0].Enabled);
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 61, 24));
+        Assert.Equal(0, right.ChromaKeyEnabledKeyframes[0].FrameOffset);
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 60);
+        Assert.Null(VideoTimelineEditing.Validate([track], 60));
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            EditorProjectSerialiser.Serialise(new EditorProject { FrameRate = 60, VideoTracks = [track] }))
+            .VideoTracks).Clips, item => item.Id == clip.Id);
+        Assert.Equal(clip.ChromaKeyEnabledKeyframes.Select(key => (key.FrameOffset, key.Enabled)),
+            VideoTimelineEditing.Clone(clip).ChromaKeyEnabledKeyframes.Select(key => (key.FrameOffset, key.Enabled)));
+        Assert.Equal(clip.ChromaKeyEnabledKeyframes.Select(key => (key.FrameOffset, key.Enabled)),
+            restored.ChromaKeyEnabledKeyframes.Select(key => (key.FrameOffset, key.Enabled)));
+
+        TimelineClipProject image = new()
+        {
+            SourcePath = "still.png",
+            DurationSeconds = 4,
+            ChromaKeyEnabledKeyframes =
+            [
+                new() { FrameOffset = 0, Enabled = false },
+                new() { FrameOffset = 24, Enabled = true },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [image] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, image, 2, 24));
+        Assert.Equal(47, image.ChromaKeyEnabledKeyframes[^1].FrameOffset);
+        Assert.True(image.ChromaKeyEnabledKeyframes[^1].Enabled);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
+
+        JsonObject legacy = JsonNode.Parse(EditorProjectSerialiser.Serialise(
+            new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [new() { SourcePath = "scene.mp4", SourceDurationSeconds = 2 }] }] }))!.AsObject();
+        legacy["Version"] = 54;
+        legacy["VideoTracks"]![0]!["Clips"]![0]!.AsObject().Remove("ChromaKeyEnabledKeyframes");
+        TimelineClipProject migrated = Assert.Single(Assert.Single(
+            EditorProjectSerialiser.Deserialise(legacy.ToJsonString()).VideoTracks).Clips);
+        Assert.False(migrated.ChromaKeyEnabled);
+        Assert.Empty(migrated.ChromaKeyEnabledKeyframes);
+    }
+
+    [Fact]
+    public void EnabledKeyframes_PreserveOverwriteAndRejectJoins()
+    {
+        TimelineClipProject original = new()
+        {
+            Id = "original",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            ChromaKeyEnabledKeyframes =
+            [
+                new() { FrameOffset = 0, Enabled = false },
+                new() { FrameOffset = 143, Enabled = true },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [original] };
+        TimelineClipProject replacement = new() { Id = "replacement", SourcePath = "new.mp4", SourceDurationSeconds = 2 };
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            track, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = track.Clips.Where(clip => clip.Id != replacement.Id).ToArray();
+        Assert.Equal(new[] { 0, 47 }, remainders[0].ChromaKeyEnabledKeyframes.Select(key => key.FrameOffset));
+        Assert.False(remainders[0].ChromaKeyEnabledKeyframes[^1].Enabled);
+        Assert.Equal(new[] { 0, 47 }, remainders[1].ChromaKeyEnabledKeyframes.Select(key => key.FrameOffset));
+        Assert.True(remainders[1].ChromaKeyEnabledKeyframes[^1].Enabled);
+        Assert.Null(VideoTimelineEditing.Validate([track], 24));
+
+        TimelineClipProject left = new()
+        {
+            SourcePath = @"C:\Media\source.mp4",
+            SourceOutSeconds = 2,
+            SourceDurationSeconds = 4,
+        };
+        TimelineTrackProject joinTrack = new() { Kind = TimelineTrackKind.Video, Clips = [left] };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(joinTrack, left, 25, 24));
+        right.ChromaKeyEnabledKeyframes = [new() { FrameOffset = 0, Enabled = true }];
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => VideoClipJoining.Join(joinTrack, left, right, 24));
+        Assert.Contains("enable", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Render_AnimatedEnableSwitchesChromaKeyOnAtKey()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[16 * 16 * 4];
+        for (int offset = 0; offset < pixels.Length; offset += 4)
+        {
+            pixels[offset + 1] = 255;
+            pixels[offset + 3] = 255;
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 16, 16, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 16, 16, 96);
+        using var effect = new VideoChromaKeyEffect();
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.png",
+            DurationSeconds = 2,
+            ChromaKeyEnabled = false,
+            ChromaKeyColour = 0xFF00FF00,
+            ChromaKeyTolerance = 0.2,
+            ChromaKeyFeather = false,
+            ChromaKeyEnabledKeyframes =
+            [
+                new() { FrameOffset = 0, Enabled = false },
+                new() { FrameOffset = 23, Enabled = true },
+            ],
+        };
+
+        void Draw(int frameOffset)
+        {
+            using CanvasDrawingSession session = target.CreateDrawingSession();
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1,
+                colourGrade: clip, chromaKeyEffect: effect,
+                animatedChromaKeyEnabled: VideoChromaKeyEnabledKeyframes.GetValue(clip, frameOffset));
+        }
+
+        Draw(0);
+        byte[] withoutKey = target.GetPixelBytes();
+        Draw(23);
+        byte[] withKey = target.GetPixelBytes();
+        Assert.True(withoutKey[3] > 245);
+        Assert.True(withKey[3] < 10);
+    }
+
+    [Fact]
     public void Validation_RejectsUnsupportedAnimatedKeyColours()
     {
         TimelineClipProject clip = new()

@@ -590,6 +590,11 @@
                                 </StackPanel>
                                 <TextBlock Text="CHROMA KEY" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <ToggleButton x:Name="ClipChromaKeyEnabled" Content="Remove key colour" Click="ClipChromaKey_Changed" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetChromaKeyEnabledKeyframeButton" Content="Add/update enable keyframe" Click="SetChromaKeyEnabledKeyframe_Click" />
+                                    <Button x:Name="RemoveChromaKeyEnabledKeyframeButton" Content="Remove enable keyframe" Click="RemoveChromaKeyEnabledKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ChromaKeyEnabledKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <ComboBox x:Name="ClipChromaKeyColourSelector" Header="Key colour" SelectionChanged="ClipChromaKeyColour_Changed">
                                     <ComboBoxItem Content="Green screen" Tag="FF00FF00" />
                                     <ComboBoxItem Content="Blue screen" Tag="FF0000FF" />
