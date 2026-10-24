@@ -279,6 +279,8 @@ public static class FFmpegVideoExporter
             "-b:v", ExportPlanning.GetVideoBitRate(request.Profile, request.Codec, request.Quality).ToString(CultureInfo.InvariantCulture),
             "-f", "mp4", path,
         };
+        if (settings.Encoder == FFmpegVideoEncoder.Intel)
+            arguments.InsertRange(0, ["-init_hw_device", "qsv=inkmotion:hw"]);
         using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments, redirectInput: true);
         using CancellationTokenRegistration registration = cancellationToken.Register(() => FFmpegAudioEncoder.Terminate(process));
         Task<string> errors = FFmpegAudioEncoder.ReadTailAsync(process.StandardError);

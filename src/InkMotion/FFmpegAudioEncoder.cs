@@ -142,7 +142,7 @@ public static class FFmpegAudioEncoder
         string diagnostic = errors.GetAwaiter().GetResult();
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException($"Could not query FFmpeg (exit {process.ExitCode}): {diagnostic}");
+            throw new InvalidOperationException($"FFmpeg failed (exit {process.ExitCode}): {diagnostic}");
         }
         return output.GetAwaiter().GetResult();
     }
