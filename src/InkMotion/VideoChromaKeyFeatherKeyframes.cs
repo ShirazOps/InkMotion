@@ -1,0 +1,259 @@
+namespace InkMotion;
+
+public sealed record VideoChromaKeyFeatherKeyframe
+{
+    public int FrameOffset { get; set; }
+    public bool Feather { get; set; }
+}
+
+public static class VideoChromaKeyFeatherKeyframes
+{
+    private const double Tolerance = 1e-6;
+
+    public static bool GetValue(TimelineClipProject clip, double frameOffset)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        VideoChromaKeyFeatherKeyframe[] keys = clip.ChromaKeyFeatherKeyframes
+            .OrderBy(key => key.FrameOffset).ToArray();
+        if (keys.Length == 0)
+        {
+            return clip.ChromaKeyFeather;
+        }
+
+        VideoChromaKeyFeatherKeyframe? current = keys.LastOrDefault(key => key.FrameOffset <= frameOffset);
+        return current?.Feather ?? keys[0].Feather;
+    }
+
+    public static bool GetValueAtTime(TimelineClipProject clip, double seconds, double frameRate) =>
+        GetValue(clip, GetFrameOffset(clip, seconds, frameRate));
+
+    public static int GetFrameOffset(TimelineClipProject clip, double seconds, double frameRate) =>
+        (int)Math.Round(seconds * frameRate) - (clip.StartFrame - 1);
+
+    public static bool CanSetAtFrame(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate) =>
+        IsSupportedKind(kind) && IsInClip(clip, kind, frameOffset, frameRate);
+
+    public static bool SetValueAtTime(
+        TimelineClipProject clip,
+        TimelineTrackKind kind,
+        double seconds,
+        double frameRate,
+        bool value)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (!IsSupportedKind(kind))
+        {
+            return false;
+        }
+        if (clip.ChromaKeyFeatherKeyframes.Count == 0)
+        {
+            clip.ChromaKeyFeather = value;
+            return true;
+        }
+
+        int frameOffset = GetFrameOffset(clip, seconds, frameRate);
+        return CanSetAtFrame(clip, kind, frameOffset, frameRate) && SetAtFrame(clip, frameOffset, value);
+    }
+
+    public static bool TrySetAtFrame(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate)
+    {
+        if (!CanSetAtFrame(clip, kind, frameOffset, frameRate))
+        {
+            return false;
+        }
+
+        return SetAtFrame(clip, frameOffset, GetValue(clip, frameOffset));
+    }
+
+    public static bool IsKeyframeAt(TimelineClipProject clip, int frameOffset) =>
+        clip.ChromaKeyFeatherKeyframes.Any(key => key.FrameOffset == frameOffset);
+
+    public static bool TryRemoveAtFrame(TimelineClipProject clip, int frameOffset)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        int index = clip.ChromaKeyFeatherKeyframes.FindIndex(key => key.FrameOffset == frameOffset);
+        if (index < 0)
+        {
+            return false;
+        }
+        if (clip.ChromaKeyFeatherKeyframes.Count == 1)
+        {
+            clip.ChromaKeyFeather = GetValue(clip, frameOffset);
+        }
+
+        clip.ChromaKeyFeatherKeyframes.RemoveAt(index);
+        return true;
+    }
+
+    public static void Split(TimelineClipProject left, TimelineClipProject right, int splitFrameOffset)
+    {
+        if (left.ChromaKeyFeatherKeyframes.Count == 0)
+        {
+            return;
+        }
+
+        bool splitValue = GetValue(left, splitFrameOffset);
+        bool startValue = GetValue(left, 0);
+        int leftEndFrame = Math.Max(0, splitFrameOffset - 1);
+        bool leftEndValue = GetValue(left, leftEndFrame);
+        List<VideoChromaKeyFeatherKeyframe> original = left.ChromaKeyFeatherKeyframes;
+        left.ChromaKeyFeatherKeyframes = original.Where(key => key.FrameOffset < splitFrameOffset)
+            .Select(key => Clone(key)).ToList();
+        if (!left.ChromaKeyFeatherKeyframes.Any(key => key.FrameOffset == 0))
+        {
+            left.ChromaKeyFeatherKeyframes.Add(ToKeyframe(0, startValue));
+        }
+        if (!left.ChromaKeyFeatherKeyframes.Any(key => key.FrameOffset == leftEndFrame))
+        {
+            left.ChromaKeyFeatherKeyframes.Add(ToKeyframe(leftEndFrame, leftEndValue));
+        }
+        left.ChromaKeyFeatherKeyframes.Sort((a, b) => a.FrameOffset.CompareTo(b.FrameOffset));
+        right.ChromaKeyFeatherKeyframes = original.Where(key => key.FrameOffset >= splitFrameOffset)
+            .Select(key => Clone(key, key.FrameOffset - splitFrameOffset)).ToList();
+        if (right.ChromaKeyFeatherKeyframes.Count == 0 ||
+            right.ChromaKeyFeatherKeyframes[0].FrameOffset != 0)
+        {
+            right.ChromaKeyFeatherKeyframes.Insert(0, ToKeyframe(0, splitValue));
+        }
+    }
+
+    public static void TrimStart(TimelineClipProject clip, int removedFrames)
+    {
+        if (clip.ChromaKeyFeatherKeyframes.Count == 0 || removedFrames <= 0)
+        {
+            return;
+        }
+
+        bool startValue = GetValue(clip, removedFrames);
+        clip.ChromaKeyFeatherKeyframes = clip.ChromaKeyFeatherKeyframes
+            .Where(key => key.FrameOffset > removedFrames)
+            .Select(key => Clone(key, key.FrameOffset - removedFrames)).ToList();
+        clip.ChromaKeyFeatherKeyframes.Insert(0, ToKeyframe(0, startValue));
+    }
+
+    public static void TrimEnd(TimelineClipProject clip, int retainedFrames)
+    {
+        if (clip.ChromaKeyFeatherKeyframes.Count == 0)
+        {
+            return;
+        }
+        if (retainedFrames <= 0)
+        {
+            clip.ChromaKeyFeatherKeyframes.Clear();
+            return;
+        }
+
+        bool startValue = GetValue(clip, 0);
+        int endFrame = retainedFrames - 1;
+        bool endValue = GetValue(clip, endFrame);
+        clip.ChromaKeyFeatherKeyframes = clip.ChromaKeyFeatherKeyframes
+            .Where(key => key.FrameOffset < retainedFrames).Select(key => Clone(key)).ToList();
+        if (clip.ChromaKeyFeatherKeyframes.Count == 0 ||
+            clip.ChromaKeyFeatherKeyframes[0].FrameOffset != 0)
+        {
+            clip.ChromaKeyFeatherKeyframes.Insert(0, ToKeyframe(0, startValue));
+        }
+        if (!clip.ChromaKeyFeatherKeyframes.Any(key => key.FrameOffset == endFrame))
+        {
+            clip.ChromaKeyFeatherKeyframes.Add(ToKeyframe(endFrame, endValue));
+            clip.ChromaKeyFeatherKeyframes.Sort((a, b) => a.FrameOffset.CompareTo(b.FrameOffset));
+        }
+    }
+
+    public static void RescaleFrameRate(TimelineClipProject clip, double oldFrameRate, double newFrameRate)
+    {
+        foreach (VideoChromaKeyFeatherKeyframe key in clip.ChromaKeyFeatherKeyframes)
+        {
+            key.FrameOffset = (int)Math.Round(key.FrameOffset * newFrameRate / oldFrameRate);
+        }
+        clip.ChromaKeyFeatherKeyframes = clip.ChromaKeyFeatherKeyframes.OrderBy(key => key.FrameOffset)
+            .GroupBy(key => key.FrameOffset).Select(group => group.Last()).ToList();
+    }
+
+    public static void ClearInvalid(IReadOnlyList<TimelineTrackProject> tracks, double frameRate)
+    {
+        foreach (TimelineTrackProject track in tracks)
+        {
+            foreach (TimelineClipProject clip in track.Clips)
+            {
+                clip.ChromaKeyFeatherKeyframes ??= [];
+                if (!IsSupportedKind(track.Kind))
+                {
+                    clip.ChromaKeyFeatherKeyframes.Clear();
+                    continue;
+                }
+
+                clip.ChromaKeyFeatherKeyframes.RemoveAll(key => key is null || key.FrameOffset < 0 ||
+                    !IsInClip(clip, track.Kind, key.FrameOffset, frameRate));
+                clip.ChromaKeyFeatherKeyframes = clip.ChromaKeyFeatherKeyframes
+                    .OrderBy(key => key.FrameOffset).GroupBy(key => key.FrameOffset)
+                    .Select(group => group.Last()).ToList();
+            }
+        }
+    }
+
+    public static List<VideoChromaKeyFeatherKeyframe> CloneKeys(
+        IEnumerable<VideoChromaKeyFeatherKeyframe> keys) =>
+        keys.Select(key => Clone(key)).ToList();
+
+    public static string? Validate(TimelineClipProject clip, TimelineTrackKind kind, double frameRate)
+    {
+        if (clip.ChromaKeyFeatherKeyframes is null || clip.ChromaKeyFeatherKeyframes.Any(key => key is null))
+        {
+            return "Chroma-key feather keyframes cannot be missing.";
+        }
+        if (!IsSupportedKind(kind) && clip.ChromaKeyFeatherKeyframes.Count > 0)
+        {
+            return "Only video and image clips can have chroma-key feather keyframes.";
+        }
+
+        int previousFrame = -1;
+        foreach (VideoChromaKeyFeatherKeyframe key in clip.ChromaKeyFeatherKeyframes)
+        {
+            if (key.FrameOffset <= previousFrame || !IsInClip(clip, kind, key.FrameOffset, frameRate))
+            {
+                return "Chroma-key feather keyframes must be ordered, unique, and inside their clip.";
+            }
+            previousFrame = key.FrameOffset;
+        }
+
+        return null;
+    }
+
+    private static bool SetAtFrame(TimelineClipProject clip, int frameOffset, bool value)
+    {
+        int index = clip.ChromaKeyFeatherKeyframes.FindIndex(key => key.FrameOffset == frameOffset);
+        VideoChromaKeyFeatherKeyframe keyframe = ToKeyframe(frameOffset, value);
+        if (index >= 0)
+        {
+            clip.ChromaKeyFeatherKeyframes[index] = keyframe;
+        }
+        else
+        {
+            clip.ChromaKeyFeatherKeyframes.Add(keyframe);
+            clip.ChromaKeyFeatherKeyframes.Sort((a, b) => a.FrameOffset.CompareTo(b.FrameOffset));
+        }
+        return true;
+    }
+
+    private static bool IsSupportedKind(TimelineTrackKind kind) =>
+        kind is TimelineTrackKind.Video or TimelineTrackKind.Image;
+
+    private static bool IsInClip(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate)
+    {
+        if (frameOffset < 0 || !double.IsFinite(frameRate) || frameRate <= 0)
+        {
+            return false;
+        }
+        double duration = VideoTimelineEditing.GetDurationSeconds(clip, kind);
+        return double.IsFinite(duration) && duration > 0 &&
+            frameOffset < Math.Ceiling(duration * frameRate - Tolerance);
+    }
+
+    private static VideoChromaKeyFeatherKeyframe ToKeyframe(int frameOffset, bool value) =>
+        new() { FrameOffset = frameOffset, Feather = value };
+
+    private static VideoChromaKeyFeatherKeyframe Clone(
+        VideoChromaKeyFeatherKeyframe key, int? frameOffset = null) =>
+        ToKeyframe(frameOffset ?? key.FrameOffset, key.Feather);
+}

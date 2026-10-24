@@ -328,6 +328,7 @@ public sealed class VideoClipJoiningTests
     [InlineData("sharpen-keyframes")]
     [InlineData("chroma-key-keyframes")]
     [InlineData("chroma-key-spill-keyframes")]
+    [InlineData("chroma-key-feather-keyframes")]
     [InlineData("mask-feather-keyframes")]
     [InlineData("colour")]
     [InlineData("style")]
@@ -368,6 +369,7 @@ public sealed class VideoClipJoiningTests
             case "sharpen-keyframes": right.SharpenKeyframes = [new() { FrameOffset = 0, Amount = 2 }]; break;
             case "chroma-key-keyframes": right.ChromaKeyKeyframes = [new() { FrameOffset = 0, Tolerance = 0.5 }]; break;
             case "chroma-key-spill-keyframes": right.ChromaKeySpillKeyframes = [new() { FrameOffset = 0, Amount = 0.5 }]; break;
+            case "chroma-key-feather-keyframes": right.ChromaKeyFeatherKeyframes = [new() { FrameOffset = 0, Feather = false }]; break;
             case "mask-feather-keyframes": right.MaskFeatherKeyframes = [new() { FrameOffset = 0, Feather = 0.1 }]; break;
             case "colour": right.Exposure = 1; break;
             case "style": right.Colour = 0xFF123456; break;

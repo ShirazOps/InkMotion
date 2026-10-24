@@ -601,7 +601,12 @@
                                     <Button x:Name="RemoveChromaKeyKeyframeButton" Content="Remove tolerance keyframe" Click="RemoveChromaKeyKeyframe_Click" />
                                 </StackPanel>
                                 <TextBlock x:Name="ChromaKeyKeyframeStateText" Text="No tolerance keyframes. Chroma-key tolerance applies to the whole clip." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                                <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKey_Changed" />
+                                <ToggleButton x:Name="ClipChromaKeyFeather" Content="Soften key edges" IsChecked="True" Click="ClipChromaKeyFeather_Changed" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Button x:Name="SetChromaKeyFeatherKeyframeButton" Content="Add/update edge-feather keyframe" Click="SetChromaKeyFeatherKeyframe_Click" />
+                                    <Button x:Name="RemoveChromaKeyFeatherKeyframeButton" Content="Remove edge-feather keyframe" Click="RemoveChromaKeyFeatherKeyframe_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ChromaKeyFeatherKeyframeStateText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <NumberBox x:Name="ClipChromaKeySpillBox" Header="Spill suppression (0-1)" Minimum="0" Maximum="1" Value="0" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="ClipChromaKeySpill_Changed" LostFocus="ClipProperty_LostFocus" />
                                 <TextBlock Text="Reduces excess key-colour channels without changing the key's transparency. Applies across the foreground, so genuine green/blue/magenta objects may also lose colour. Zero preserves the original foreground." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">

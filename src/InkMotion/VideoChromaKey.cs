@@ -44,7 +44,8 @@ public sealed class VideoChromaKeyEffect : IDisposable
         ICanvasImage source,
         TimelineClipProject clip,
         double? animatedTolerance = null,
-        double? animatedSpillSuppression = null)
+        double? animatedSpillSuppression = null,
+        bool? animatedFeather = null)
     {
         _effect.Source = source;
         _effect.Color = Color.FromArgb(
@@ -53,7 +54,7 @@ public sealed class VideoChromaKeyEffect : IDisposable
             (byte)(clip.ChromaKeyColour >> 8),
             (byte)clip.ChromaKeyColour);
         _effect.Tolerance = (float)(animatedTolerance ?? clip.ChromaKeyTolerance);
-        _effect.Feather = clip.ChromaKeyFeather;
+        _effect.Feather = animatedFeather ?? clip.ChromaKeyFeather;
         double spillSuppression = animatedSpillSuppression ?? clip.ChromaKeySpillSuppression;
         if (spillSuppression <= 0)
         {

@@ -1047,7 +1047,8 @@ public sealed partial class MainWindow
                     VideoBlurKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoSharpenKeyframes.GetValueAtTime(clip, seconds, _frameRate),
                     VideoChromaKeyKeyframes.GetValueAtTime(clip, seconds, _frameRate),
-                    VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _frameRate));
+                    VideoChromaKeySpillKeyframes.GetValueAtTime(clip, seconds, _frameRate),
+                    VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, seconds, _frameRate));
             }
             if (updateScopes)
             {
@@ -1122,6 +1123,8 @@ public sealed partial class MainWindow
                 VideoChromaKeyKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate),
                 VideoChromaKeySpillKeyframes.GetValueAtTime(
+                    clip, _playheadFramePosition / _frameRate, _frameRate),
+                VideoChromaKeyFeatherKeyframes.GetValueAtTime(
                     clip, _playheadFramePosition / _frameRate, _frameRate));
         }
         catch (Exception ex) when (!requireComplete && (ex is System.Runtime.InteropServices.COMException or IOException or
@@ -1686,6 +1689,7 @@ public sealed partial class MainWindow
         destination.BlurKeyframes = VideoBlurKeyframes.CloneKeys(source.BlurKeyframes);
         destination.SharpenKeyframes = VideoSharpenKeyframes.CloneKeys(source.SharpenKeyframes);
         destination.ChromaKeyKeyframes = VideoChromaKeyKeyframes.CloneKeys(source.ChromaKeyKeyframes);
+        destination.ChromaKeyFeatherKeyframes = VideoChromaKeyFeatherKeyframes.CloneKeys(source.ChromaKeyFeatherKeyframes);
         destination.ChromaKeySpillKeyframes = VideoChromaKeySpillKeyframes.CloneKeys(source.ChromaKeySpillKeyframes);
         destination.MaskFeatherKeyframes = VideoMaskFeatherKeyframes.CloneKeys(source.MaskFeatherKeyframes);
         destination.FadeInSeconds = source.FadeInSeconds;
@@ -2717,7 +2721,20 @@ public sealed partial class MainWindow
         ChromaKeyKeyframeStateText.Text = clip.ChromaKeyKeyframes.Count == 0
             ? "No tolerance keyframes. Chroma-key tolerance applies to the whole clip."
             : $"{clip.ChromaKeyKeyframes.Count} tolerance keyframe(s); values interpolate at the playhead.";
-        ClipChromaKeyFeather.IsChecked = clip.ChromaKeyFeather;
+        ClipChromaKeyFeather.IsChecked = VideoChromaKeyFeatherKeyframes.GetValueAtTime(
+            clip, opacitySeconds, _frameRate);
+        int chromaKeyFeatherFrameOffset = VideoChromaKeyFeatherKeyframes.GetFrameOffset(
+            clip, opacitySeconds, _frameRate);
+        bool chromaKeyFeatherPlayheadInside = VideoChromaKeyFeatherKeyframes.CanSetAtFrame(
+            clip, kind, chromaKeyFeatherFrameOffset, _frameRate);
+        SetChromaKeyFeatherKeyframeButton.IsEnabled =
+            chromaKeyFeatherPlayheadInside && !location.Track.IsLocked;
+        RemoveChromaKeyFeatherKeyframeButton.IsEnabled =
+            chromaKeyFeatherPlayheadInside && !location.Track.IsLocked &&
+            VideoChromaKeyFeatherKeyframes.IsKeyframeAt(clip, chromaKeyFeatherFrameOffset);
+        ChromaKeyFeatherKeyframeStateText.Text = clip.ChromaKeyFeatherKeyframes.Count == 0
+            ? "No edge-feather keyframes. Edge feathering applies to the whole clip."
+            : $"{clip.ChromaKeyFeatherKeyframes.Count} edge-feather keyframe(s); each setting holds until the next key.";
         ClipChromaKeySpillBox.Value = VideoChromaKeySpillKeyframes.GetValueAtTime(
             clip, opacitySeconds, _frameRate);
         int chromaKeySpillFrameOffset = VideoChromaKeySpillKeyframes.GetFrameOffset(
@@ -3052,6 +3069,37 @@ public sealed partial class MainWindow
     private void ClipChromaKey_Changed(object sender, RoutedEventArgs e) =>
         ApplyClipChromaKeySettings(commitEdit: true);
 
+    private void ClipChromaKeyFeather_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
+            !TryBeginClipPropertyEdit(out TimelineClipLocation location))
+        {
+            return;
+        }
+
+        bool value = ClipChromaKeyFeather.IsChecked == true;
+        bool current = VideoChromaKeyFeatherKeyframes.GetValueAtTime(
+            location.Clip, CurrentPlaybackSeconds, _frameRate);
+        if (current == value)
+        {
+            CommitEdit();
+            return;
+        }
+        if (!VideoChromaKeyFeatherKeyframes.SetValueAtTime(
+            location.Clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, value))
+        {
+            CommitEdit();
+            StatusText.Text = "Move the playhead inside the selected video or image clip to edit animated key-edge feather.";
+            return;
+        }
+
+        ApplyClipPreview();
+        CommitEdit();
+        UpdateVideoInspector();
+    }
+
     private void ClipChromaKeyColour_Changed(object sender, SelectionChangedEventArgs e) =>
         ApplyClipChromaKeySettings(commitEdit: true);
 
@@ -3274,9 +3322,11 @@ public sealed partial class MainWindow
         bool spillMatches = clip.ChromaKeySpillKeyframes.Count == 0
             ? clip.ChromaKeySpillSuppression == spill
             : VideoChromaKeySpillKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == spill;
+        bool featherMatches = clip.ChromaKeyFeatherKeyframes.Count == 0
+            ? clip.ChromaKeyFeather == feather
+            : VideoChromaKeyFeatherKeyframes.GetValueAtTime(clip, CurrentPlaybackSeconds, _frameRate) == feather;
         if (clip.ChromaKeyEnabled == enabled && clip.ChromaKeyColour == colour &&
-            toleranceMatches && clip.ChromaKeyFeather == feather &&
-            spillMatches)
+            toleranceMatches && featherMatches && spillMatches)
         {
             CommitEdit();
             return;
@@ -3288,7 +3338,10 @@ public sealed partial class MainWindow
         {
             clip.ChromaKeyTolerance = tolerance;
         }
-        clip.ChromaKeyFeather = feather;
+        if (clip.ChromaKeyFeatherKeyframes.Count == 0)
+        {
+            clip.ChromaKeyFeather = feather;
+        }
         if (clip.ChromaKeySpillKeyframes.Count == 0)
         {
             clip.ChromaKeySpillSuppression = spill;
@@ -3858,6 +3911,61 @@ public sealed partial class MainWindow
         StatusText.Text = removed
             ? "Chroma-key tolerance keyframe removed."
             : "There is no tolerance keyframe at the playhead.";
+    }
+
+    private void SetChromaKeyFeatherKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeyFeatherKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool set = VideoChromaKeyFeatherKeyframes.TrySetAtFrame(
+            selected.Clip, selected.Track.Kind, frameOffset, _frameRate);
+        if (set)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Chroma-key edge-feather keyframe set at clip frame {frameOffset + 1}."
+            : "Move the playhead inside the selected video or image clip to add an edge-feather keyframe.";
+    }
+
+    private void RemoveChromaKeyFeatherKeyframe_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.IsLocked ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        int frameOffset = VideoChromaKeyFeatherKeyframes.GetFrameOffset(
+            selected.Clip, CurrentPlaybackSeconds, _frameRate);
+        bool removed = VideoChromaKeyFeatherKeyframes.TryRemoveAtFrame(selected.Clip, frameOffset);
+        if (removed)
+        {
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = removed
+            ? "Chroma-key edge-feather keyframe removed."
+            : "There is no edge-feather keyframe at the playhead.";
     }
 
     private void SetChromaKeySpillKeyframe_Click(object sender, RoutedEventArgs e)

@@ -193,6 +193,94 @@ public sealed class VideoChromaKeyTests
         Assert.Empty(migratedClip.ChromaKeyKeyframes);
     }
 
+    [Fact]
+    public void FeatherKeyframes_HoldUntilNextKeyAndFollowTimelineEdits()
+    {
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.mp4",
+            SourceDurationSeconds = 6,
+            ChromaKeyFeather = true,
+            ChromaKeyFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = false },
+                new() { FrameOffset = 72, Feather = true },
+                new() { FrameOffset = 96, Feather = false },
+            ],
+        };
+        TimelineTrackProject track = new() { Kind = TimelineTrackKind.Video, Clips = [clip] };
+
+        Assert.False(VideoChromaKeyFeatherKeyframes.GetValue(clip, 71));
+        Assert.True(VideoChromaKeyFeatherKeyframes.GetValue(clip, 72));
+        Assert.True(VideoChromaKeyFeatherKeyframes.GetValue(clip, 95));
+        Assert.False(VideoChromaKeyFeatherKeyframes.GetValue(clip, 96));
+        Assert.True(VideoChromaKeyFeatherKeyframes.SetValueAtTime(clip, track.Kind, 3.5, 24, true));
+        Assert.Equal(84, clip.ChromaKeyFeatherKeyframes[2].FrameOffset);
+        Assert.True(VideoChromaKeyFeatherKeyframes.GetValue(clip, 84));
+
+        TimelineClipProject restored = Assert.Single(Assert.Single(
+            EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(
+                new EditorProject { VideoTracks = [track] })).VideoTracks).Clips);
+        Assert.Equal(clip.ChromaKeyFeatherKeyframes.Select(key => (key.FrameOffset, key.Feather)),
+            restored.ChromaKeyFeatherKeyframes.Select(key => (key.FrameOffset, key.Feather)));
+        Assert.Equal(clip.ChromaKeyFeatherKeyframes.Select(key => (key.FrameOffset, key.Feather)),
+            VideoTimelineEditing.Clone(clip).ChromaKeyFeatherKeyframes.Select(key => (key.FrameOffset, key.Feather)));
+
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            VideoTimelineEditing.Split(track, clip, 49, 24));
+        Assert.Equal(0, right.ChromaKeyFeatherKeyframes[0].FrameOffset);
+        Assert.False(right.ChromaKeyFeatherKeyframes[0].Feather);
+        Assert.True(VideoTimelineEditing.TryTrimStart(track, right, 61, 24));
+        Assert.Equal(0, right.ChromaKeyFeatherKeyframes[0].FrameOffset);
+        Assert.False(right.ChromaKeyFeatherKeyframes[0].Feather);
+        VideoTimelineEditing.RescaleFrameRate([track], 24, 48);
+        Assert.Null(VideoTimelineEditing.Validate([track], 48));
+
+        TimelineClipProject overwriteSource = new()
+        {
+            Id = "overwrite-source",
+            SourcePath = "old.mp4",
+            SourceDurationSeconds = 6,
+            ChromaKeyFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = false },
+                new() { FrameOffset = 143, Feather = true },
+            ],
+        };
+        TimelineTrackProject overwriteTrack = new() { Kind = TimelineTrackKind.Video, Clips = [overwriteSource] };
+        TimelineClipProject replacement = new() { Id = "replacement", SourcePath = "new.mp4", SourceDurationSeconds = 2 };
+        Assert.True(VideoTimelinePlacement.TryPlace(
+            overwriteTrack, replacement, 49, 24, VideoClipPlacementMode.Overwrite));
+        TimelineClipProject[] remainders = overwriteTrack.Clips
+            .Where(item => item.Id != replacement.Id).ToArray();
+        Assert.Equal(new[] { 0, 47 }, remainders[0].ChromaKeyFeatherKeyframes.Select(key => key.FrameOffset));
+        Assert.Equal(new[] { 0, 47 }, remainders[1].ChromaKeyFeatherKeyframes.Select(key => key.FrameOffset));
+        Assert.False(remainders[1].ChromaKeyFeatherKeyframes[0].Feather);
+        Assert.True(remainders[1].ChromaKeyFeatherKeyframes[1].Feather);
+        Assert.Null(VideoTimelineEditing.Validate([overwriteTrack], 24));
+
+        TimelineClipProject image = new()
+        {
+            SourcePath = "image.png",
+            DurationSeconds = 4,
+            ChromaKeyFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = false },
+                new() { FrameOffset = 72, Feather = true },
+            ],
+        };
+        TimelineTrackProject imageTrack = new() { Kind = TimelineTrackKind.Image, Clips = [image] };
+        Assert.True(VideoTimelineEditing.TrySetStillDuration(imageTrack, image, 2, 24));
+        Assert.Equal(47, image.ChromaKeyFeatherKeyframes[^1].FrameOffset);
+        Assert.False(image.ChromaKeyFeatherKeyframes[^1].Feather);
+        Assert.Null(VideoTimelineEditing.Validate([imageTrack], 24));
+
+        TimelineClipProject migrated = Assert.Single(Assert.Single(EditorProjectSerialiser.Deserialise(
+            """{"Version":52,"VideoTracks":[{"Kind":"Video","Clips":[{"SourcePath":"scene.mp4","SourceDurationSeconds":2,"ChromaKeyFeather":false}]}],"Frames":[{"Number":1}],"SelectedFrameIndex":0}""").VideoTracks).Clips);
+        Assert.False(migrated.ChromaKeyFeather);
+        Assert.Empty(migrated.ChromaKeyFeatherKeyframes);
+    }
+
     [Theory]
     [InlineData(-0.01)]
     [InlineData(1.01)]
@@ -239,6 +327,7 @@ public sealed class VideoChromaKeyTests
                 {
                     foregroundPixels[offset + 1] = 255;
                 }
+
                 else
                 {
                     foregroundPixels[offset + 2] = 255;
@@ -275,6 +364,58 @@ public sealed class VideoChromaKeyTests
         Assert.InRange(rendered[keyed + 2], 0, 10);
         Assert.InRange(rendered[opaque + 2], 245, 255);
         Assert.InRange(rendered[opaque], 0, 10);
+    }
+
+    [Fact]
+    public void Render_AnimatedFeatherChangesKeyEdgeWithoutChangingKeyedPixels()
+    {
+        using var device = new CanvasDevice(true);
+        byte[] pixels = new byte[16 * 16 * 4];
+        for (int y = 0; y < 16; y++)
+        {
+            for (int x = 0; x < 16; x++)
+            {
+                int offset = (y * 16 + x) * 4;
+                pixels[offset + 1] = 255;
+                pixels[offset + 2] = (byte)(x * 10);
+                pixels[offset + 3] = 255;
+            }
+        }
+
+        using var source = CanvasBitmap.CreateFromBytes(
+            device, pixels, 16, 16, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        using var target = new CanvasRenderTarget(device, 16, 16, 96);
+        using var effect = new VideoChromaKeyEffect();
+        TimelineClipProject clip = new()
+        {
+            SourcePath = "scene.png",
+            DurationSeconds = 2,
+            ChromaKeyEnabled = true,
+            ChromaKeyColour = 0xFF00FF00,
+            ChromaKeyTolerance = 0.5,
+            ChromaKeySpillSuppression = 0,
+            ChromaKeyFeatherKeyframes =
+            [
+                new() { FrameOffset = 0, Feather = false },
+                new() { FrameOffset = 23, Feather = true },
+            ],
+        };
+
+        void Draw(int frameOffset)
+        {
+            using CanvasDrawingSession session = target.CreateDrawingSession();
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            TimelineCompositor.DrawFitted(session, source, source.Bounds, 16, 16, 1, 0.5, 0.5, 1,
+                colourGrade: clip, chromaKeyEffect: effect,
+                animatedChromaKeyFeather: VideoChromaKeyFeatherKeyframes.GetValue(clip, frameOffset));
+        }
+
+        Draw(0);
+        byte[] hardEdge = target.GetPixelBytes();
+        Draw(23);
+        byte[] softEdge = target.GetPixelBytes();
+        Assert.False(hardEdge.SequenceEqual(softEdge));
+        Assert.Equal(hardEdge.Take(4), softEdge.Take(4));
     }
 
     [Fact]
