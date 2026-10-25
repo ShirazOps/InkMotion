@@ -34,6 +34,10 @@ Windows import remains available through installed decoders. Opt-in checked FFmp
 
 Synthetic codec/decoded-pixel/audio round trips and native editing/re-export passed x64/x86 using external Gyan FFmpeg 9.0.2 essentials. Full suites passed 1,163 tests per architecture, with only the physical-GPU and controlled-desktop opt-ins skipped. This does not certify AV1 GPU hardware or every Windows decoder/third-party FFmpeg build.
 
+### Recorder workflow controls
+
+Added 0/3/5/10-second countdown selection with explicit countdown cancellation, an optional timed stop (one second to 24 hours, or manual), remaining-time readout, automatic recorder minimisation at capture start, and optional automatic opening after saving. Timed stops use the existing source finalisation and durable recovery project path; the limit excludes countdown and includes optional-device startup. Auto-minimise only affects the recorder, not the editor; no window-exclusion guarantee is implied. Keeping automatic opening off supports consecutive takes without replacing the current editor project. These controls do not add pause/resume or global hotkeys.
+
 1. **Workspace shell and Video Editor**
    - Replace the crowded single-screen layout with clear workspace navigation and shared project, playback, undo/redo, and status controls.
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
