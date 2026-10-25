@@ -8,13 +8,15 @@ using Microsoft.Graphics.Canvas;
 namespace InkMotion;
 
 public enum FFmpegVideoEncoder { Software, Nvidia, Intel, Amd }
-public enum FFmpegVideoContainer { Mp4, Matroska }
-public enum FFmpegVideoAudioCodec { Aac, Pcm, Flac, Opus }
+public enum FFmpegVideoContainer { Mp4, Matroska, Asf }
+public enum FFmpegVideoAudioCodec { Aac, Pcm, Flac, Opus, Wma }
 
 public sealed record FFmpegVideoSettings(string ExecutablePath, FFmpegVideoEncoder Encoder,
     FFmpegVideoContainer Container, FFmpegVideoAudioCodec AudioCodec, int AudioBits = 24)
 {
-    public string Extension => Container == FFmpegVideoContainer.Mp4 ? ".mp4" : ".mkv";
+    public string Extension => Container switch { FFmpegVideoContainer.Mp4 => ".mp4",
+        FFmpegVideoContainer.Matroska => ".mkv", FFmpegVideoContainer.Asf => ".wmv",
+        _ => throw new ArgumentOutOfRangeException(nameof(Container)) };
 
     public string EncoderName(VideoExportCodec codec) => (codec, Encoder) switch
     {
@@ -26,6 +28,11 @@ public sealed record FFmpegVideoSettings(string ExecutablePath, FFmpegVideoEncod
         (VideoExportCodec.Hevc, FFmpegVideoEncoder.Intel) => "hevc_qsv",
         (VideoExportCodec.H264, FFmpegVideoEncoder.Amd) => "h264_amf",
         (VideoExportCodec.Hevc, FFmpegVideoEncoder.Amd) => "hevc_amf",
+        (VideoExportCodec.Wmv, FFmpegVideoEncoder.Software) => "wmv2",
+        (VideoExportCodec.Av1, FFmpegVideoEncoder.Software) => "libaom-av1",
+        (VideoExportCodec.Av1, FFmpegVideoEncoder.Nvidia) => "av1_nvenc",
+        (VideoExportCodec.Av1, FFmpegVideoEncoder.Intel) => "av1_qsv",
+        (VideoExportCodec.Av1, FFmpegVideoEncoder.Amd) => "av1_amf",
         _ => throw new ArgumentOutOfRangeException(nameof(codec)),
     };
 
@@ -36,11 +43,23 @@ public sealed record FFmpegVideoSettings(string ExecutablePath, FFmpegVideoEncod
             !AudioExportSettings.SampleRates.Contains(sampleRate) ||
             AudioBits is not (16 or 24) ||
             (Container == FFmpegVideoContainer.Mp4 && AudioCodec != FFmpegVideoAudioCodec.Aac) ||
+            (Container == FFmpegVideoContainer.Asf && AudioCodec != FFmpegVideoAudioCodec.Wma) ||
+            (AudioCodec == FFmpegVideoAudioCodec.Wma && Container != FFmpegVideoContainer.Asf) ||
+            (AudioCodec == FFmpegVideoAudioCodec.Wma && sampleRate is not (44100 or 48000)) ||
             (AudioCodec == FFmpegVideoAudioCodec.Aac && sampleRate is not (44100 or 48000)) ||
             (AudioCodec == FFmpegVideoAudioCodec.Opus && sampleRate != 48000))
         {
-            throw new ArgumentException("Unsupported FFmpeg video settings. MP4 uses AAC at 44.1/48 kHz; Matroska also supports 16/24-bit PCM/FLAC and 48 kHz Opus.");
+            throw new ArgumentException("Unsupported FFmpeg video settings. MP4 uses AAC; WMV/ASF uses WMA at 44.1/48 kHz. Matroska also supports PCM/FLAC and 48 kHz Opus.");
         }
+    }
+
+    public void ValidateCodec(VideoExportCodec codec)
+    {
+        if ((codec == VideoExportCodec.Wmv) != (Container == FFmpegVideoContainer.Asf))
+            throw new ArgumentException("Windows Media Video requires WMV/ASF; AV1/H.264/HEVC require MP4 or Matroska.");
+        if (codec == VideoExportCodec.Wmv && Encoder != FFmpegVideoEncoder.Software)
+            throw new ArgumentException("Windows Media Video uses the FFmpeg software encoder; GPU WMV encoding is not offered.");
+        _ = EncoderName(codec);
     }
 }
 
@@ -50,6 +69,7 @@ public static class FFmpegVideoExporter
     {
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
+        settings.ValidateCodec(request.Codec);
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-video-measure-{Guid.NewGuid():N}.mp4");
         int count = VideoExportCapabilities.GetPerformanceFrameCount(request.Profile);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
@@ -72,6 +92,7 @@ public static class FFmpegVideoExporter
     {
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
+        settings.ValidateCodec(request.Codec);
         FFmpegAudioEncoder.Discover(settings.ExecutablePath, cancellationToken);
         string temporary = Path.Combine(Path.GetTempPath(), $"inkmotion-video-probe-{Guid.NewGuid():N}.mp4");
         try
@@ -91,6 +112,7 @@ public static class FFmpegVideoExporter
     {
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
+        settings.ValidateCodec(request.Codec);
         ExportPlanning.ValidateOutputPath(request.Project, request.OutputPath);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -175,6 +197,7 @@ public static class FFmpegVideoExporter
                 {
                     FFmpegVideoAudioCodec.Flac => AudioExportCodec.Flac,
                     FFmpegVideoAudioCodec.Opus => AudioExportCodec.Opus,
+                    FFmpegVideoAudioCodec.Wma => AudioExportCodec.Wma,
                     _ => AudioExportCodec.PcmWave,
                 };
                 var audio = new AudioExportSettings(audioCodec, request.AudioSampleRate, settings.AudioBits,
@@ -212,7 +235,8 @@ public static class FFmpegVideoExporter
                 }
             }
             if (settings.Container == FFmpegVideoContainer.Mp4) arguments.AddRange(["-movflags", "+faststart"]);
-            arguments.AddRange(["-f", settings.Container == FFmpegVideoContainer.Mp4 ? "mp4" : "matroska", temporary]);
+            arguments.AddRange(["-f", settings.Container switch { FFmpegVideoContainer.Mp4 => "mp4",
+                FFmpegVideoContainer.Asf => "asf", _ => "matroska" }, temporary]);
             FFmpegAudioEncoder.Run(settings.ExecutablePath, arguments, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             if (!File.Exists(temporary) || new FileInfo(temporary).Length == 0)
@@ -277,8 +301,10 @@ public static class FFmpegVideoExporter
             "-framerate", request.Profile.FrameRate.ToString("R", CultureInfo.InvariantCulture),
             "-i", "pipe:0", "-an", "-c:v", settings.EncoderName(request.Codec), "-pix_fmt", "yuv420p",
             "-b:v", ExportPlanning.GetVideoBitRate(request.Profile, request.Codec, request.Quality).ToString(CultureInfo.InvariantCulture),
-            "-f", "mp4", path,
+            "-f", request.Codec == VideoExportCodec.Wmv ? "asf" : "mp4", path,
         };
+        if (request.Codec == VideoExportCodec.Av1 && settings.Encoder == FFmpegVideoEncoder.Software)
+            arguments.InsertRange(arguments.Count - 3, ["-cpu-used", "8", "-row-mt", "1", "-threads", "4"]);
         if (settings.Encoder == FFmpegVideoEncoder.Intel)
             arguments.InsertRange(0, ["-init_hw_device", "qsv=inkmotion:hw"]);
         using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments, redirectInput: true);

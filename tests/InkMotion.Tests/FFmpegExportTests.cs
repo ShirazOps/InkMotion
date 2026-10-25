@@ -16,6 +16,160 @@ public sealed class FFmpegFactAttribute : FactAttribute
 
 public sealed class FFmpegExportTests
 {
+    [Fact]
+    public void WindowsMediaAndAv1_ValidateExplicitContainersAndBackends()
+    {
+        var wmv = new FFmpegVideoSettings(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software,
+            FFmpegVideoContainer.Asf, FFmpegVideoAudioCodec.Wma);
+        wmv.Validate(48000);
+        wmv.ValidateCodec(VideoExportCodec.Wmv);
+        Assert.Equal(".wmv", wmv.Extension);
+        Assert.Equal("wmv2", wmv.EncoderName(VideoExportCodec.Wmv));
+        Assert.Throws<ArgumentException>(() => wmv.ValidateCodec(VideoExportCodec.Av1));
+        Assert.Throws<ArgumentException>(() => (wmv with { Encoder = FFmpegVideoEncoder.Nvidia }).ValidateCodec(VideoExportCodec.Wmv));
+        Assert.Throws<ArgumentException>(() => (wmv with { AudioCodec = FFmpegVideoAudioCodec.Aac }).Validate(48000));
+        Assert.Throws<ArgumentException>(() => wmv.Validate(96000));
+        Assert.Throws<ArgumentException>(() => new AudioExportSettings(AudioExportCodec.Wma, 48000).Validate());
+        Assert.Equal(".wma", new AudioExportSettings(AudioExportCodec.Wma, 48000).Extension);
+        foreach (FFmpegVideoContainer container in new[] { FFmpegVideoContainer.Mp4, FFmpegVideoContainer.Matroska })
+        {
+            var av1 = wmv with { Container = container, AudioCodec = FFmpegVideoAudioCodec.Aac };
+            av1.Validate(48000);
+            av1.ValidateCodec(VideoExportCodec.Av1);
+            Assert.Equal("libaom-av1", av1.EncoderName(VideoExportCodec.Av1));
+            Assert.Equal("av1_nvenc", (av1 with { Encoder = FFmpegVideoEncoder.Nvidia }).EncoderName(VideoExportCodec.Av1));
+            Assert.Equal("av1_qsv", (av1 with { Encoder = FFmpegVideoEncoder.Intel }).EncoderName(VideoExportCodec.Av1));
+            Assert.Equal("av1_amf", (av1 with { Encoder = FFmpegVideoEncoder.Amd }).EncoderName(VideoExportCodec.Av1));
+        }
+        Assert.Throws<NotSupportedException>(() => VideoExporter.Export(new(new(),
+            VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.Av1,
+            "must-not-be-created.mp4", 720), null, CancellationToken.None));
+        Assert.False(FFmpegMediaImport.CanPrepare("image.png"));
+        Assert.True(FFmpegMediaImport.CanPrepare("VIDEO.WMV"));
+        Assert.True(FFmpegMediaImport.CanPrepare("video.mp4"));
+    }
+
+    [FFmpegFact]
+    public void Wma_ExportsAndImportsRetainedNativeEditingCopy()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-wma-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string input = Path.Combine(directory, "tone.wav");
+            WriteTone(input, 0.6);
+            var project = new EditorProject { AudioTracks = [new() { AudioPath = input }] };
+            foreach (int rate in new[] { 44100, 48000 })
+            {
+                string output = Path.Combine(directory, $"tone-{rate}.wma");
+                AudioExporter.Export(project, new(AudioExportCodec.Wma, rate, FFmpegPath: ffmpeg),
+                    output, null, CancellationToken.None);
+                using JsonDocument probe = Probe(ffmpeg, output);
+                Assert.Equal("wmav2", probe.RootElement.GetProperty("streams")[0].GetProperty("codec_name").GetString());
+                Assert.Equal(rate.ToString(), probe.RootElement.GetProperty("streams")[0].GetProperty("sample_rate").GetString());
+                byte[] original = File.ReadAllBytes(output);
+                string prepared = FFmpegMediaImport.Prepare(output, ffmpeg, directory, CancellationToken.None);
+                Assert.Equal(".wav", Path.GetExtension(prepared));
+                Assert.Equal(original, File.ReadAllBytes(output));
+                Assert.Equal(prepared, FFmpegMediaImport.Prepare(output, ffmpeg, directory, CancellationToken.None));
+                using var reader = new AudioFileReader(prepared);
+                Assert.Equal(2, reader.WaveFormat.Channels);
+                Assert.Equal(rate, reader.WaveFormat.SampleRate);
+                Assert.InRange(reader.TotalTime.TotalSeconds, 0.55, 0.75);
+                float[] samples = new float[reader.WaveFormat.SampleRate / 4 * 2];
+                Assert.True(reader.Read(samples, 0, samples.Length) > 0);
+                Assert.InRange(samples.Max(Math.Abs), 0.1f, 0.5f);
+            }
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            Assert.Throws<OperationCanceledException>(() =>
+                FFmpegMediaImport.Prepare(Path.Combine(directory, "tone-48000.wma"), ffmpeg, directory, cancellation.Token));
+            Assert.Empty(Directory.GetFiles(directory, "*.partial"));
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(directory)) File.Delete(file);
+            Directory.Delete(directory);
+        }
+    }
+
+    [FFmpegFact]
+    public void WmvAndAv1_ExportRealCodecsImportNativeFramesAndReExport()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-modern-formats-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string input = Path.Combine(directory, "tone.wav");
+            WriteTone(input, 0.6);
+            var project = new EditorProject
+            {
+                FrameRate = 30, AudioTracks = [new() { AudioPath = input }],
+                Frames = [new() { IsKeyframe = true, ExposureFrames = 18,
+                    Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle, 0, 0, 1, 1, 4, 0xFFFF0000, true)] }],
+            };
+            foreach (FFmpegVideoContainer container in Enum.GetValues<FFmpegVideoContainer>())
+            {
+                bool wmv = container == FFmpegVideoContainer.Asf;
+                WriteTone(input, wmv ? 5.3 : 0.6);
+                project.Frames[0].ExposureFrames = wmv ? 159 : 18;
+                var settings = new FFmpegVideoSettings(ffmpeg, FFmpegVideoEncoder.Software, container,
+                    wmv ? FFmpegVideoAudioCodec.Wma : FFmpegVideoAudioCodec.Aac);
+                string output = Path.Combine(directory, $"movie-{container}{settings.Extension}");
+                VideoExportResult result = VideoExporter.Export(new(project,
+                    VideoExportProfile.Create(ExportResolution.P720, 30),
+                    wmv ? VideoExportCodec.Wmv : VideoExportCodec.Av1, output, 720, FFmpeg: settings), null, CancellationToken.None);
+                Assert.Equal(wmv ? "wmv2" : "libaom-av1", result.EncoderName);
+                Assert.Equal(wmv ? 159 : 18, result.FrameCount);
+                using JsonDocument probe = Probe(ffmpeg, output);
+                JsonElement[] streams = probe.RootElement.GetProperty("streams").EnumerateArray().ToArray();
+                Assert.Contains(streams, stream => stream.GetProperty("codec_name").GetString() == (wmv ? "wmv2" : "av1"));
+                Assert.Contains(streams, stream => stream.GetProperty("codec_name").GetString() == (wmv ? "wmav2" : "aac"));
+                Run(ffmpeg, "-v", "error", "-xerror", "-i", output, "-f", "null", "-");
+                string prepared = FFmpegMediaImport.Prepare(output, ffmpeg, directory, CancellationToken.None);
+                Assert.NotEqual(output, prepared);
+                using (var reader = new MediaFoundationVideoReader(prepared))
+                {
+                    Assert.True(reader.TryGetFrame(0.25));
+                    Assert.Equal((1280, 720), (reader.Width, reader.Height));
+                    int centre = (360 * reader.Width + 640) * 4;
+                    Assert.InRange(reader.Pixels[centre + 2], 220, 255);
+                    Assert.InRange(reader.Pixels[centre + 1], 0, 25);
+                    Assert.InRange(reader.Pixels[centre], 0, 25);
+                    if (wmv)
+                    {
+                        Assert.True(reader.TryGetFrame(5.2));
+                        Assert.InRange(reader.Pixels[centre + 2], 220, 255);
+                    }
+                }
+                using (var reader = new MediaFoundationReader(prepared))
+                {
+                    Assert.InRange(reader.TotalTime.TotalSeconds, wmv ? 5.25 : 0.55, wmv ? 5.5 : 0.8);
+                    byte[] samples = new byte[48000];
+                    Assert.True(reader.Read(samples, 0, samples.Length) > 0);
+                    Assert.Contains(samples, value => value != 0);
+                }
+                var imported = new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Video,
+                    Clips = [new() { SourcePath = prepared, SourceDurationSeconds = 0.6, SourceOutSeconds = 0.6 }] }] };
+                string reexport = Path.Combine(directory, $"roundtrip-{container}.mp4");
+                VideoExporter.Export(new(imported, VideoExportProfile.Create(ExportResolution.P720, 30),
+                    VideoExportCodec.H264, reexport, 720), null, CancellationToken.None);
+                using var decoded = new MediaFoundationVideoReader(reexport);
+                Assert.True(decoded.TryGetFrame(0.25));
+                Assert.InRange(decoded.Pixels[(360 * decoded.Width + 640) * 4 + 2], 220, 255);
+                Assert.Equal(prepared, FFmpegMediaImport.Prepare(prepared, ffmpeg, directory, CancellationToken.None));
+            }
+            Assert.Empty(Directory.GetFiles(directory, "*.partial"));
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(directory)) File.Delete(file);
+            Directory.Delete(directory);
+        }
+    }
+
     [FFmpegHardwareFact]
     public void ConfiguredHardware_RoundTripsCompositedVideoAt1080And4K60()
     {
@@ -40,7 +194,7 @@ public sealed class FFmpegExportTests
                 }],
             };
             foreach (FFmpegVideoEncoder encoder in encoders)
-            foreach (VideoExportCodec codec in Enum.GetValues<VideoExportCodec>())
+            foreach (VideoExportCodec codec in new[] { VideoExportCodec.H264, VideoExportCodec.Hevc })
             foreach (ExportResolution resolution in new[] { ExportResolution.P1080, ExportResolution.Uhd4K })
             {
                 var profile = VideoExportProfile.Create(resolution, 60);
@@ -189,6 +343,7 @@ public sealed class FFmpegExportTests
             foreach (FFmpegVideoAudioCodec codec in Enum.GetValues<FFmpegVideoAudioCodec>())
             {
                 if (container == FFmpegVideoContainer.Mp4 && codec != FFmpegVideoAudioCodec.Aac) continue;
+                if (container == FFmpegVideoContainer.Asf || codec == FFmpegVideoAudioCodec.Wma) continue;
                 var settings = new FFmpegVideoSettings(ffmpeg, FFmpegVideoEncoder.Software, container, codec);
                 string output = Path.Combine(directory, $"{container}-{codec}{settings.Extension}");
                 int rate = codec == FFmpegVideoAudioCodec.Pcm ? 384000 : 48000;

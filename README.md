@@ -52,10 +52,15 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Software encoding or a hardware preference with reported software fallback. Preview and export share the composition and effect pipeline.
 - Separate PCM/float WAV, MP3 and AAC/M4A mixes. Multichannel WAV supports the project layout; MP4 carries up to 5.1 AAC, with a companion full-layout WAV when needed.
 - Optional local FFmpeg adds 16/24-bit FLAC mixes up to 384 kHz and 8 channels, 48 kHz mono/stereo Opus, and Matroska video with AAC, PCM, FLAC or Opus audio.
+- Optional FFmpeg also exports WMA audio (`.wma`, wmav2, 44.1/48 kHz stereo/mono), Windows Media Video (`.wmv`/ASF, wmv2 with WMA audio), and AV1 in MP4 or Matroska. WMV uses software encoding; AV1 uses libaom-av1 software or an explicitly selected NVENC/QSV/AMF AV1 encoder when supported. Use **Check video encoder profiles** to test the selected codec/device/profile before a long job; no codec or hardware fallback is hidden.
 - FFmpeg video offers explicit CPU, NVIDIA NVENC, Intel Quick Sync and AMD AMF encoders with no automatic hardware-to-software substitution. Selected-profile probes report unsupported devices/codecs.
 - Persistent background export jobs with progress, cancellation and retries. Jobs use saved project snapshots and continue independently of the editor.
 
 For optional formats, choose a trusted local `ffmpeg.exe` under **Export > Optional FFmpeg** and check its capabilities. InkMotion does not download, bundle or redistribute FFmpeg; available encoders and licensing depend on your build. Existing Windows exports need no FFmpeg. Saved jobs retain the executable path.
+
+**WMA, WMV and AV1 import:** normal audio/video import uses installed Windows decoders. If those codecs are missing, check the selected FFmpeg executable and enable **Use FFmpeg compatibility imports for WMA, WMV and AV1** on Export before importing or relinking. This applies to audio import, timeline video import, source monitor and media relinking. AV1 inside MP4/MOV/M4V/Matroska/WebM is detected with `ffprobe.exe` beside FFmpeg; non-AV1 files in those containers remain unchanged. Raw `.av1` streams are also accepted using FFmpeg's source timing.
+
+Compatibility imports decode WMA to float WAV and transcode WMV/AV1 to high-quality H.264/AAC editing copies (first video/audio streams, odd dimensions padded to even pixels). Video conversion is lossy, not a bit-exact AV1/WMV editing path. Originals are not modified. Copies live in `%LOCALAPPDATA%\InkMotion\ImportedMedia`, are reused until the source size/timestamp changes, and are linked in the saved project for preview, waveforms, effects and export. They are **not temporary proxies**: keep or move/relink these files with the project, and only remove them when no project needs them. Reopening a converted project needs no FFmpeg unless importing/converting more media.
 
 ### Screen recording
 

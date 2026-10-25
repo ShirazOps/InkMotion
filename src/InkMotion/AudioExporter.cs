@@ -11,6 +11,7 @@ public enum AudioExportCodec
     Aac,
     Flac,
     Opus,
+    Wma,
 }
 
 public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate, int BitsPerSample = 24,
@@ -20,7 +21,7 @@ public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate,
 
     public bool IsWave => Codec is AudioExportCodec.PcmWave or AudioExportCodec.FloatWave;
     public bool IsLossless => IsWave || Codec == AudioExportCodec.Flac;
-    public bool UsesFFmpeg => Codec is AudioExportCodec.Flac or AudioExportCodec.Opus;
+    public bool UsesFFmpeg => Codec is AudioExportCodec.Flac or AudioExportCodec.Opus or AudioExportCodec.Wma;
 
     public string Extension => Codec switch
     {
@@ -29,6 +30,7 @@ public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate,
         AudioExportCodec.Aac => ".m4a",
         AudioExportCodec.Flac => ".flac",
         AudioExportCodec.Opus => ".opus",
+        AudioExportCodec.Wma => ".wma",
         _ => throw new ArgumentOutOfRangeException(nameof(Codec)),
     };
 
@@ -43,7 +45,7 @@ public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate,
             (!IsLossless && BitRate is not (128000 or 160000 or 192000 or 256000 or 320000)) ||
             (UsesFFmpeg && (string.IsNullOrWhiteSpace(FFmpegPath) || !Path.IsPathFullyQualified(FFmpegPath))))
         {
-            throw new ArgumentException("Unsupported audio export settings. FLAC requires 16/24-bit PCM; Opus requires 48 kHz. FLAC/Opus require an absolute path to a local FFmpeg executable. Lossy formats use 128–320 kbps.");
+            throw new ArgumentException("Unsupported audio export settings. FLAC requires 16/24-bit PCM; Opus requires 48 kHz. FLAC/Opus/WMA require an absolute path to a local FFmpeg executable. Lossy formats use 128–320 kbps.");
         }
     }
 }

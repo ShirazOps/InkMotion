@@ -4,6 +4,8 @@ public enum VideoExportCodec
 {
     H264,
     Hevc,
+    Wmv,
+    Av1,
 }
 
 /// <summary>Pure export decisions shared by the encoder and the UI, kept free of Win2D and Media Foundation.</summary>
@@ -45,6 +47,8 @@ public static class ExportPlanning
     {
         VideoExportCodec.H264 => "H.264",
         VideoExportCodec.Hevc => "HEVC (H.265)",
+        VideoExportCodec.Wmv => "Windows Media Video",
+        VideoExportCodec.Av1 => "AV1",
         _ => throw new ArgumentOutOfRangeException(nameof(codec)),
     };
 

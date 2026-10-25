@@ -311,6 +311,8 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            file = await PrepareMediaImportAsync(file);
+            if (file is null) return;
             if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
             {
                 AddAudioTrack();
@@ -1708,6 +1710,7 @@ public sealed partial class MainWindow : Window
 
     private void ExportResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        UpdateFFmpegVideoOptions();
         UpdateExportProfileReadout();
         UpdateInkRulerReadout();
         InkSurface?.Invalidate();

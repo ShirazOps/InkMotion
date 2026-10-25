@@ -24,13 +24,7 @@ public sealed partial class MainWindow
 
     private async void LoadSourceMonitor_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        foreach (string extension in VideoFileTypes.SupportedExtensions)
-        {
-            picker.FileTypeFilter.Add(extension);
-        }
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        StorageFile? file = await picker.PickSingleFileAsync();
+        StorageFile? file = await PickTimelineFileAsync(VideoFileTypes.SupportedExtensions);
         if (file is null)
         {
             return;
@@ -39,7 +33,7 @@ public sealed partial class MainWindow
         double duration = await ProbeVideoDurationAsync(file);
         if (duration <= 0)
         {
-            SourceMonitorStatus.Text = $"Could not read the length of {file.Name}; the format may not be supported.";
+            SourceMonitorStatus.Text = $"Could not read the length of {file.Name}. For missing Windows codecs, enable checked FFmpeg compatibility imports on Export.";
             return;
         }
 

@@ -103,7 +103,7 @@ public static class VideoExportCapabilities
             foreach (double frameRate in CapabilityProbeFrameRates)
             {
                 VideoExportProfile profile = VideoExportProfile.Create(dimensions.Resolution, frameRate);
-                foreach (VideoExportCodec codec in Enum.GetValues<VideoExportCodec>())
+                foreach (VideoExportCodec codec in new[] { VideoExportCodec.H264, VideoExportCodec.Hevc })
                 {
                     string path = Path.Combine(probeDirectory, $"{Guid.NewGuid():N}.mp4");
                     string? failure = null;

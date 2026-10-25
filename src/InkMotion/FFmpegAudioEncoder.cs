@@ -5,7 +5,7 @@ using NAudio.Wave;
 
 namespace InkMotion;
 
-public sealed record FFmpegAudioCapabilities(string ExecutablePath, string Version, bool Flac, bool Opus);
+public sealed record FFmpegAudioCapabilities(string ExecutablePath, string Version, bool Flac, bool Opus, bool Wma = false);
 
 public static class FFmpegAudioEncoder
 {
@@ -19,7 +19,7 @@ public static class FFmpegAudioEncoder
             string[] fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             return fields.Length >= 2 && fields[1] == name;
         });
-        return new(executable, version.Split('\n')[0].Trim(), HasEncoder("flac"), HasEncoder("libopus"));
+        return new(executable, version.Split('\n')[0].Trim(), HasEncoder("flac"), HasEncoder("libopus"), HasEncoder("wmav2"));
     }
 
     public static void Encode(ISampleProvider source, AudioChannelLayout layout, double duration,
@@ -29,7 +29,8 @@ public static class FFmpegAudioEncoder
         using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         probeTimeout.CancelAfter(TimeSpan.FromSeconds(15));
         FFmpegAudioCapabilities capabilities = Discover(settings.FFmpegPath!, probeTimeout.Token);
-        if (settings.Codec == AudioExportCodec.Flac ? !capabilities.Flac : !capabilities.Opus)
+        if (settings.Codec switch { AudioExportCodec.Flac => !capabilities.Flac,
+            AudioExportCodec.Wma => !capabilities.Wma, _ => !capabilities.Opus })
         {
             throw new InvalidOperationException($"This FFmpeg build does not include the required {settings.Codec} encoder.");
         }
@@ -52,6 +53,11 @@ public static class FFmpegAudioEncoder
                     "-bits_per_raw_sample", settings.BitsPerSample.ToString(CultureInfo.InvariantCulture),
                     "-af", $"aresample=osf={(settings.BitsPerSample == 16 ? "s16" : "s32")}:dither_method=triangular:output_sample_bits={settings.BitsPerSample}",
                     "-compression_level", "5", "-f", "flac"]);
+            }
+            else if (settings.Codec == AudioExportCodec.Wma)
+            {
+                arguments.AddRange(["-c:a", "wmav2", "-b:a", settings.BitRate.ToString(CultureInfo.InvariantCulture),
+                    "-f", "asf"]);
             }
             else
             {
