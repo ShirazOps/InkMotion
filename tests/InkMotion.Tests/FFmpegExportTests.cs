@@ -16,6 +16,71 @@ public sealed class FFmpegFactAttribute : FactAttribute
 
 public sealed class FFmpegExportTests
 {
+    [FFmpegHardwareFact]
+    public void ConfiguredHardware_RoundTripsCompositedVideoAt1080And4K60()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string[] configured = Environment.GetEnvironmentVariable("INKMOTION_TEST_HARDWARE_ENCODERS")!
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(configured);
+        var encoders = configured.Select(name => Enum.Parse<FFmpegVideoEncoder>(name, ignoreCase: true)).ToArray();
+        Assert.All(encoders, encoder => Assert.True(encoder is FFmpegVideoEncoder.Nvidia or
+            FFmpegVideoEncoder.Intel or FFmpegVideoEncoder.Amd, "Configure physical encoders, not Software."));
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-hardware-export-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var project = new EditorProject
+            {
+                FrameRate = 30,
+                Frames = [new()
+                {
+                    IsKeyframe = true, ExposureFrames = 60,
+                    Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle, 0, 0, 1, 1, 4, 0xFFFF0000, true)],
+                }],
+            };
+            foreach (FFmpegVideoEncoder encoder in encoders)
+            foreach (VideoExportCodec codec in Enum.GetValues<VideoExportCodec>())
+            foreach (ExportResolution resolution in new[] { ExportResolution.P1080, ExportResolution.Uhd4K })
+            {
+                var profile = VideoExportProfile.Create(resolution, 60);
+                var settings = new FFmpegVideoSettings(ffmpeg, encoder, FFmpegVideoContainer.Mp4,
+                    FFmpegVideoAudioCodec.Aac);
+                string output = Path.Combine(directory, $"{encoder}-{codec}-{resolution}.mp4");
+                using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                VideoExportResult result = VideoExporter.Export(new(project, profile, codec, output, 720,
+                    FFmpeg: settings), null, timeout.Token);
+                Assert.Equal(settings.EncoderName(codec), result.EncoderName);
+                Assert.Equal(120, result.FrameCount);
+                using JsonDocument probe = Probe(ffmpeg, output);
+                JsonElement video = probe.RootElement.GetProperty("streams").EnumerateArray()
+                    .Single(stream => stream.GetProperty("codec_type").GetString() == "video");
+                Assert.Equal(codec == VideoExportCodec.H264 ? "h264" : "hevc", video.GetProperty("codec_name").GetString());
+                Assert.Equal(profile.Width, video.GetProperty("width").GetInt32());
+                Assert.Equal(profile.Height, video.GetProperty("height").GetInt32());
+                Assert.Equal("60/1", video.GetProperty("avg_frame_rate").GetString());
+                Assert.Equal("120", video.GetProperty("nb_frames").GetString());
+                Assert.InRange(double.Parse(probe.RootElement.GetProperty("format").GetProperty("duration").GetString()!,
+                    System.Globalization.CultureInfo.InvariantCulture), 1.99, 2.01);
+                string decoded = Path.Combine(directory, "decoded.bgra");
+                Run(ffmpeg, "-y", "-v", "error", "-i", output, "-frames:v", "1",
+                    "-vf", "scale=16:16", "-pix_fmt", "bgra", "-f", "rawvideo", decoded);
+                byte[] pixels = File.ReadAllBytes(decoded);
+                Assert.Equal(16 * 16 * 4, pixels.Length);
+                int centre = (8 * 16 + 8) * 4;
+                Assert.InRange(pixels[centre + 2], 220, 255);
+                Assert.InRange(pixels[centre + 1], 0, 25);
+                Assert.InRange(pixels[centre], 0, 25);
+                Run(ffmpeg, "-v", "error", "-xerror", "-i", output, "-f", "null", "-");
+            }
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(directory)) File.Delete(file);
+            Directory.Delete(directory);
+        }
+    }
+
     [Fact]
     public void Settings_RejectIncompatibleFormatsAndMissingBackend()
     {
@@ -30,6 +95,16 @@ public sealed class FFmpegExportTests
         (settings with { Container = FFmpegVideoContainer.Matroska }).Validate(384000);
         Assert.Equal("h264_nvenc", settings.EncoderName(VideoExportCodec.H264));
         Assert.Equal("hevc_qsv", (settings with { Encoder = FFmpegVideoEncoder.Intel }).EncoderName(VideoExportCodec.Hevc));
+    }
+
+    public sealed class FFmpegHardwareFactAttribute : FactAttribute
+    {
+        public FFmpegHardwareFactAttribute()
+        {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")) ||
+                string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("INKMOTION_TEST_HARDWARE_ENCODERS")))
+                Skip = "Optional physical-GPU test: set INKMOTION_TEST_FFMPEG and INKMOTION_TEST_HARDWARE_ENCODERS (Nvidia,Intel,Amd).";
+        }
     }
 
     [FFmpegFact]

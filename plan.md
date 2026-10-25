@@ -14,6 +14,14 @@ Local release validation on 25 October 2026 passed the full x86 and x64 Release 
 
 Physical GPU/codec/resolution certification, sustained mixed-DPI/multi-monitor recording, audio/webcam synchronisation, and pen/touch interaction remain device-dependent checks, not missing implementations. A hardware-selection test may correctly reject an unavailable encoder; its passing result does not certify every GPU or driver. Advanced adaptive noise reduction, plug-in hosting and unspecified additional video effects are separate future scope.
 
+### Local GPU validation sample (25 October 2026)
+
+On this PC, the NVIDIA GeForce RTX 5090 Laptop GPU (driver 32.0.16.2101) and Intel Graphics (driver 32.0.101.8724) successfully encoded H.264 and HEVC through explicit FFmpeg NVENC and QSV encoders at 1920x1080/60 and 3840x2160/60. Each of eight rate-limited synthetic backend runs produced 30 seconds/1,800 frames, verified dimensions/rate/duration, and decoded without errors. This used external Gyan FFmpeg 9.0.2 essentials, 20 Mbps, yuv420p and no captured personal media.
+
+The opt-in `ConfiguredHardware_RoundTripsCompositedVideoAt1080And4K60` regression separately exercises InkMotion's actual Win2D/FFmpeg export path with two-second composited synthetic ink. It requires every explicitly configured physical encoder to succeed without a software fallback, checks codec/dimensions/rate/duration/frame count and decoded colour, and decodes the whole output. Run with `INKMOTION_TEST_FFMPEG` pointing to a local executable and `INKMOTION_TEST_HARDWARE_ENCODERS=Nvidia,Intel` (or a comma-separated subset of Nvidia/Intel/Amd present on the test PC). Without both variables it is skipped; ordinary CI does not certify GPUs.
+
+These are local short-duration synthetic checks, not representative-content thermal/long-session certification, end-to-end realtime export guarantees, AMD coverage, other drivers, every frame rate, or validation of Media Foundation's hardware-preference reporting. The broader hardware certification task stays open.
+
 1. **Workspace shell and Video Editor**
    - Replace the crowded single-screen layout with clear workspace navigation and shared project, playback, undo/redo, and status controls.
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
