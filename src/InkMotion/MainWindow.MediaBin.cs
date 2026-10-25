@@ -163,6 +163,13 @@ public sealed partial class MainWindow
         try
         {
             StorageFile file = await StorageFile.GetFileFromPathAsync(replacement);
+            StorageFile? prepared = await PrepareMediaImportAsync(file);
+            if (prepared is null)
+            {
+                ProjectMediaBinStatus.Text = StatusText.Text;
+                return;
+            }
+            file = prepared;
             double duration = asset.Kind == ProjectMediaKind.Video ? await ProbeVideoDurationAsync(file) : 0;
             int channels = 0;
             if (asset.Kind == ProjectMediaKind.Audio)

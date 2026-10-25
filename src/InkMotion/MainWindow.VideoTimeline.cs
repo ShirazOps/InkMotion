@@ -173,7 +173,7 @@ public sealed partial class MainWindow
         double duration = await ProbeVideoDurationAsync(file);
         if (duration <= 0)
         {
-            StatusText.Text = $"Could not read the length of {file.Name}; the format may not be supported.";
+            StatusText.Text = $"Could not read the length of {file.Name}. For WMA/WMV/AV1 without Windows codecs, check FFmpeg and enable compatibility imports on Export.";
             return;
         }
 
@@ -220,7 +220,8 @@ public sealed partial class MainWindow
         }
 
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        return await picker.PickSingleFileAsync();
+        StorageFile? file = await picker.PickSingleFileAsync();
+        return file is null ? null : await PrepareMediaImportAsync(file);
     }
 
     private void RegisterTimelineSource(StorageFile file)

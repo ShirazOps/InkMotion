@@ -26,6 +26,14 @@ These are local short-duration synthetic checks, not representative-content ther
 
 An explicitly opted-in test recorded only a generated opaque red 320x240 test window, with pointer/audio/microphone/webcam capture off. Rectangle and closed triangular freeform captures passed on x64 and x86: three-second capture timing, cropped dimensions, red selected pixels, black excluded pixels, playable MP4 and editable project recovery. The test uses physical-pixel DPI context and rejects overlapping windows or unexpected colours before encoding. `INKMOTION_TEST_CONTROLLED_SCREEN=1` enables this desktop-interacting regression; it is skipped by default. Temporary recordings are removed. This does not certify mixed-DPI multi-monitor layouts, live audio/webcam synchronisation, device removal, long sessions or physical pen input.
 
+### WMA, WMV and AV1 format expansion
+
+Added optional FFmpeg WMA/wmav2 audio export, WMV/wmv2 in ASF with WMA audio, and AV1 in MP4 or Matroska. WMV uses CPU software; AV1 uses libaom-av1 software or explicitly selected NVENC/QSV/AMF AV1 where available. Codec/container validation, selected-profile probes and no-fallback errors also apply to saved/background export jobs.
+
+Windows import remains available through installed decoders. Opt-in checked FFmpeg compatibility import covers regular audio/video import, source monitor and relinking; it produces retained float WAV or high-quality H.264/AAC editing sources for WMA/WMV/AV1. AV1 detection in common containers requires sibling ffprobe.exe. Originals stay unchanged; converted video is lossy, selects the first video/audio streams, and pads odd dimensions to even pixels. Copies in LocalAppData\InkMotion\ImportedMedia are project dependencies, not disposable proxies. Reopening and exporting converted projects requires no FFmpeg for source decoding.
+
+Synthetic codec/decoded-pixel/audio round trips and native editing/re-export passed x64/x86 using external Gyan FFmpeg 9.0.2 essentials. Full suites passed 1,163 tests per architecture, with only the physical-GPU and controlled-desktop opt-ins skipped. This does not certify AV1 GPU hardware or every Windows decoder/third-party FFmpeg build.
+
 1. **Workspace shell and Video Editor**
    - Replace the crowded single-screen layout with clear workspace navigation and shared project, playback, undo/redo, and status controls.
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.

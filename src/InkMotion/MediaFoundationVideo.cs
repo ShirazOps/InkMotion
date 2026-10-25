@@ -457,7 +457,12 @@ public sealed class MediaFoundationVideoWriter : IDisposable
             output.SetGUID(MediaFoundationGuids.MajorType, MediaFoundationGuids.MediaTypeVideo);
             output.SetGUID(
                 MediaFoundationGuids.Subtype,
-                codec == VideoExportCodec.Hevc ? MediaFoundationGuids.VideoFormatHevc : MediaFoundationGuids.VideoFormatH264);
+                codec switch
+                {
+                    VideoExportCodec.H264 => MediaFoundationGuids.VideoFormatH264,
+                    VideoExportCodec.Hevc => MediaFoundationGuids.VideoFormatHevc,
+                    _ => throw new NotSupportedException("WMV and AV1 encoding require the optional FFmpeg backend."),
+                });
             output.SetUINT32(MediaFoundationGuids.AverageBitRate, bitRate);
             SetVideoFrameAttributes(output, numerator, denominator);
             _writer!.AddStream(output, out _videoStream);

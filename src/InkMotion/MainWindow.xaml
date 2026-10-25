@@ -806,6 +806,8 @@
                         <ComboBox x:Name="ExportCodecSelector" Header="Codec" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="ExportResolution_SelectionChanged">
                             <ComboBoxItem Content="H.264 · plays everywhere" Tag="H264" />
                             <ComboBoxItem Content="HEVC (H.265) · smaller files" Tag="Hevc" />
+                            <ComboBoxItem x:Name="WmvExportOption" Content="WMV · optional FFmpeg software" Tag="Wmv" IsEnabled="False" />
+                            <ComboBoxItem x:Name="Av1ExportOption" Content="AV1 · optional FFmpeg" Tag="Av1" IsEnabled="False" />
                         </ComboBox>
                         <ComboBox x:Name="VideoBackendSelector" Header="Video encoder backend" SelectedIndex="0"
                                   HorizontalAlignment="Stretch" SelectionChanged="FFmpegVideoOptions_Changed">
@@ -819,6 +821,7 @@
                                   HorizontalAlignment="Stretch" SelectionChanged="FFmpegVideoOptions_Changed">
                             <ComboBoxItem Content="MP4 · AAC" />
                             <ComboBoxItem x:Name="MatroskaExportOption" Content="Matroska · selectable audio codec" IsEnabled="False" />
+                            <ComboBoxItem x:Name="AsfExportOption" Content="WMV / ASF · WMA audio" IsEnabled="False" />
                         </ComboBox>
                         <ComboBox x:Name="VideoAudioCodecSelector" Header="Embedded audio codec" SelectedIndex="0"
                                   HorizontalAlignment="Stretch" SelectionChanged="FFmpegVideoOptions_Changed">
@@ -826,6 +829,7 @@
                             <ComboBoxItem x:Name="VideoPcmOption" Content="PCM · lossless" IsEnabled="False" />
                             <ComboBoxItem x:Name="VideoFlacOption" Content="FLAC · lossless, up to 8 channels" IsEnabled="False" />
                             <ComboBoxItem x:Name="VideoOpusOption" Content="Opus · mono/stereo" IsEnabled="False" />
+                            <ComboBoxItem x:Name="VideoWmaOption" Content="WMA · lossy" IsEnabled="False" />
                         </ComboBox>
                         <ComboBox x:Name="VideoAudioDepthSelector" Header="PCM / FLAC bit depth" SelectedIndex="1"
                                   HorizontalAlignment="Stretch" IsEnabled="False">
@@ -835,7 +839,7 @@
                         <ToggleSwitch x:Name="ExportHardwareToggle" Header="Windows hardware transforms (preference only)" OnContent="Prefer hardware transforms" OffContent="Disable hardware transforms" IsOn="True" />
                         <Button x:Name="CheckVideoEncodersButton" Content="Check video encoder profiles" Click="CheckVideoEncoders_Click" />
                         <Button x:Name="MeasureVideoPerformanceButton" Content="Measure selected profile (2 seconds)" Click="MeasureVideoPerformance_Click" />
-                        <TextBlock x:Name="VideoEncoderCapabilitiesText" Text="Probe H.264/HEVC software encode support across common resolutions and frame rates. Hardware encoder use is not confirmed by Media Foundation's preference flag." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="VideoEncoderCapabilitiesText" Text="Windows probes H.264/HEVC software profiles. FFmpeg probes the selected codec, encoder and profile, including WMV/AV1. Hardware encoder use is not confirmed by Media Foundation's preference flag." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Slider x:Name="ExportQualitySlider" Header="Video quality / file size" Minimum="0" Maximum="100" Value="50"
                                 StepFrequency="1" ValueChanged="ExportSettings_Changed" AutomationProperties.Name="Video quality and file size" />
                         <Grid>
@@ -852,12 +856,12 @@
                             <ComboBoxItem Content="352.8 kHz" Tag="352800" IsEnabled="False" />
                             <ComboBoxItem Content="384 kHz" Tag="384000" IsEnabled="False" />
                         </ComboBox>
-                        <ComboBox x:Name="VideoAudioBitRateSelector" Header="MP4 AAC bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
+                        <ComboBox x:Name="VideoAudioBitRateSelector" Header="Embedded lossy audio bit rate" SelectedIndex="2" HorizontalAlignment="Stretch">
                             <ComboBoxItem Content="128 kbps" Tag="128000" />
                             <ComboBoxItem Content="160 kbps" Tag="160000" />
                             <ComboBoxItem Content="192 kbps" Tag="192000" />
                         </ComboBox>
-                        <TextBlock Text="MP4 uses AAC. Optional FFmpeg adds Matroska with PCM/FLAC or Opus and explicit GPU encoders. Unsupported codecs, devices and profiles fail without fallback. FFmpeg video jobs checkpoint completed five-second segments for retry; Windows exports restart from the beginning." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="MP4 uses AAC. Optional FFmpeg adds WMV/ASF with WMA, AV1 in MP4/Matroska, and Matroska with PCM/FLAC or Opus. WMV uses CPU software; AV1 software requires libaom-av1. Explicit GPU encoders fail without fallback when unsupported. FFmpeg video checkpoints five-second segments; Windows exports restart." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -877,15 +881,17 @@
                         <TextBlock Text="Exports run in separate processes and continue when the editor closes or crashes. Reopening InkMotion reconnects to active jobs. Failed/interrupted jobs receive one automatic retry. FFmpeg video reuses completed five-second segments; Windows and audio-only exports restart. Keep linked files unchanged. Retained checkpoints use local disk space until a successful retry." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="OPTIONAL FFMPEG" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <CheckBox x:Name="FFmpegImportToggle" Content="Use FFmpeg compatibility imports for WMA, WMV and AV1"
+                                  ToolTipService.ToolTip="Check FFmpeg first. Creates retained WAV/H.264 editing copies in LocalAppData\InkMotion\ImportedMedia; originals are unchanged. AV1 detection also requires sibling ffprobe.exe." />
                         <TextBox x:Name="FFmpegPathBox" Header="Local FFmpeg executable (not bundled)"
                                  PlaceholderText="C:\Tools\ffmpeg\bin\ffmpeg.exe" TextWrapping="Wrap" />
                         <Button x:Name="ChooseFFmpegButton" Content="Choose FFmpeg executable…" Click="ChooseFFmpeg_Click" />
                         <Button x:Name="CheckFFmpegButton" Content="Check FFmpeg capabilities" Click="CheckFFmpeg_Click" />
-                        <TextBlock x:Name="FFmpegCapabilitiesText" Text="Optional: select a trusted, locally installed FFmpeg build to enable FLAC and Opus. No download or installation is performed. Existing Windows exports do not need FFmpeg."
+                        <TextBlock x:Name="FFmpegCapabilitiesText" Text="Optional: select a trusted local FFmpeg build for FLAC, Opus, WMA, WMV and AV1. Compatibility imports create retained WAV/H.264 editing copies; originals stay unchanged. AV1 detection needs sibling ffprobe.exe. No download or installation is performed."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
-                        <TextBlock Text="WAV preserves the project channel layout. FLAC preserves up to 8 channels; MP3, AAC and Opus use mono/stereo. FLAC/Opus require optional local FFmpeg." Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="WAV preserves the project channel layout. FLAC preserves up to 8 channels; MP3, AAC, Opus and WMA use mono/stereo. FLAC/Opus/WMA require optional local FFmpeg." Style="{StaticResource HintTextStyle}" />
                         <UserControl x:Name="AudioExportOptions">
                             <StackPanel Spacing="10">
                                 <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
@@ -895,6 +901,7 @@
                                     <ComboBoxItem Content="AAC · M4A · Windows encoder required" />
                                     <ComboBoxItem x:Name="FlacExportOption" Content="FLAC · optional FFmpeg required" IsEnabled="False" />
                                     <ComboBoxItem x:Name="OpusExportOption" Content="Opus · Ogg · optional FFmpeg required" IsEnabled="False" />
+                                    <ComboBoxItem x:Name="WmaExportOption" Content="WMA · ASF · optional FFmpeg required" IsEnabled="False" />
                                 </ComboBox>
                                 <ComboBox x:Name="AudioExportRateSelector" Header="Sample rate (Hz)" HorizontalAlignment="Stretch" />
                                 <ComboBox x:Name="AudioExportDepthSelector" Header="PCM bit depth" SelectedIndex="1" HorizontalAlignment="Stretch">
@@ -913,7 +920,7 @@
                         </UserControl>
                         <Button x:Name="ExportAudioButton" Content="Export audio mix…" Click="ExportAudio_Click" />
                         <Button x:Name="CheckAudioEncodersButton" Content="Check installed audio encoders" Click="CheckAudioEncoders_Click" />
-                        <TextBlock x:Name="AudioEncoderCapabilitiesText" Text="Windows MP3/AAC format availability varies by PC. FLAC supports 16/24-bit and up to 8 channels; Opus uses 48 kHz mono/stereo. Check optional FFmpeg capabilities to enable these formats. Unsupported combinations report an error rather than substituting settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock x:Name="AudioEncoderCapabilitiesText" Text="Windows MP3/AAC availability varies by PC. FLAC supports 16/24-bit and up to 8 channels; Opus uses 48 kHz mono/stereo; WMA uses 44.1/48 kHz mono/stereo. Check optional FFmpeg capabilities to enable these formats. Unsupported combinations report an error." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="Both backends share Win2D composition of all visible tracks and ink. Windows hardware transforms are only a preference; actual hardware use is unverified. Optional FFmpeg explicitly selects CPU, NVIDIA, Intel or AMD encoding, reports the encoder and never substitutes software for a requested GPU. AAC downmixes that lose channels include a full-layout WAV companion." TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextMutedBrush}" />
                     </StackPanel>

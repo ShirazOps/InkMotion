@@ -37,9 +37,25 @@ public sealed partial class MainWindow
     {
         if (VideoAudioRateSelector is null || VideoAudioBitRateSelector is null ||
             VideoAudioDepthSelector is null || ExportHardwareToggle is null ||
-            MatroskaExportOption is null || VideoPcmOption is null || VideoFlacOption is null || VideoOpusOption is null)
+            MatroskaExportOption is null || VideoPcmOption is null || VideoFlacOption is null || VideoOpusOption is null ||
+            WmvExportOption is null || Av1ExportOption is null || AsfExportOption is null || VideoWmaOption is null)
             return;
         bool ffmpeg = VideoBackendSelector.SelectedIndex > 0;
+        WmvExportOption.IsEnabled = VideoBackendSelector.SelectedIndex == 1;
+        Av1ExportOption.IsEnabled = ffmpeg;
+        if ((!ffmpeg && GetSelectedExportCodec() is VideoExportCodec.Wmv or VideoExportCodec.Av1) ||
+            (!WmvExportOption.IsEnabled && GetSelectedExportCodec() == VideoExportCodec.Wmv))
+            ExportCodecSelector.SelectedIndex = 0;
+        bool wmv = ffmpeg && GetSelectedExportCodec() == VideoExportCodec.Wmv;
+        AsfExportOption.IsEnabled = wmv;
+        VideoWmaOption.IsEnabled = wmv;
+        if (wmv)
+        {
+            VideoContainerSelector.SelectedIndex = 2;
+            VideoAudioCodecSelector.SelectedIndex = 4;
+        }
+        else if (VideoContainerSelector.SelectedIndex == 2)
+            VideoContainerSelector.SelectedIndex = 0;
         MatroskaExportOption.IsEnabled = ffmpeg;
         ExportHardwareToggle.IsEnabled = !ffmpeg;
         if (!ffmpeg) VideoContainerSelector.SelectedIndex = 0;
@@ -47,7 +63,8 @@ public sealed partial class MainWindow
         VideoPcmOption.IsEnabled = matroska;
         VideoFlacOption.IsEnabled = matroska && _ffmpegCapabilities?.Flac == true;
         VideoOpusOption.IsEnabled = matroska && _ffmpegCapabilities?.Opus == true;
-        if (!matroska) VideoAudioCodecSelector.SelectedIndex = 0;
+        if (!matroska && !wmv) VideoAudioCodecSelector.SelectedIndex = 0;
+        if (matroska && VideoAudioCodecSelector.SelectedIndex == 4) VideoAudioCodecSelector.SelectedIndex = 0;
         int codec = VideoAudioCodecSelector.SelectedIndex;
         bool lossless = codec is 1 or 2;
         VideoAudioDepthSelector.IsEnabled = lossless;
@@ -92,6 +109,7 @@ public sealed partial class MainWindow
         ChooseFFmpegButton.IsEnabled = false;
         FlacExportOption.IsEnabled = false;
         OpusExportOption.IsEnabled = false;
+        WmaExportOption.IsEnabled = false;
         _ffmpegCapabilities = null;
         UpdateFFmpegVideoOptions();
         FFmpegCapabilitiesText.Text = "Checking the selected local FFmpeg executable...";
@@ -102,10 +120,12 @@ public sealed partial class MainWindow
             _ffmpegCapabilities = await Task.Run(() => FFmpegAudioEncoder.Discover(path, timeout.Token));
             FlacExportOption.IsEnabled = _ffmpegCapabilities.Flac;
             OpusExportOption.IsEnabled = _ffmpegCapabilities.Opus;
+            WmaExportOption.IsEnabled = _ffmpegCapabilities.Wma;
             UpdateFFmpegVideoOptions();
             FFmpegCapabilitiesText.Text = $"{_ffmpegCapabilities.Version}\n" +
                 $"FLAC: {(_ffmpegCapabilities.Flac ? "available" : "unavailable")} | " +
                 $"Opus (libopus): {(_ffmpegCapabilities.Opus ? "available" : "unavailable")}\n" +
+                $"WMA (wmav2): {(_ffmpegCapabilities.Wma ? "available" : "unavailable")}\n" +
                 "Build availability is not an encode guarantee. Each export checks the encoder and fails explicitly if the selected format is unsupported. Licensing depends on your FFmpeg build; InkMotion does not redistribute it.";
             try
             {
@@ -330,7 +350,7 @@ public sealed partial class MainWindow
             !string.Equals(settings.FFmpegPath, _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase)))
         {
             ExportStatusText.Visibility = Visibility.Visible;
-            ExportStatusText.Text = "Check the selected FFmpeg executable's capabilities before exporting FLAC or Opus.";
+            ExportStatusText.Text = "Check the selected FFmpeg executable's capabilities before exporting FLAC, Opus or WMA.";
             return;
         }
         var picker = new FileSavePicker

@@ -55,6 +55,8 @@ public static class VideoExporter
         {
             return FFmpegVideoExporter.Export(request, progress, cancellationToken);
         }
+        if (request.Codec is not (VideoExportCodec.H264 or VideoExportCodec.Hevc))
+            throw new NotSupportedException("AV1 and WMV export require the optional FFmpeg backend.");
         EditorProject project = request.Project;
         ExportPlanning.ValidateEmbeddedAudio(request.AudioSampleRate, request.AudioBitRate);
         ExportPlanning.ValidateOutputPath(project, request.OutputPath);
