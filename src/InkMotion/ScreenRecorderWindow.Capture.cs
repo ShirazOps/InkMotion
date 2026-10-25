@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.UI.Windowing;
 
 namespace InkMotion;
 
@@ -8,6 +9,8 @@ public sealed partial class ScreenRecorderWindow
     private string? _captureError;
     private Task<ScreenRecordingInputsResult>? _stoppingInputs;
     private string? _completedProjectPath;
+    private TimeSpan _captureLimit;
+    private bool _timedStop;
 
     private sealed record DeviceChoice(string Label, object? Device = null)
     {
@@ -48,8 +51,19 @@ public sealed partial class ScreenRecorderWindow
     private async Task StartAsync()
     {
         if (_busy) return;
+        bool openWhenSaved = _openWhenSaved.IsChecked == true;
+        _completedProjectPath = null;
         try
         {
+            if (_countdown.SelectedItem is not int countdown ||
+                !double.IsFinite(_stopAfter.Value) || _stopAfter.Value < 0 || _stopAfter.Value > 1440 ||
+                (_stopAfter.Value > 0 && _stopAfter.Value < 1d / 60))
+                throw new ArgumentException("Choose a countdown and a recording limit from one second to 1,440 minutes, or 0 for manual stopping.");
+            bool minimize = _minimize.IsChecked == true;
+            if (minimize && AppWindow.Presenter is not OverlappedPresenter)
+                throw new InvalidOperationException("This recorder window cannot be minimised. Turn off automatic minimising and try again.");
+            _captureLimit = TimeSpan.FromMinutes(_stopAfter.Value);
+            _timedStop = false;
             ScreenRegion[] connected = DesktopRecordingFrames.Displays().Select(display => display.Bounds).ToArray();
             ScreenCapturePlan plan = ScreenCapturePlan.Create(_regions.ToArray(), connected,
                 (int)_resolution.SelectedItem, (int)_fps.SelectedItem);
@@ -60,11 +74,11 @@ public sealed partial class ScreenRecorderWindow
             CloseAreaOutlines();
             _busy = true;
             _captureError = null;
-            _completedProjectPath = null;
             _stoppingInputs = null;
             _start.IsEnabled = false;
             _configurationHost.IsEnabled = false;
             _stop.IsEnabled = true;
+            _stop.Content = "Cancel countdown";
             _stopCapture = new CancellationTokenSource();
             _directory = ScreenRecordingStore.CreateDirectory();
             _manifest = new() { Plan = plan, WebcamPictureInPicture = _pip.IsChecked == true };
@@ -72,7 +86,8 @@ public sealed partial class ScreenRecorderWindow
             _run = RunCaptureAsync(plan, _cursor.IsChecked == true,
                 (_system.SelectedItem as DeviceChoice)?.Device as ScreenRecordingAudioDevice,
                 (_microphone.SelectedItem as DeviceChoice)?.Device as ScreenRecordingAudioDevice,
-                (_camera.SelectedItem as DeviceChoice)?.Device as ScreenRecordingCameraDevice, _stopCapture.Token);
+                (_camera.SelectedItem as DeviceChoice)?.Device as ScreenRecordingCameraDevice,
+                countdown, minimize, _stopCapture.Token);
             await _run;
         }
         catch (Exception ex) when (IsCaptureException(ex))
@@ -85,10 +100,11 @@ public sealed partial class ScreenRecorderWindow
             _start.IsEnabled = _connectedDisplays.Count > 0;
             _configurationHost.IsEnabled = true;
             _stop.IsEnabled = false;
+            _stop.Content = "Stop and save";
             _stopCapture?.Dispose();
             _stopCapture = null;
         }
-        if (_completedProjectPath is not null && !_closingRequested)
+        if (_completedProjectPath is not null && !_closingRequested && openWhenSaved)
         {
             try { await _open(_completedProjectPath); }
             catch (Exception ex) when (IsCaptureException(ex)) { _status.Text += $"\nProject saved but could not open: {ex.Message}"; }
@@ -96,7 +112,8 @@ public sealed partial class ScreenRecorderWindow
     }
 
     private async Task RunCaptureAsync(ScreenCapturePlan plan, bool cursor, ScreenRecordingAudioDevice? system,
-        ScreenRecordingAudioDevice? microphone, ScreenRecordingCameraDevice? camera, CancellationToken stop)
+        ScreenRecordingAudioDevice? microphone, ScreenRecordingCameraDevice? camera,
+        int countdown, bool minimize, CancellationToken stop)
     {
         string directory = _directory!;
         ScreenRecordingManifest manifest = _manifest!;
@@ -106,12 +123,16 @@ public sealed partial class ScreenRecorderWindow
         try
         {
             if (camera is not null) await _inputs.InitializeCameraAsync(camera.Id, stop);
-            for (int second = 3; second > 0; second--)
+            for (int second = countdown; second > 0; second--)
             {
                 _status.Text = $"Recording {plan.Width} × {plan.Height} at {plan.FrameRate} fps starts in {second}…";
                 await Task.Delay(1000, stop);
             }
+            stop.ThrowIfCancellationRequested();
+            if (minimize) ((OverlappedPresenter)AppWindow.Presenter).Minimize();
+            _stop.Content = "Stop and save";
             _clock.Start();
+            if (_captureLimit > TimeSpan.Zero) _stopCapture!.CancelAfter(_captureLimit);
             if (system is not null) { await _inputs.StartAudioAsync(system, stop); Checkpoint(); }
             if (microphone is not null) { await _inputs.StartAudioAsync(microphone, stop); Checkpoint(); }
             if (camera is not null) { await _inputs.StartCameraAsync(stop); Checkpoint(); }
@@ -122,7 +143,10 @@ public sealed partial class ScreenRecorderWindow
             await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, _clock,
                 () => new DesktopRecordingFrames(plan, cursor), Checkpoint, stop));
         }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            _timedStop = _captureLimit > TimeSpan.Zero && _clock.Elapsed >= _captureLimit;
+        }
         catch (Exception ex) when (IsCaptureException(ex) || ex is ScreenRecordingInputException)
         {
             _captureError = DescribeError(ex);
@@ -130,6 +154,9 @@ public sealed partial class ScreenRecorderWindow
         }
         finally
         {
+            _timedStop |= stop.IsCancellationRequested && _clock.IsRunning &&
+                _captureLimit > TimeSpan.Zero && _clock.Elapsed >= _captureLimit;
+            _clock.Stop();
             _timer.Stop();
             _stop.IsEnabled = false;
             _status.Text = "Finalising recording sources and recovery project…";
@@ -168,7 +195,9 @@ public sealed partial class ScreenRecorderWindow
             }
             _inputs = null;
             _status.Text = (_captureError is not null ? $"Recording interrupted: {_captureError}" :
-                projectPath is not null ? "Recording saved." : "No completed screen video was captured.") +
+                projectPath is not null ? (_timedStop ? "Recording limit reached. Recording saved." : "Recording saved.") :
+                !_clock.IsRunning && _clock.Elapsed == TimeSpan.Zero ? "Countdown cancelled. Nothing was recorded." :
+                "No completed screen video was captured.") +
                 $"\nSources retained at {directory}. Repeated slow frames: {manifest.DroppedFrames}.";
             try { RefreshLibrary(); }
             catch (Exception ex) when (IsCaptureException(ex)) { _status.Text += $"\nCould not refresh storage: {ex.Message}"; }
@@ -229,7 +258,9 @@ public sealed partial class ScreenRecorderWindow
                 throw new IOException("Recording stopped because less than 512 MiB of storage remains.");
             Checkpoint();
             _status.Text = $"RECORDING · {_clock.Elapsed:hh\\:mm\\:ss} · {ScreenRecordingStore.StorageBytes(_directory) / 1048576d:0.0} MiB" +
-                $" · {_manifest.DroppedFrames} slow frames repeated\n{_directory}";
+                $" · {_manifest.DroppedFrames} slow frames repeated" +
+                (_captureLimit > TimeSpan.Zero ? $" · stops in {TimeSpan.FromTicks(Math.Max(0, (_captureLimit - _clock.Elapsed).Ticks)):hh\\:mm\\:ss}" : "") +
+                $"\n{_directory}";
         }
         catch (Exception ex) when (IsCaptureException(ex) || ex is ScreenRecordingInputException)
         {

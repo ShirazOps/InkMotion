@@ -30,6 +30,11 @@ public sealed partial class ScreenRecorderWindow : Window
     private readonly ComboBox _camera = new() { Header = "Webcam", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly CheckBox _cursor = new() { Content = "Include mouse pointer", IsChecked = true };
     private readonly CheckBox _pip = new() { Content = "Place the separate webcam track as picture-in-picture when opened", IsChecked = true };
+    private readonly ComboBox _countdown = new() { Header = "Countdown (seconds)", ItemsSource = new[] { 0, 3, 5, 10 }, SelectedIndex = 1 };
+    private readonly NumberBox _stopAfter = new() { Header = "Stop after (minutes; 0 = manual)", Value = 0, Minimum = 0,
+        Maximum = 1440, SmallChange = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+    private readonly CheckBox _minimize = new() { Content = "Minimise this recorder when capture starts" };
+    private readonly CheckBox _openWhenSaved = new() { Content = "Open the saved recording in the editor", IsChecked = true };
     private readonly Button _start = new() { Content = "Start recording", IsEnabled = false };
     private readonly Button _stop = new() { Content = "Stop and save", IsEnabled = false };
     private readonly ComboBox _library = new() { Header = "Saved / interrupted recordings", HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -129,7 +134,11 @@ public sealed partial class ScreenRecorderWindow : Window
         _configuration.Children.Add(_pip);
         _configuration.Children.Add(Hint("None means off. System audio captures everything played on the selected output. Microphone and camera require Windows privacy access. Use headphones to avoid echo. Audio sources and webcam remain separate editable tracks."));
         _configuration.Children.Add(Button("Refresh displays and devices", async () => await LoadDevicesAsync()));
-        _configuration.Children.Add(Hint("Recording starts after a 3-second countdown. InkMotion is not excluded from screen capture: move or minimise it yourself. Use Stop and save here, or File > Screen recorder to return. This records the interactive desktop only; protected content, secure/UAC desktops, lock screens, HDR fidelity and exclusive fullscreen capture are not guaranteed. 15–30 fps is best-effort; slow frames are repeated to preserve timing. Display changes stop recording."));
+        _configuration.Children.Add(Heading("Recording workflow"));
+        _configuration.Children.Add(Row(_countdown, _stopAfter));
+        _configuration.Children.Add(_minimize);
+        _configuration.Children.Add(_openWhenSaved);
+        _configuration.Children.Add(Hint("Cancel countdown stops before capture begins. A timed stop starts when capture starts, excluding the countdown, and saves normally. Turn off automatic opening to keep the take in the library and record another. Minimising affects only this recorder, not the editor or other windows. InkMotion is not excluded from capture: arrange the editor yourself. Use Stop and save here, or File > Screen recorder to return. This records the interactive desktop only; protected content, secure/UAC desktops, lock screens, HDR fidelity and exclusive fullscreen capture are not guaranteed. 15–30 fps is best-effort; slow frames repeat to preserve timing. Display changes stop recording."));
         body.Children.Add(Heading("Durable recording library"));
         body.Children.Add(_storage);
         body.Children.Add(_library);

@@ -70,9 +70,13 @@ Use **File > Screen recorder** to record one or more displays, or add regions us
 
 15 fps capture opens on a 30 fps editing timeline without changing its duration; 24/30 fps captures use matching project rates.
 
-System output audio, microphone and webcam are explicitly selected and off by default. Each becomes a separate editable source; the webcam can appear picture-in-picture in the resulting project. Use headphones to avoid microphone echo. Windows camera/microphone privacy settings still apply. A countdown precedes capture; move or minimise InkMotion yourself if it should not appear.
+System output audio, microphone and webcam are explicitly selected and off by default. Each becomes a separate editable source; the webcam can appear picture-in-picture in the resulting project. Use headphones to avoid microphone echo. Windows camera/microphone privacy settings still apply.
 
-**Stop and save** creates a durable `.inkmotion` project before opening it. Screen segments, separate audio/webcam files and recovery metadata remain under `%LOCALAPPDATA%\InkMotion\ScreenRecordings`. The recorder's library shows storage use and opens saved/interrupted takes; removal requires explicit confirmation and is blocked while the editor uses those sources. No automatic cleanup removes recordings.
+Under **Recording workflow**, choose a **0, 3, 5 or 10 second countdown**. **Cancel countdown** cancels before capture starts. **Stop after** sets a timed recording limit in minutes (fractions allowed down to one second, maximum 1,440 minutes); **0** keeps manual stopping. The limit excludes the countdown and starts with capture, including optional-device startup. Timed stops finalise and save like manual stops, with remaining time shown during recording.
+
+**Minimise this recorder when capture starts** gets the recorder out of the way after the countdown; it does not minimise the main editor or exclude any InkMotion windows from capture. Arrange the editor yourself if it should not appear. Return through the taskbar or **File > Screen recorder** to stop manually. Turn off **Open the saved recording in the editor** to keep completed takes in the library without replacing the editor's current project, ready to record another take.
+
+**Stop and save** creates a durable `.inkmotion` project before optionally opening it. Screen segments, separate audio/webcam files and recovery metadata remain under `%LOCALAPPDATA%\InkMotion\ScreenRecordings`. The recorder's library shows storage use and opens saved/interrupted takes; removal requires explicit confirmation and is blocked while the editor uses those sources. No automatic cleanup removes recordings.
 
 Capture is best-effort desktop SDR capture, not protected-content, secure-desktop or exclusive-fullscreen capture. Slow frames repeat to preserve elapsed time; disconnected/rearranged displays stop the take. Five-second screen checkpoints survive crashes, but the unfinished MP4/device files may need external recovery. Review sync on your devices; separate tracks allow timing correction. Do not change device formats or displays mid-take.
 
@@ -84,7 +88,7 @@ Media is processed locally, without application analytics or automatic uploads. 
 
 Windows codecs and hardware determine playback and encoding availability; HEVC needs the HEVC Video Extensions. Encoder probes are local checks, not device certification. Reverse video preview mutes embedded audio; export can reverse it or leave it muted.
 
-Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include system-audio loopback or live input monitoring. FFmpeg video retries reuse completed five-second segments when linked media/settings are unchanged; the current segment and audio/mux stages restart. Windows and audio-only exports restart from the beginning. Failed/cancelled FFmpeg video jobs retain checkpoints locally until a successful retry.
+Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include live input monitoring. FFmpeg video retries reuse completed five-second segments when linked media/settings are unchanged; the current segment and audio/mux stages restart. Windows and audio-only exports restart from the beginning. Failed/cancelled FFmpeg video jobs retain checkpoints locally until a successful retry.
 
 Project files automatically migrate older formats. Export snapshots, linked paths, recordings and proxies are stored locally; keep source files unchanged while jobs run.
 
