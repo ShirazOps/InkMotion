@@ -188,13 +188,18 @@ public sealed class ScreenRecordingTests
             {
                 Plan = ScreenCapturePlan.Create([new(0, 0, 64, 64)], [new(0, 0, 64, 64)], 1920, 15),
             };
-            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(1.4));
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             var clock = Stopwatch.StartNew();
+            int captured = 0;
             await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, clock,
-                () => new SyntheticFrames(), () => ScreenRecordingStore.Save(directory, manifest), stop.Token));
+                () => new SyntheticFrames(() => { if (++captured == 8) stop.Cancel(); }),
+                () => ScreenRecordingStore.Save(directory, manifest), stop.Token));
+            clock.Stop();
+            Assert.Equal(8, captured);
             ScreenRecordingManifest restored = ScreenRecordingStore.Read(directory);
             ScreenRecordingMedia media = Assert.Single(restored.Media, media => media.Finalised);
-            Assert.InRange(media.DurationSeconds + media.OffsetSeconds, 1, 1.7);
+            Assert.InRange(media.DurationSeconds + media.OffsetSeconds, 0.8, clock.Elapsed.TotalSeconds + 0.2);
+            Assert.InRange(clock.Elapsed.TotalSeconds - media.DurationSeconds - media.OffsetSeconds, -0.2, 1);
             using var reader = new MediaFoundationVideoReader(Path.Combine(directory, media.FileName));
             Assert.True(reader.TryGetFrame(0));
             Assert.Equal(64, reader.Width);
@@ -204,11 +209,12 @@ public sealed class ScreenRecordingTests
         finally { Directory.Delete(directory, true); }
     }
 
-    private sealed class SyntheticFrames : IScreenRecordingFrames
+    private sealed class SyntheticFrames(Action? captured = null) : IScreenRecordingFrames
     {
         public byte[] Capture()
         {
             Thread.Sleep(100);
+            captured?.Invoke();
             var pixels = new byte[64 * 64 * 4];
             for (int i = 0; i < pixels.Length; i += 4) { pixels[i + 2] = 255; pixels[i + 3] = 255; }
             return pixels;
