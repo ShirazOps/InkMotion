@@ -22,6 +22,10 @@ The opt-in `ConfiguredHardware_RoundTripsCompositedVideoAt1080And4K60` regressio
 
 These are local short-duration synthetic checks, not representative-content thermal/long-session certification, end-to-end realtime export guarantees, AMD coverage, other drivers, every frame rate, or validation of Media Foundation's hardware-preference reporting. The broader hardware certification task stays open.
 
+### Controlled desktop capture sample (25 October 2026)
+
+An explicitly opted-in test recorded only a generated opaque red 320x240 test window, with pointer/audio/microphone/webcam capture off. Rectangle and closed triangular freeform captures passed on x64 and x86: three-second capture timing, cropped dimensions, red selected pixels, black excluded pixels, playable MP4 and editable project recovery. The test uses physical-pixel DPI context and rejects overlapping windows or unexpected colours before encoding. `INKMOTION_TEST_CONTROLLED_SCREEN=1` enables this desktop-interacting regression; it is skipped by default. Temporary recordings are removed. This does not certify mixed-DPI multi-monitor layouts, live audio/webcam synchronisation, device removal, long sessions or physical pen input.
+
 1. **Workspace shell and Video Editor**
    - Replace the crowded single-screen layout with clear workspace navigation and shared project, playback, undo/redo, and status controls.
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
