@@ -34,6 +34,7 @@ public sealed partial class ScreenRecorderWindow : Window
     private readonly NumberBox _stopAfter = new() { Header = "Stop after (minutes; 0 = manual)", Value = 0, Minimum = 0,
         Maximum = 1440, SmallChange = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
     private readonly CheckBox _minimize = new() { Content = "Minimise this recorder when capture starts" };
+    private readonly CheckBox _stopShortcut = new() { Content = "Ctrl+Shift+F10 stops and saves from any application" };
     private readonly CheckBox _openWhenSaved = new() { Content = "Open the saved recording in the editor", IsChecked = true };
     private readonly Button _start = new() { Content = "Start recording", IsEnabled = false };
     private readonly Button _stop = new() { Content = "Stop and save", IsEnabled = false };
@@ -137,6 +138,8 @@ public sealed partial class ScreenRecorderWindow : Window
         _configuration.Children.Add(Heading("Recording workflow"));
         _configuration.Children.Add(Row(_countdown, _stopAfter));
         _configuration.Children.Add(_minimize);
+        _configuration.Children.Add(_stopShortcut);
+        _configuration.Children.Add(Hint("The optional stop shortcut works while minimised and cancels an active countdown. It is reserved only for this take and released when saving starts. If another application owns it, recording will not start; turn the shortcut off or free the key combination."));
         _configuration.Children.Add(_openWhenSaved);
         _configuration.Children.Add(Hint("Cancel countdown stops before capture begins. A timed stop starts when capture starts, excluding the countdown, and saves normally. Turn off automatic opening to keep the take in the library and record another. Minimising affects only this recorder, not the editor or other windows. InkMotion is not excluded from capture: arrange the editor yourself. Use Stop and save here, or File > Screen recorder to return. This records the interactive desktop only; protected content, secure/UAC desktops, lock screens, HDR fidelity and exclusive fullscreen capture are not guaranteed. 15–30 fps is best-effort; slow frames repeat to preserve timing. Display changes stop recording."));
         body.Children.Add(Heading("Durable recording library"));
@@ -362,6 +365,7 @@ public sealed partial class ScreenRecorderWindow : Window
 
     private void RequestStop()
     {
+        UnregisterStopShortcut();
         _stopCapture?.Cancel();
         _clock.Stop();
         if (_timer.IsRunning && _inputs is not null) _stoppingInputs ??= _inputs.StopAsync();

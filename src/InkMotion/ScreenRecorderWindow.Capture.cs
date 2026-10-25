@@ -71,6 +71,9 @@ public sealed partial class ScreenRecorderWindow
             var drive = new DriveInfo(Path.GetPathRoot(ScreenRecordingStore.Root)!);
             if (drive.AvailableFreeSpace < 1024L * 1024 * 1024)
                 throw new IOException("At least 1 GiB of free recording storage is required.");
+            if (_shortcutRegistered)
+                throw new InvalidOperationException("The previous recording shortcut could not be released. Close and reopen the recorder before starting another take.");
+            if (_stopShortcut.IsChecked == true) RegisterStopShortcut();
             CloseAreaOutlines();
             _busy = true;
             _captureError = null;
@@ -96,6 +99,7 @@ public sealed partial class ScreenRecorderWindow
         }
         finally
         {
+            UnregisterStopShortcut();
             _busy = false;
             _start.IsEnabled = _connectedDisplays.Count > 0;
             _configurationHost.IsEnabled = true;
@@ -154,6 +158,7 @@ public sealed partial class ScreenRecorderWindow
         }
         finally
         {
+            UnregisterStopShortcut();
             _timedStop |= stop.IsCancellationRequested && _clock.IsRunning &&
                 _captureLimit > TimeSpan.Zero && _clock.Elapsed >= _captureLimit;
             _clock.Stop();
