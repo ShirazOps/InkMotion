@@ -74,6 +74,8 @@ public sealed partial class MainWindow
             timeline.Visibility = layout.ShowTimeline && selected ? Visibility.Visible : Visibility.Collapsed;
             Grid.SetColumnSpan(timeline, layout.ShowPreview || !layout.ShowOptions ? 3 : 1);
         }
+        LiveAudioSpectrumSurface.Visibility = _workspace == "Audio" ? Visibility.Visible : Visibility.Collapsed;
+        LiveAudioSpectrumSurface.Invalidate();
         LayoutOptionsMenu.IsChecked = layout.ShowOptions;
         LayoutTimelineMenu.IsChecked = layout.ShowTimeline;
         LayoutPreviewMenu.IsChecked = layout.ShowPreview;

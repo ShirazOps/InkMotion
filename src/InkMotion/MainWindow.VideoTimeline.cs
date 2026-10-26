@@ -1525,6 +1525,22 @@ public sealed partial class MainWindow
         }
 
         VideoTimelineCanvas.Invalidate();
+        InvalidateAudioPlayheads();
+        InkPlayheadSurface?.Invalidate();
+    }
+
+    private void InvalidateAudioPlayheads()
+    {
+        foreach (Button lane in AudioTracksPanel.Children.OfType<Button>())
+        {
+            if (lane.Content is Grid content)
+            {
+                foreach (CanvasControl waveform in content.Children.OfType<CanvasControl>())
+                {
+                    waveform.Invalidate();
+                }
+            }
+        }
     }
 
     private void VideoTimelineScroller_SizeChanged(object sender, SizeChangedEventArgs e)

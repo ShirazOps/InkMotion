@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Dispatching;
+using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.Graphics.Canvas.Text;
 using System.Diagnostics;
@@ -1169,8 +1170,14 @@ public sealed partial class MainWindow : Window
 
     private void AudioWaveform_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        if (sender.Tag is not AudioTrackRuntime { WaveformPeaks.Length: > 0 } track)
+        if (sender.Tag is not AudioTrackRuntime track)
         {
+            return;
+        }
+
+        if (track.WaveformPeaks.Length == 0)
+        {
+            DrawAudioPlayhead(sender, args.DrawingSession);
             return;
         }
 
@@ -1213,6 +1220,7 @@ public sealed partial class MainWindow : Window
         clipDuration = AudioClipEditing.GetTimelineDuration(track.Project, sourceDuration);
         if (clipDuration <= 0 || !double.IsFinite(clipDuration))
         {
+            DrawAudioPlayhead(sender, args.DrawingSession);
             return;
         }
 
@@ -1265,6 +1273,21 @@ public sealed partial class MainWindow : Window
                 args.DrawingSession.DrawLine(x0, 0, x0, (float)sender.ActualHeight, fadeColour);
                 args.DrawingSession.DrawLine(x1, 0, x1, (float)sender.ActualHeight, fadeColour);
             }
+        }
+
+        DrawAudioPlayhead(sender, args.DrawingSession);
+    }
+
+    private void DrawAudioPlayhead(CanvasControl sender, CanvasDrawingSession session)
+    {
+        double playheadSeconds = _playheadFramePosition / _frameRate;
+        double timelineDuration = GetPlaybackEndSeconds();
+        if (sender.ActualWidth > 0 && double.IsFinite(playheadSeconds) &&
+            double.IsFinite(timelineDuration) && timelineDuration > 0)
+        {
+            float playheadX = (float)(Math.Clamp(playheadSeconds / timelineDuration, 0, 1) * sender.ActualWidth);
+            session.DrawLine(playheadX, 0, playheadX, (float)sender.ActualHeight, ToColour(0xFFFF4D4F), 2);
+            session.FillRectangle(playheadX - 3, 0, 6, 5, ToColour(0xFFFF4D4F));
         }
     }
 
@@ -2527,6 +2550,7 @@ public sealed partial class MainWindow : Window
         if (Environment.TickCount64 - _lastAudioMeterTick >= 100)
         {
             UpdateAudioMeter();
+            UpdateLiveAudioSpectrum();
             _lastAudioMeterTick = Environment.TickCount64;
         }
 
@@ -2551,6 +2575,7 @@ public sealed partial class MainWindow : Window
             preservePlayhead: true);
         UpdateFrameReadout();
         CompositionSurface.Invalidate();
+        InkPlayheadSurface.Invalidate();
         InvalidateVideoTimeline();
     }
 
@@ -2590,6 +2615,9 @@ public sealed partial class MainWindow : Window
         _playbackTimer.Stop();
         _isPlaying = false;
         UpdateAudioMeter();
+        UpdateLiveAudioSpectrum(clear: true);
+        InkPlayheadSurface.Invalidate();
+        InvalidateVideoTimeline();
         SetPlayButtonState(isPlaying: false);
     }
 
@@ -2650,6 +2678,7 @@ public sealed partial class MainWindow : Window
         {
             UpdateTimelineButton(i);
         }
+        InkPlayheadSurface.Invalidate();
     }
 
     private void AddTimelineButton(EditorFrame frame, int index)
@@ -2664,6 +2693,39 @@ public sealed partial class MainWindow : Window
         _timelineButtons.Add(button);
         InkFramesPanel.Children.Add(button);
         UpdateTimelineButton(index);
+    }
+
+    private void InkPlayheadSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        if (sender.ActualWidth <= 0 || _timelineButtons.Count == 0)
+        {
+            return;
+        }
+
+        int framePosition = Math.Max(0, _playheadFramePosition);
+        int frameOffset = 0;
+        double x = 0;
+        for (int index = 0; index < _frames.Count && index < _timelineButtons.Count; index++)
+        {
+            Button button = _timelineButtons[index];
+            int exposure = Math.Max(1, _frames[index].ExposureFrames);
+            double width = button.ActualWidth > 0 ? button.ActualWidth : button.Width;
+            if (framePosition < frameOffset + exposure)
+            {
+                x += Math.Clamp((framePosition - frameOffset) / (double)exposure, 0, 1) * width;
+                break;
+            }
+
+            x += width + InkFramesPanel.Spacing;
+            frameOffset += exposure;
+        }
+
+        if (x >= 0 && x <= sender.ActualWidth)
+        {
+            var color = Windows.UI.Color.FromArgb(255, 255, 77, 79);
+            args.DrawingSession.DrawLine((float)x, 0, (float)x, (float)sender.ActualHeight, color, 2);
+            args.DrawingSession.FillRectangle((float)x - 3, 0, 6, 6, color);
+        }
     }
 
     private void UpdateTimelineButton(int index)

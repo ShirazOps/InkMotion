@@ -35,4 +35,38 @@ public sealed class AudioMeterTests
         Assert.Equal(double.NegativeInfinity, empty.PeakDecibels);
         Assert.Equal(double.NegativeInfinity, empty.RmsDecibels);
     }
+
+    [Fact]
+    public void Meter_CopiesRecentSamplesInChronologicalOrderAfterTheRingWraps()
+    {
+        const int frames = 4100;
+        float[] sourceSamples = new float[frames * 2];
+        for (int frame = 0; frame < frames; frame++)
+        {
+            sourceSamples[frame * 2] = frame + 1;
+            sourceSamples[(frame * 2) + 1] = -(frame + 1);
+        }
+
+        var meter = new AudioMeterSampleProvider(new SequenceSamples(sourceSamples));
+        Assert.Equal(sourceSamples.Length, meter.Read(new float[sourceSamples.Length], 0, sourceSamples.Length));
+
+        float[] recent = new float[6];
+        Assert.Equal(recent.Length, meter.CopyRecentSamples(recent));
+        Assert.Equal(new[] { 4098f, -4098f, 4099f, -4099f, 4100f, -4100f }, recent);
+    }
+
+    private sealed class SequenceSamples(float[] samples) : ISampleProvider
+    {
+        private int _position;
+
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = Math.Min(count, samples.Length - _position);
+            Array.Copy(samples, _position, buffer, offset, read);
+            _position += read;
+            return read;
+        }
+    }
 }

@@ -26,6 +26,24 @@ public sealed class AudioPreviewBusTests : IDisposable
     }
 
     [Fact]
+    public void BusExposesRecentPostMixSamplesForLiveAnalysis()
+    {
+        using var bus = new AudioPreviewBus();
+        using AudioPreviewInput first = bus.AddInput(new ConstantSamples(0.25f));
+        using AudioPreviewInput second = bus.AddInput(new ConstantSamples(0.5f));
+        first.SetEnabled(true);
+        second.SetEnabled(true);
+
+        float[] output = new float[8];
+        bus.Read(output, 0, output.Length);
+        float[] recent = new float[output.Length];
+
+        Assert.Equal(output.Length, bus.CopyRecentSamples(recent));
+        Assert.Equal(output, recent);
+        Assert.All(recent, sample => Assert.Equal(0.75f, sample, 5));
+    }
+
+    [Fact]
     public void BusMeasuresPhaseCancellationAndDisabledInputsAsSilence()
     {
         using var bus = new AudioPreviewBus();
