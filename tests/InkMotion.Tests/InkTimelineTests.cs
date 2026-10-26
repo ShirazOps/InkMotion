@@ -5,6 +5,38 @@ namespace InkMotion.Tests;
 public sealed class InkTimelineTests
 {
     [Fact]
+    public void PlayheadGeometry_MapsExposureFramesToCelWidthsAndBack()
+    {
+        List<EditorFrame> frames =
+        [
+            new() { ExposureFrames = 2 },
+            new() { ExposureFrames = 100 },
+            new() { ExposureFrames = 3 },
+        ];
+        Assert.Equal(58, InkTimeline.GetCelWidth(frames[0]));
+        Assert.Equal(220, InkTimeline.GetCelWidth(frames[1]));
+        Assert.Equal(29, InkTimeline.GetPlayheadX(frames, 1));
+        Assert.Equal(62, InkTimeline.GetPlayheadX(frames, 2));
+        Assert.Equal(172, InkTimeline.GetPlayheadX(frames, 52));
+        for (int position = 0; position < InkTimeline.GetTotalExposureFrames(frames); position++)
+        {
+            double x = InkTimeline.GetPlayheadX(frames, position);
+            Assert.Equal(position, InkTimeline.GetFramePositionAtX(frames, x));
+        }
+    }
+
+    [Fact]
+    public void PlayheadGeometry_ClampsOutsideAndSpacingWithoutAddingAnExtraCel()
+    {
+        List<EditorFrame> frames = [new() { ExposureFrames = 2 }, new() { ExposureFrames = 3 }];
+        Assert.Equal(0, InkTimeline.GetFramePositionAtX(frames, -10));
+        Assert.Equal(2, InkTimeline.GetFramePositionAtX(frames, 60));
+        Assert.Equal(4, InkTimeline.GetFramePositionAtX(frames, 1000));
+        Assert.Equal(124, InkTimeline.GetPlayheadX(frames, 5));
+        Assert.Equal(124, InkTimeline.GetPlayheadX(frames, 100));
+    }
+
+    [Fact]
     public void GetStartFramePosition_UsesCumulativeCelExposures()
     {
         List<EditorFrame> frames =

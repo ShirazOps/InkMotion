@@ -11,6 +11,7 @@ public sealed partial class MainWindow
     private CanvasControl? _audioRangeCanvas;
     private uint? _audioRangePointerId;
     private double _audioRangeDragStartX;
+    private bool _audioRangeDragged;
 
     private void AudioRange_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
     {
@@ -39,11 +40,13 @@ public sealed partial class MainWindow
             UpdateSelectedAudioTrack();
         }
 
+        PausePlayback();
+        FinishActiveEdit();
         _audioRangeCanvas = canvas;
         _audioRangePointerId = e.Pointer.PointerId;
         _audioRangeDragStartX = e.GetCurrentPoint(canvas).Position.X;
+        _audioRangeDragged = false;
         canvas.CapturePointer(e.Pointer);
-        UpdateAudioWaveformDragSelection(track, _audioRangeDragStartX);
         e.Handled = true;
     }
 
@@ -52,7 +55,12 @@ public sealed partial class MainWindow
         if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
             _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
         {
-            UpdateAudioWaveformDragSelection(track, e.GetCurrentPoint(canvas).Position.X);
+            double x = e.GetCurrentPoint(canvas).Position.X;
+            _audioRangeDragged |= Math.Abs(x - _audioRangeDragStartX) >= 3;
+            if (_audioRangeDragged)
+            {
+                UpdateAudioWaveformDragSelection(track, x);
+            }
             e.Handled = true;
         }
     }
@@ -62,7 +70,24 @@ public sealed partial class MainWindow
         if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
             _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
         {
-            UpdateAudioWaveformDragSelection(track, e.GetCurrentPoint(canvas).Position.X);
+            double x = e.GetCurrentPoint(canvas).Position.X;
+            if (_audioRangeDragged || Math.Abs(x - _audioRangeDragStartX) >= 3)
+            {
+                UpdateAudioWaveformDragSelection(track, x);
+            }
+            else
+            {
+                double duration = AudioClipEditing.GetTimelineDuration(track.Project, track.SourceDurationSeconds);
+                if (double.IsFinite(duration) && duration > 0)
+                {
+                    MoveTimelinePlayhead(AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) +
+                        Math.Clamp(x / canvas.ActualWidth, 0, 1) * duration);
+                }
+                else
+                {
+                    StatusText.Text = "Relink this audio source before seeking within the clip.";
+                }
+            }
             _audioRangePointerId = null;
             _audioRangeCanvas = null;
             canvas.ReleasePointerCapture(e.Pointer);

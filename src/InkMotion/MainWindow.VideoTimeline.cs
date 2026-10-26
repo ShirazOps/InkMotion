@@ -157,8 +157,9 @@ public sealed partial class MainWindow
     }
 
     private double GetPlaybackEndSeconds() => Math.Max(
-        VideoTimelineEditing.GetTimelineEndSeconds(_videoTracks, _frameRate),
-        GetAudioTimelineEnd()?.TotalSeconds ?? 0);
+        InkTimeline.GetTotalExposureFrames(_frames) / _frameRate,
+        Math.Max(VideoTimelineEditing.GetTimelineEndSeconds(_videoTracks, _frameRate),
+            GetAudioTimelineEnd()?.TotalSeconds ?? 0));
 
     private async void AddVideoClip_Click(object sender, RoutedEventArgs e)
     {
@@ -1514,33 +1515,8 @@ public sealed partial class MainWindow
             VideoTimelineCanvas.Height = height;
         }
 
-        if (_isPlaying && viewport > 0)
-        {
-            double playheadX = _playheadFramePosition / _frameRate * _timelinePixelsPerSecond;
-            double offset = VideoTimelineScroller.HorizontalOffset;
-            if (playheadX < offset || playheadX > offset + viewport - 24)
-            {
-                VideoTimelineScroller.ChangeView(Math.Max(0, playheadX - (viewport * 0.1)), null, null, true);
-            }
-        }
-
         VideoTimelineCanvas.Invalidate();
-        InvalidateAudioPlayheads();
-        InkPlayheadSurface?.Invalidate();
-    }
-
-    private void InvalidateAudioPlayheads()
-    {
-        foreach (Button lane in AudioTracksPanel.Children.OfType<Button>())
-        {
-            if (lane.Content is Grid content)
-            {
-                foreach (CanvasControl waveform in content.Children.OfType<CanvasControl>())
-                {
-                    waveform.Invalidate();
-                }
-            }
-        }
+        UpdateTrackPlayheads();
     }
 
     private void VideoTimelineScroller_SizeChanged(object sender, SizeChangedEventArgs e)

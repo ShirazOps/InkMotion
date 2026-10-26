@@ -146,6 +146,63 @@ public sealed record VideoExportProfile(ExportResolution Resolution, int Width, 
 
 public static class InkTimeline
 {
+    public const double CelSpacing = 4;
+
+    public static double GetCelWidth(EditorFrame frame) => Math.Min(220, 54 + ((frame.ExposureFrames - 1d) * 4));
+
+    public static double GetPlayheadX(IReadOnlyList<EditorFrame> frames, int framePosition)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentOutOfRangeException.ThrowIfNegative(framePosition);
+        double x = 0;
+        int start = 0;
+        for (int index = 0; index < frames.Count; index++)
+        {
+            EditorFrame frame = frames[index];
+            double width = GetCelWidth(frame);
+            if (framePosition < start + frame.ExposureFrames)
+            {
+                return x + (framePosition - start) / (double)frame.ExposureFrames * width;
+            }
+
+            start = checked(start + frame.ExposureFrames);
+            x += width + (index < frames.Count - 1 ? CelSpacing : 0);
+        }
+
+        return x;
+    }
+
+    public static int GetFramePositionAtX(IReadOnlyList<EditorFrame> frames, double x)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        if (!double.IsFinite(x))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x));
+        }
+        if (frames.Count == 0)
+        {
+            throw new ArgumentException("The timeline must contain at least one frame.", nameof(frames));
+        }
+
+        x = Math.Max(0, x);
+        int start = 0;
+        foreach (EditorFrame frame in frames)
+        {
+            double width = GetCelWidth(frame);
+            if (x < width)
+            {
+                int offset = Math.Clamp((int)Math.Floor(x / width * frame.ExposureFrames + 1e-6),
+                    0, frame.ExposureFrames - 1);
+                return checked(start + offset);
+            }
+
+            start = checked(start + frame.ExposureFrames);
+            x -= width + CelSpacing;
+        }
+
+        return start - 1;
+    }
+
     public static int GetStartFramePosition(IReadOnlyList<EditorFrame> frames, int frameIndex)
     {
         ArgumentNullException.ThrowIfNull(frames);

@@ -10,6 +10,8 @@ Download an x64 or x86 ZIP from [Releases](https://github.com/ShirazOps/InkMotio
 
 Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar, inspector and timeline, with shared playback and undo/redo controls. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
 
+The red playhead tracks playback across the track area in every editor. Click or drag the timeline ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips share one project-time scale, including start offsets and tempo changes: click a waveform to seek, or drag it to select a range. The Ink ruler seeks within cel exposures and follows playback as the strip scrolls. Switching editors keeps the same position.
+
 Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LUT files remain externally linked, so keep them available. The project media bin identifies missing sources and can search folders for unique filename matches before relinking.
 
 ## Features
@@ -41,7 +43,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 
 - Mouse, touch and pressure-sensitive pen drawing, textured brushes, lines, rectangles, ellipses, solid shapes and enclosed-area bucket fill.
 - Partial/whole-stroke erasing and lasso selection, drawing transforms, independent layers with visibility/opacity/locks, layer duplication, merging and flips.
-- Cel exposures, keyframes, eased in-between animation, configurable onion skinning, named cel groups, range editing and independent or linked drawing cycles.
+- Cel exposures, keyframes, eased in-between animation, configurable onion skinning, named cel groups, range editing and independent or linked drawing cycles. Ink-only animations can play without adding video or audio.
 - Per-layer **Follow object**: draw on a cel, select a textured object box in Modified preview, then track its position, rotation and size until the chosen end time. Other layers remain untracked. Loss stops and hides that layer until you correct the box at the flagged time and resume; motion is saved and shared by preview/export.
 - Cel text overlays with character-range styling; drawing-only or full-preview colour sampling.
 - Canvas zoom, pan, rotation, grids and output-pixel rulers. Import footage or images as references beneath the artwork.

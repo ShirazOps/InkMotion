@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Dispatching;
-using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.Graphics.Canvas.Text;
 using System.Diagnostics;
@@ -396,6 +395,8 @@ public sealed partial class MainWindow : Window
         }
         UpdateTitleBarPassthrough();
         ApplyEditorLayout();
+        UpdateTrackPlayheads();
+        FollowTrackPlayhead();
     }
 
     private bool IsOriginalPreview => OriginalPreviewToggle?.IsOn == true;
@@ -1120,6 +1121,7 @@ public sealed partial class MainWindow : Window
         content.Children.Add(waveform);
         content.Children.Add(new Border
         {
+            IsHitTestVisible = false,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
             Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
@@ -1136,10 +1138,12 @@ public sealed partial class MainWindow : Window
         var button = new Button
         {
             Height = 42,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Left,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
-            Padding = new Thickness(6, 2, 6, 2),
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            MinWidth = 0,
             Background = new SolidColorBrush(index == _selectedAudioTrackIndex
                 ? Microsoft.UI.Colors.DarkSlateBlue
                 : Microsoft.UI.Colors.DarkSlateGray),
@@ -1177,7 +1181,6 @@ public sealed partial class MainWindow : Window
 
         if (track.WaveformPeaks.Length == 0)
         {
-            DrawAudioPlayhead(sender, args.DrawingSession);
             return;
         }
 
@@ -1220,7 +1223,6 @@ public sealed partial class MainWindow : Window
         clipDuration = AudioClipEditing.GetTimelineDuration(track.Project, sourceDuration);
         if (clipDuration <= 0 || !double.IsFinite(clipDuration))
         {
-            DrawAudioPlayhead(sender, args.DrawingSession);
             return;
         }
 
@@ -1273,21 +1275,6 @@ public sealed partial class MainWindow : Window
                 args.DrawingSession.DrawLine(x0, 0, x0, (float)sender.ActualHeight, fadeColour);
                 args.DrawingSession.DrawLine(x1, 0, x1, (float)sender.ActualHeight, fadeColour);
             }
-        }
-
-        DrawAudioPlayhead(sender, args.DrawingSession);
-    }
-
-    private void DrawAudioPlayhead(CanvasControl sender, CanvasDrawingSession session)
-    {
-        double playheadSeconds = _playheadFramePosition / _frameRate;
-        double timelineDuration = GetPlaybackEndSeconds();
-        if (sender.ActualWidth > 0 && double.IsFinite(playheadSeconds) &&
-            double.IsFinite(timelineDuration) && timelineDuration > 0)
-        {
-            float playheadX = (float)(Math.Clamp(playheadSeconds / timelineDuration, 0, 1) * sender.ActualWidth);
-            session.DrawLine(playheadX, 0, playheadX, (float)sender.ActualHeight, ToColour(0xFFFF4D4F), 2);
-            session.FillRectangle(playheadX - 3, 0, 6, 5, ToColour(0xFFFF4D4F));
         }
     }
 
@@ -1448,9 +1435,11 @@ public sealed partial class MainWindow : Window
 
     private void Play_Click(object sender, RoutedEventArgs e)
     {
-        if (!HasTimelineClips && !HasLoadedAudio)
+        if (!HasTimelineClips && !HasLoadedAudio && _frames.Count == 1 &&
+            _frames.All(frame => frame.ExposureFrames == 1 && frame.Strokes.Count == 0 &&
+                frame.LayerStrokes.Values.All(strokes => strokes.Count == 0) && frame.TextOverlays.Count == 0))
         {
-            StatusText.Text = "Add a video, image, title or audio clip before playback.";
+            StatusText.Text = "Add a video, image, title, audio clip or ink animation before playback.";
             return;
         }
 
@@ -2246,6 +2235,7 @@ public sealed partial class MainWindow : Window
         SyncAudioTracks(position, startPlayback: _isPlaying);
         SyncVideoPreview(position.TotalSeconds, forceSeek: true);
         InvalidateVideoTimeline();
+        FollowTrackPlayhead();
     }
 
     private void SyncAudioTracks(TimeSpan timelinePosition, bool startPlayback)
@@ -2558,8 +2548,7 @@ public sealed partial class MainWindow : Window
         double end = GetPlaybackEndSeconds();
         if (end > 0 && position.TotalSeconds >= end)
         {
-            _timelinePosition = TimeSpan.FromSeconds(end);
-            PausePlayback();
+            PausePlayback(TimeSpan.FromSeconds(end));
             return;
         }
 
@@ -2575,7 +2564,6 @@ public sealed partial class MainWindow : Window
             preservePlayhead: true);
         UpdateFrameReadout();
         CompositionSurface.Invalidate();
-        InkPlayheadSurface.Invalidate();
         InvalidateVideoTimeline();
     }
 
@@ -2592,7 +2580,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void PausePlayback()
+    private void PausePlayback(TimeSpan? finalPosition = null)
     {
         if (!_isPlaying)
         {
@@ -2608,15 +2596,20 @@ public sealed partial class MainWindow : Window
 
         if (_timelineClock.IsRunning)
         {
-            _timelinePosition = _timelineStartPosition + _timelineClock.Elapsed;
+            _timelinePosition = finalPosition ?? _timelineStartPosition + _timelineClock.Elapsed;
             _timelineClock.Stop();
         }
 
         _playbackTimer.Stop();
         _isPlaying = false;
+        _playheadFramePosition = Math.Max(0, (int)Math.Floor(_timelinePosition.TotalSeconds * _frameRate + 1e-6));
+        SelectFrame(InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition),
+            seekVideo: false, preservePlayhead: true);
+        SyncVideoPreview(_playheadFramePosition / _frameRate, forceSeek: true);
+        UpdateFrameReadout();
+        CompositionSurface.Invalidate();
         UpdateAudioMeter();
         UpdateLiveAudioSpectrum(clear: true);
-        InkPlayheadSurface.Invalidate();
         InvalidateVideoTimeline();
         SetPlayButtonState(isPlaying: false);
     }
@@ -2678,7 +2671,7 @@ public sealed partial class MainWindow : Window
         {
             UpdateTimelineButton(i);
         }
-        InkPlayheadSurface.Invalidate();
+        UpdateTrackPlayheads();
     }
 
     private void AddTimelineButton(EditorFrame frame, int index)
@@ -2702,30 +2695,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        int framePosition = Math.Max(0, _playheadFramePosition);
-        int frameOffset = 0;
-        double x = 0;
-        for (int index = 0; index < _frames.Count && index < _timelineButtons.Count; index++)
-        {
-            Button button = _timelineButtons[index];
-            int exposure = Math.Max(1, _frames[index].ExposureFrames);
-            double width = button.ActualWidth > 0 ? button.ActualWidth : button.Width;
-            if (framePosition < frameOffset + exposure)
-            {
-                x += Math.Clamp((framePosition - frameOffset) / (double)exposure, 0, 1) * width;
-                break;
-            }
-
-            x += width + InkFramesPanel.Spacing;
-            frameOffset += exposure;
-        }
-
-        if (x >= 0 && x <= sender.ActualWidth)
-        {
-            var color = Windows.UI.Color.FromArgb(255, 255, 77, 79);
-            args.DrawingSession.DrawLine((float)x, 0, (float)x, (float)sender.ActualHeight, color, 2);
-            args.DrawingSession.FillRectangle((float)x - 3, 0, 6, 6, color);
-        }
+        double x = InkTimeline.GetPlayheadX(_frames, _playheadFramePosition);
+        DrawTrackPlayhead(args.DrawingSession, x, sender.ActualWidth, sender.ActualHeight);
     }
 
     private void UpdateTimelineButton(int index)
@@ -2737,7 +2708,7 @@ public sealed partial class MainWindow : Window
 
         EditorFrame frame = _frames[index];
         Button button = _timelineButtons[index];
-        button.Width = Math.Min(220, 54 + ((frame.ExposureFrames - 1) * 4));
+        button.Width = InkTimeline.GetCelWidth(frame);
         bool isInterpolated = _interpolatedFrameIndices.Contains(index);
         string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
         if (frame.DrawingLinkId.Length > 0)
