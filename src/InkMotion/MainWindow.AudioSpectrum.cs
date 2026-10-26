@@ -10,6 +10,93 @@ public sealed partial class MainWindow
     private AudioSpectrumResult? _audioSpectrum;
     private AudioSpectrogramResult? _audioSpectrogram;
     private CancellationTokenSource? _audioSpectrumCancellation;
+    private AudioSpectrumResult? _liveAudioSpectrum;
+
+    private void UpdateLiveAudioSpectrum(bool clear = false)
+    {
+        if (clear || !_isPlaying)
+        {
+            _liveAudioSpectrum = null;
+            LiveAudioSpectrumSurface.Invalidate();
+            return;
+        }
+
+        const int fftSize = 2048;
+        float[] samples = new float[fftSize * AudioPreviewBus.ChannelCount];
+        int read = _audioPreviewBus.CopyRecentSamples(samples);
+        if (read < samples.Length)
+        {
+            return;
+        }
+
+        for (int index = 0; index < read; index++)
+        {
+            if (!float.IsFinite(samples[index]))
+            {
+                samples[index] = 0;
+            }
+        }
+
+        _liveAudioSpectrum = AudioSpectrum.AnalyseWindow(
+            samples.AsSpan(0, read), AudioPreviewBus.ChannelCount, AudioPreviewBus.SampleRate, fftSize,
+            CancellationToken.None);
+        LiveAudioSpectrumSurface.Invalidate();
+    }
+
+    private void LiveAudioSpectrumSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    {
+        if (sender.ActualWidth < 1 || sender.ActualHeight < 1)
+        {
+            return;
+        }
+
+        float width = (float)sender.ActualWidth;
+        float height = (float)sender.ActualHeight;
+        float panelHeight = Math.Max(64, height * 0.34f);
+        float top = height - panelHeight;
+        var session = args.DrawingSession;
+        session.FillRectangle(0, top, width, panelHeight, Windows.UI.Color.FromArgb(210, 10, 14, 20));
+        session.DrawText(_isPlaying ? "LIVE AUDIO SPECTRUM" : "PLAY AUDIO TO VIEW LIVE FREQUENCIES",
+            12, top + 7, Colors.White);
+        if (width > 360)
+        {
+            session.DrawText("20 Hz to Nyquist · logarithmic", width - 190, top + 7, Colors.LightGray);
+        }
+
+        if (_liveAudioSpectrum is not { } spectrum)
+        {
+            return;
+        }
+
+        float graphTop = top + 25;
+        float graphBottom = height - 14;
+        float graphHeight = Math.Max(1, graphBottom - graphTop);
+        double maximum = spectrum.SampleRate / 2d;
+        int columns = Math.Max(1, (int)width);
+        float previousX = 0;
+        float previousY = graphBottom;
+        for (int x = 0; x < columns; x++)
+        {
+            double low = 20 * Math.Pow(maximum / 20, x / (double)columns);
+            double high = 20 * Math.Pow(maximum / 20, (x + 1d) / columns);
+            int first = Math.Clamp((int)Math.Floor(low / spectrum.BinWidthHz), 1, spectrum.Decibels.Length - 1);
+            int last = Math.Clamp((int)Math.Ceiling(high / spectrum.BinWidthHz), first, spectrum.Decibels.Length - 1);
+            double level = -120;
+            for (int bin = first; bin <= last; bin++)
+            {
+                level = Math.Max(level, spectrum.Decibels[bin]);
+            }
+
+            float y = graphBottom - (float)(Math.Clamp((level + 90) / 90, 0, 1) * graphHeight);
+            if (x > 0)
+            {
+                session.DrawLine(previousX, previousY, x, y, Colors.Cyan, 1.5f);
+            }
+
+            previousX = x;
+            previousY = y;
+        }
+    }
 
     private void ClearAudioAnalysis_Click(object sender, RoutedEventArgs e) => ClearAudioSpectrum();
 

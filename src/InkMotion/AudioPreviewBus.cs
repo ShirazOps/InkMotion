@@ -6,6 +6,7 @@ namespace InkMotion;
 public sealed class AudioPreviewBus : ISampleProvider, IDisposable
 {
     public const int SampleRate = 48000;
+    public const int ChannelCount = 2;
     private readonly MixingSampleProvider _mixer;
     private readonly AudioMeterSampleProvider _meter;
     private readonly List<AudioPreviewInput> _inputs = [];
@@ -15,7 +16,7 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
 
     public AudioPreviewBus()
     {
-        WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 2);
+        WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, ChannelCount);
         _mixer = new MixingSampleProvider(WaveFormat) { ReadFully = true };
         _meter = new AudioMeterSampleProvider(_mixer);
     }
@@ -48,6 +49,8 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
     public int Read(float[] buffer, int offset, int count) => _meter.Read(buffer, offset, count);
 
     public AudioMeterReading TakeMasterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
+
+    public int CopyRecentSamples(float[] destination) => _meter.CopyRecentSamples(destination);
 
     public void Play()
     {

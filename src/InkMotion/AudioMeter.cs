@@ -10,11 +10,16 @@ public sealed record AudioMeterReading(float Peak, double Rms, bool Clipped)
 
 public sealed class AudioMeterSampleProvider(ISampleProvider source) : ISampleProvider
 {
+    private const int RecentFrameCapacity = 4096;
     private readonly object _sync = new();
+    private readonly int _channels = source.WaveFormat.Channels;
+    private readonly float[] _recentSamples = new float[RecentFrameCapacity * source.WaveFormat.Channels];
     private float _peak;
     private double _squares;
     private long _samples;
     private bool _clipped;
+    private int _recentWriteFrame;
+    private int _recentFrameCount;
 
     public WaveFormat WaveFormat => source.WaveFormat;
 
@@ -36,9 +41,50 @@ public sealed class AudioMeterSampleProvider(ISampleProvider source) : ISamplePr
             _squares += squares;
             _samples += read;
             _clipped |= peak >= 1;
+            int frames = read / _channels;
+            int framesToStore = Math.Min(frames, RecentFrameCapacity);
+            int sourceFrame = frames - framesToStore;
+            int firstCount = Math.Min(framesToStore, RecentFrameCapacity - _recentWriteFrame);
+            Array.Copy(
+                buffer,
+                offset + sourceFrame * _channels,
+                _recentSamples,
+                _recentWriteFrame * _channels,
+                firstCount * _channels);
+            if (firstCount < framesToStore)
+            {
+                Array.Copy(
+                    buffer,
+                    offset + (sourceFrame + firstCount) * _channels,
+                    _recentSamples,
+                    0,
+                    (framesToStore - firstCount) * _channels);
+            }
+
+            _recentWriteFrame = (_recentWriteFrame + framesToStore) % RecentFrameCapacity;
+            _recentFrameCount = Math.Min(RecentFrameCapacity, _recentFrameCount + frames);
         }
 
         return read;
+    }
+
+    public int CopyRecentSamples(float[] destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        int destinationCapacity = destination.Length / _channels;
+        lock (_sync)
+        {
+            int frames = Math.Min(_recentFrameCount, destinationCapacity);
+            int firstFrame = (_recentWriteFrame - frames + RecentFrameCapacity) % RecentFrameCapacity;
+            int firstCount = Math.Min(frames, RecentFrameCapacity - firstFrame);
+            Array.Copy(_recentSamples, firstFrame * _channels, destination, 0, firstCount * _channels);
+            if (firstCount < frames)
+            {
+                Array.Copy(_recentSamples, 0, destination, firstCount * _channels, (frames - firstCount) * _channels);
+            }
+
+            return frames * _channels;
+        }
     }
 
     public AudioMeterReading TakeReading(bool resetClip = false)

@@ -228,6 +228,9 @@
                             IsHitTestVisible="False"
                             CreateResources="CompositionSurface_CreateResources"
                             Draw="CompositionSurface_Draw" />
+                        <canvas:CanvasControl x:Name="LiveAudioSpectrumSurface" ClearColor="Transparent"
+                            IsHitTestVisible="False" Draw="LiveAudioSpectrumSurface_Draw"
+                            AutomationProperties.Name="Live frequency spectrum of the mixed audio playback" />
                         <canvas:CanvasControl
                             x:Name="InkSurface"
                             ClearColor="Transparent"
@@ -1456,8 +1459,14 @@
                         <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74D;" FontSize="12" /><TextBlock Text="Delete cel" /></StackPanel>
                     </Button>
                 </StackPanel>
-                <ScrollViewer Grid.Row="1" VerticalAlignment="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
-                    <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="38" />
+                <ScrollViewer x:Name="InkTimelineScroller" Grid.Row="1" VerticalAlignment="Top"
+                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
+                    <Grid>
+                        <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="38" />
+                        <canvas:CanvasControl x:Name="InkPlayheadSurface" ClearColor="Transparent"
+                            IsHitTestVisible="False" Draw="InkPlayheadSurface_Draw"
+                            AutomationProperties.Name="Playback position across the ink cel timeline" />
+                    </Grid>
                 </ScrollViewer>
             </Grid>
             <Thumb x:Name="EditorOptionsGrip" Grid.Column="1" IsTabStop="True" Tag="options"
