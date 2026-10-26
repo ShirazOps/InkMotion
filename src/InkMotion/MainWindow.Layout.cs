@@ -130,7 +130,7 @@ public sealed partial class MainWindow
     private void UpdateAudioLaneHeights()
     {
         int count = Math.Max(1, _audioTracks.Count);
-        double height = Math.Max(42, (AudioTimelineWorkspace.ActualHeight - 24 - (count - 1) * 4) / count);
+        double height = Math.Max(42, (AudioTimelineWorkspace.ActualHeight - 48 - (count - 1) * 4) / count);
         foreach (FrameworkElement lane in AudioTracksPanel.Children.OfType<FrameworkElement>())
         {
             lane.Height = height;
@@ -139,6 +139,7 @@ public sealed partial class MainWindow
         {
             name.Height = height;
         }
+        LayoutAudioClips();
     }
 
     private void ResizeEditorLayout(bool options, double delta)

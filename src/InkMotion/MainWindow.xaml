@@ -1424,14 +1424,33 @@
             </Grid>
 
             <Grid x:Name="AudioTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" Visibility="Collapsed" SizeChanged="AudioLayout_SizeChanged">
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto">
                     <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="24" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="150" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel x:Name="AudioTrackNamesPanel" Spacing="4" />
-                        <StackPanel x:Name="AudioTracksPanel" Grid.Column="1" Spacing="4" />
+                        <TextBlock Text="PLAYHEAD" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
+                        <Grid x:Name="AudioTrackArea" Grid.Column="1" Grid.RowSpan="2" SizeChanged="AudioTrackArea_SizeChanged">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="24" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <canvas:CanvasControl x:Name="AudioTimelineRuler" Draw="AudioTimelineRuler_Draw"
+                                ManipulationMode="None"
+                                AutomationProperties.Name="Audio timeline ruler. Drag to position the playhead for split and other edits."
+                                PointerPressed="TrackRuler_PointerPressed" PointerMoved="TrackRuler_PointerMoved"
+                                PointerReleased="TrackRuler_PointerReleased" PointerCaptureLost="TrackRuler_PointerCaptureLost" />
+                            <StackPanel x:Name="AudioTracksPanel" Grid.Row="1" Spacing="4" />
+                            <canvas:CanvasControl x:Name="AudioPlayheadSurface" Grid.RowSpan="2"
+                                ClearColor="Transparent" IsHitTestVisible="False" Draw="AudioPlayheadSurface_Draw"
+                                AutomationProperties.Name="Shared playback position across all audio tracks" />
+                        </Grid>
+                        <StackPanel x:Name="AudioTrackNamesPanel" Grid.Row="1" Spacing="4" />
                     </Grid>
                 </ScrollViewer>
             </Grid>
@@ -1462,8 +1481,17 @@
                 <ScrollViewer x:Name="InkTimelineScroller" Grid.Row="1" VerticalAlignment="Top"
                               HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
                     <Grid>
-                        <StackPanel x:Name="InkFramesPanel" Orientation="Horizontal" Spacing="4" Height="38" />
-                        <canvas:CanvasControl x:Name="InkPlayheadSurface" ClearColor="Transparent"
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="24" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <canvas:CanvasControl x:Name="InkTimelineRuler" Draw="InkTimelineRuler_Draw"
+                            ManipulationMode="None"
+                            AutomationProperties.Name="Ink timeline ruler. Drag to position the playhead within a cel exposure."
+                            PointerPressed="TrackRuler_PointerPressed" PointerMoved="TrackRuler_PointerMoved"
+                            PointerReleased="TrackRuler_PointerReleased" PointerCaptureLost="TrackRuler_PointerCaptureLost" />
+                        <StackPanel x:Name="InkFramesPanel" Grid.Row="1" Orientation="Horizontal" Spacing="4" Height="38" />
+                        <canvas:CanvasControl x:Name="InkPlayheadSurface" Grid.RowSpan="2" ClearColor="Transparent"
                             IsHitTestVisible="False" Draw="InkPlayheadSurface_Draw"
                             AutomationProperties.Name="Playback position across the ink cel timeline" />
                     </Grid>
