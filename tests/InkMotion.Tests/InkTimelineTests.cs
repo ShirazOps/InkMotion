@@ -5,7 +5,7 @@ namespace InkMotion.Tests;
 public sealed class InkTimelineTests
 {
     [Fact]
-    public void PlayheadGeometry_MapsExposureFramesToCelWidthsAndBack()
+    public void CelGeometry_MapsExposureFramesToTimeAlignedWidthsAndBack()
     {
         List<EditorFrame> frames =
         [
@@ -13,27 +13,50 @@ public sealed class InkTimelineTests
             new() { ExposureFrames = 100 },
             new() { ExposureFrames = 3 },
         ];
-        Assert.Equal(58, InkTimeline.GetCelWidth(frames[0]));
-        Assert.Equal(220, InkTimeline.GetCelWidth(frames[1]));
-        Assert.Equal(29, InkTimeline.GetPlayheadX(frames, 1));
-        Assert.Equal(62, InkTimeline.GetPlayheadX(frames, 2));
-        Assert.Equal(172, InkTimeline.GetPlayheadX(frames, 52));
+        const double pixelsPerFrame = 2.5;
+        Assert.Equal(0, InkTimeline.GetCelLeft(frames, 0, pixelsPerFrame));
+        Assert.Equal(5, InkTimeline.GetCelLeft(frames, 1, pixelsPerFrame));
+        Assert.Equal(255, InkTimeline.GetCelLeft(frames, 2, pixelsPerFrame));
+        Assert.Equal(5, InkTimeline.GetCelWidth(frames[0], pixelsPerFrame));
+        Assert.Equal(250, InkTimeline.GetCelWidth(frames[1], pixelsPerFrame));
+        Assert.Equal(130, InkTimeline.GetPlayheadX(52, pixelsPerFrame));
         for (int position = 0; position < InkTimeline.GetTotalExposureFrames(frames); position++)
         {
-            double x = InkTimeline.GetPlayheadX(frames, position);
-            Assert.Equal(position, InkTimeline.GetFramePositionAtX(frames, x));
+            double x = InkTimeline.GetPlayheadX(position, pixelsPerFrame);
+            Assert.Equal(position, InkTimeline.GetFramePositionAtX(frames, x, pixelsPerFrame));
+            Assert.Equal(position, InkTimeline.GetFramePositionAtX(frames, x + pixelsPerFrame - 0.01, pixelsPerFrame));
         }
     }
 
     [Fact]
-    public void PlayheadGeometry_ClampsOutsideAndSpacingWithoutAddingAnExtraCel()
+    public void CelGeometry_ClampsOutsideTheExistingCelsWithoutAddingAnExtraCel()
     {
         List<EditorFrame> frames = [new() { ExposureFrames = 2 }, new() { ExposureFrames = 3 }];
-        Assert.Equal(0, InkTimeline.GetFramePositionAtX(frames, -10));
-        Assert.Equal(2, InkTimeline.GetFramePositionAtX(frames, 60));
-        Assert.Equal(4, InkTimeline.GetFramePositionAtX(frames, 1000));
-        Assert.Equal(124, InkTimeline.GetPlayheadX(frames, 5));
-        Assert.Equal(124, InkTimeline.GetPlayheadX(frames, 100));
+        Assert.Equal(0, InkTimeline.GetFramePositionAtX(frames, -10, 10));
+        Assert.Equal(2, InkTimeline.GetFramePositionAtX(frames, 25, 10));
+        Assert.Equal(4, InkTimeline.GetFramePositionAtX(frames, 49.5, 10));
+        Assert.Equal(4, InkTimeline.GetFramePositionAtX(frames, 1000, 10));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void CelGeometry_RejectsANonPositiveScale(double pixelsPerFrame)
+    {
+        List<EditorFrame> frames = [new() { ExposureFrames = 2 }];
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkTimeline.GetCelLeft(frames, 0, pixelsPerFrame));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkTimeline.GetCelWidth(frames[0], pixelsPerFrame));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkTimeline.GetPlayheadX(0, pixelsPerFrame));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkTimeline.GetFramePositionAtX(frames, 0, pixelsPerFrame));
+    }
+
+    [Fact]
+    public void CelGeometry_RejectsAnEmptyTimelineAndNonFiniteX()
+    {
+        Assert.Throws<ArgumentException>(() => InkTimeline.GetFramePositionAtX([], 0, 10));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkTimeline.GetFramePositionAtX([new()], double.NaN, 10));
     }
 
     [Fact]

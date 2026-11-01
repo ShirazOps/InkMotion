@@ -146,61 +146,52 @@ public sealed record VideoExportProfile(ExportResolution Resolution, int Width, 
 
 public static class InkTimeline
 {
-    public const double CelSpacing = 4;
-
-    public static double GetCelWidth(EditorFrame frame) => Math.Min(220, 54 + ((frame.ExposureFrames - 1d) * 4));
-
-    public static double GetPlayheadX(IReadOnlyList<EditorFrame> frames, int framePosition)
+    /// <summary>Left edge of a cel on the shared track ruler, where every output frame is <paramref name="pixelsPerFrame"/> wide.</summary>
+    public static double GetCelLeft(IReadOnlyList<EditorFrame> frames, int frameIndex, double pixelsPerFrame)
     {
-        ArgumentNullException.ThrowIfNull(frames);
-        ArgumentOutOfRangeException.ThrowIfNegative(framePosition);
-        double x = 0;
-        int start = 0;
-        for (int index = 0; index < frames.Count; index++)
-        {
-            EditorFrame frame = frames[index];
-            double width = GetCelWidth(frame);
-            if (framePosition < start + frame.ExposureFrames)
-            {
-                return x + (framePosition - start) / (double)frame.ExposureFrames * width;
-            }
-
-            start = checked(start + frame.ExposureFrames);
-            x += width + (index < frames.Count - 1 ? CelSpacing : 0);
-        }
-
-        return x;
+        ValidatePixelsPerFrame(pixelsPerFrame);
+        return GetStartFramePosition(frames, frameIndex) * pixelsPerFrame;
     }
 
-    public static int GetFramePositionAtX(IReadOnlyList<EditorFrame> frames, double x)
+    public static double GetCelWidth(EditorFrame frame, double pixelsPerFrame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        ValidatePixelsPerFrame(pixelsPerFrame);
+        return frame.ExposureFrames * pixelsPerFrame;
+    }
+
+    public static double GetPlayheadX(int framePosition, double pixelsPerFrame)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(framePosition);
+        ValidatePixelsPerFrame(pixelsPerFrame);
+        return framePosition * pixelsPerFrame;
+    }
+
+    /// <summary>Output frame under <paramref name="x"/>, clamped to the cels that exist so clicking past the end selects the last cel.</summary>
+    public static int GetFramePositionAtX(IReadOnlyList<EditorFrame> frames, double x, double pixelsPerFrame)
     {
         ArgumentNullException.ThrowIfNull(frames);
         if (!double.IsFinite(x))
         {
             throw new ArgumentOutOfRangeException(nameof(x));
         }
+        ValidatePixelsPerFrame(pixelsPerFrame);
         if (frames.Count == 0)
         {
             throw new ArgumentException("The timeline must contain at least one frame.", nameof(frames));
         }
 
-        x = Math.Max(0, x);
-        int start = 0;
-        foreach (EditorFrame frame in frames)
+        int total = GetTotalExposureFrames(frames);
+        double position = Math.Floor(Math.Max(0, x) / pixelsPerFrame + 1e-6);
+        return (int)Math.Clamp(position, 0, total - 1);
+    }
+
+    private static void ValidatePixelsPerFrame(double pixelsPerFrame)
+    {
+        if (!double.IsFinite(pixelsPerFrame) || pixelsPerFrame <= 0)
         {
-            double width = GetCelWidth(frame);
-            if (x < width)
-            {
-                int offset = Math.Clamp((int)Math.Floor(x / width * frame.ExposureFrames + 1e-6),
-                    0, frame.ExposureFrames - 1);
-                return checked(start + offset);
-            }
-
-            start = checked(start + frame.ExposureFrames);
-            x -= width + CelSpacing;
+            throw new ArgumentOutOfRangeException(nameof(pixelsPerFrame), "Pixels per frame must be a positive finite number.");
         }
-
-        return start - 1;
     }
 
     public static int GetStartFramePosition(IReadOnlyList<EditorFrame> frames, int frameIndex)

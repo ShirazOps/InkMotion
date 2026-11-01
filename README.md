@@ -8,9 +8,9 @@ A native Windows video, audio and animation editor built with C#, .NET 10, WinUI
 
 Download an x64 or x86 ZIP from [Releases](https://github.com/ShirazOps/InkMotion/releases), extract it and run `InkMotion.exe`. Release builds are self-contained; no separate .NET or Windows App SDK installation is needed. Builds are currently unsigned.
 
-Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar, inspector and timeline, with shared playback and undo/redo controls. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
+Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar and inspector, while one shared track layout keeps the default Video, Audio and Ink tracks visible in every workspace. Playback and undo/redo controls are shared. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
 
-The red playhead tracks playback across the track area in every editor. Click or drag the timeline ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips share one project-time scale, including start offsets and tempo changes: click a waveform to seek, or drag it to select a range. The Ink ruler seeks within cel exposures and follows playback as the strip scrolls. Switching editors keeps the same position.
+The red playhead tracks playback across the shared time ruler in every workspace. Click or drag the ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips and Ink cels align to the same ruler; cel widths reflect exposure duration. Audio clips include start offsets and tempo changes: click a waveform to seek, or drag it to select a range. Switching workspaces keeps the same position.
 
 Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LUT files remain externally linked, so keep them available. The project media bin identifies missing sources and can search folders for unique filename matches before relinking.
 
@@ -26,7 +26,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Double-click a title clip, title track header or title in the viewer to edit its text. In paused **Modified** Video preview, drag titles with mouse or touch, resize proportionally using corner handles and rotate with the round handle.
 - Title font and size, with matching text/background colour pickers and independent opacity controls. Viewer edits respect track locks, support undo/redo and update transform keyframes on animated titles.
 - Animate titles using **Set title motion keyframe**: mark the first pose, move the playhead and drag/rotate/resize the next pose. Subsequent pose edits automatically create or update keys; playback and export interpolate between them. Use **Previous/Next pose** or the title clip's blue motion markers to navigate.
-- Right-click video/image/title headers for track properties or clips for their respective inspector. Audio lanes/headers and the ink timeline/layer selector also provide property menus.
+- Right-click video/image/title headers for track properties or clips for their respective inspector. Audio lanes/headers and the Ink track header/lane also provide property menus.
 
 **Original / Modified** compares the active video source at the playhead with the edited composition. Original is a source comparison, not a second unedited timeline.
 
