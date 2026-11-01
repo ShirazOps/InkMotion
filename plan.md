@@ -77,7 +77,7 @@ The optional global Ctrl+Shift+F10 stop shortcut now cancels countdown or stops/
 5. **Windows distribution**
    - Build and test x86 and x64 configurations on Windows runners.
    - Produce a Store-upload MSIX bundle for both architectures after the Partner Centre package identity is associated.
-   - Done: the Store workflow applies the Partner Centre identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification. Successful main releases submit the verified package and reviewed, locale-specific What's new text through the Store API when submission credentials are configured, requesting publication after certification. Pending submissions and non-increasing versions block updates; failed drafts are retained, credentials remain secrets, and offline tests cover submission safeguards.
+   - Done: the Store workflow applies the Partner Centre identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification. Successful main releases attach the verified upload and validated, reviewed What's new text files per language for manual Partner Center submission. Release notes and Actions summaries include upload instructions; no submission API credentials or automated Store publication are required.
 
 ## Important decisions and constraints
 
