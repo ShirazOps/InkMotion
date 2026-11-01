@@ -8,7 +8,7 @@ namespace InkMotion;
 public sealed partial class MainWindow
 {
     private AudioTrackRuntime? _audioRangeTrack;
-    private CanvasControl? _audioRangeCanvas;
+    private CanvasVirtualControl? _audioRangeCanvas;
     private uint? _audioRangePointerId;
     private double _audioRangeDragStartX;
     private bool _audioRangeDragged;
@@ -26,7 +26,7 @@ public sealed partial class MainWindow
 
     private void AudioWaveform_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is not CanvasControl { Tag: AudioTrackRuntime track } canvas ||
+        if (sender is not CanvasVirtualControl { Tag: AudioTrackRuntime track } canvas ||
             !e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed ||
             canvas.ActualWidth <= 0)
         {
@@ -52,7 +52,7 @@ public sealed partial class MainWindow
 
     private void AudioWaveform_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
+        if (sender is CanvasVirtualControl { Tag: AudioTrackRuntime track } canvas &&
             _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
         {
             double x = e.GetCurrentPoint(canvas).Position.X;
@@ -67,7 +67,7 @@ public sealed partial class MainWindow
 
     private void AudioWaveform_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is CanvasControl { Tag: AudioTrackRuntime track } canvas &&
+        if (sender is CanvasVirtualControl { Tag: AudioTrackRuntime track } canvas &&
             _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
         {
             double x = e.GetCurrentPoint(canvas).Position.X;
@@ -98,7 +98,7 @@ public sealed partial class MainWindow
 
     private void AudioWaveform_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is CanvasControl canvas &&
+        if (sender is CanvasVirtualControl canvas &&
             _audioRangeCanvas == canvas && _audioRangePointerId == e.Pointer.PointerId)
         {
             _audioRangePointerId = null;
@@ -139,15 +139,12 @@ public sealed partial class MainWindow
 
     private void InvalidateAudioWaveforms()
     {
-        foreach (Button button in AudioTracksPanel.Children.OfType<Button>())
+        foreach (CanvasVirtualControl waveform in AudioTracksPanel.Children.OfType<Grid>()
+                     .SelectMany(lane => lane.Children.OfType<Button>())
+                     .Where(button => button.Content is Grid)
+                     .SelectMany(button => ((Grid)button.Content).Children.OfType<CanvasVirtualControl>()))
         {
-            if (button.Content is Grid grid)
-            {
-                foreach (CanvasControl waveform in grid.Children.OfType<CanvasControl>())
-                {
-                    waveform.Invalidate();
-                }
-            }
+            waveform.Invalidate();
         }
     }
 

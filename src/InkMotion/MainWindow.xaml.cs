@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Dispatching;
+using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.Graphics.Canvas.Text;
 using System.Diagnostics;
@@ -25,7 +26,6 @@ public sealed partial class MainWindow : Window
     private const string BaseInkLayerId = "ink-1";
     private readonly List<EditorFrame> _frames = [new()];
     private readonly List<InkLayerProject> _inkLayers = [new()];
-    private readonly List<Button> _timelineButtons = [];
     private readonly HashSet<int> _interpolatedFrameIndices = [];
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
@@ -75,6 +75,7 @@ public sealed partial class MainWindow : Window
         InitialiseAudioRecordingControls();
         _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
         UpdateSelectedAudioTrack();
+        RefreshAudioTracks();
         RefreshInkLayers();
         InkBrushPresetSelector.ItemsSource = InkBrushPresets.All.Select(preset => preset.Name).ToArray();
         RefreshTimeline();
@@ -151,6 +152,10 @@ public sealed partial class MainWindow : Window
         InkLayerLockButton.IsChecked = CurrentInkLayer.IsLocked;
         InkLayerLockButton.Content = CurrentInkLayer.IsLocked ? "Unlock drawing" : "Lock drawing";
         InkLayerNameBox.Text = CurrentInkLayer.Name;
+        if (InkTrackNameText is not null)
+        {
+            InkTrackNameText.Text = CurrentInkLayer.Name;
+        }
         InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
         InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
         UpdateInkTrackingControls();
@@ -376,9 +381,10 @@ public sealed partial class MainWindow : Window
         AudioInspectorPanel.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
         InkInspectorPanel.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
         ExportInspectorPanel.Visibility = isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        VideoTimelineWorkspace.Visibility = isVideoWorkspace || isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        AudioTimelineWorkspace.Visibility = isAudioWorkspace ? Visibility.Visible : Visibility.Collapsed;
-        InkTimelineWorkspace.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoTimelineTools.Visibility = isVideoWorkspace || isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        VideoTimelineHint.Visibility = isVideoWorkspace || isExportWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkCelTools.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
+        InkTimelineHint.Visibility = isInkWorkspace ? Visibility.Visible : Visibility.Collapsed;
         UpdatePreviewMode();
         UpdateInkCanvasView();
         WorkspaceStatusText.Text = workspace switch
@@ -389,10 +395,6 @@ public sealed partial class MainWindow : Window
             _ => "Video Editor",
         };
 
-        if (isAudioWorkspace)
-        {
-            RefreshAudioTracks();
-        }
         UpdateTitleBarPassthrough();
         ApplyEditorLayout();
         UpdateTrackPlayheads();
@@ -1083,76 +1085,115 @@ public sealed partial class MainWindow : Window
         AudioTrackNamesPanel.Children.Clear();
         if (_audioTracks.Count == 0)
         {
-            AudioTrackNamesPanel.Children.Add(CreateAudioTrackName("A1  Audio"));
-            AudioTracksPanel.Children.Add(CreateAudioTrackLane("Add an audio clip with File > Add audio clip…"));
-            UpdateAudioLaneHeights();
-            UpdateProjectMediaBin();
-            return;
+            EnsureDefaultAudioTrack();
         }
 
         for (int i = 0; i < _audioTracks.Count; i++)
         {
             AudioTrackRuntime track = _audioTracks[i];
-            FrameworkElement header = CreateAudioTrackName($"A{i + 1}  Audio");
+            FrameworkElement header = CreateAudioTrackName($"A{i + 1}  Audio", i == _selectedAudioTrackIndex, i);
             header.ContextFlyout = CreateAudioPropertiesMenu(track);
             AudioTrackNamesPanel.Children.Add(header);
             AudioTracksPanel.Children.Add(CreateAudioTrackLane(track, i));
         }
-        UpdateAudioLaneHeights();
         UpdateProjectMediaBin();
+        InvalidateVideoTimeline();
     }
 
-    private Button CreateAudioTrackLane(AudioTrackRuntime track, int index)
+    private void EnsureDefaultAudioTrack()
     {
-        var waveform = new CanvasControl
+        if (_audioTracks.Count == 0)
         {
-            ClearColor = Windows.UI.Color.FromArgb(0, 0, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch,
-            Tag = track,
-        };
-        waveform.Draw += AudioWaveform_Draw;
-        waveform.PointerPressed += AudioWaveform_PointerPressed;
-        waveform.PointerMoved += AudioWaveform_PointerMoved;
-        waveform.PointerReleased += AudioWaveform_PointerReleased;
-        waveform.PointerCaptureLost += AudioWaveform_PointerCaptureLost;
+            _audioTracks.Add(new AudioTrackRuntime(new AudioTrackProject()));
+        }
 
-        var content = new Grid();
-        content.Children.Add(waveform);
-        content.Children.Add(new Border
+        if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
         {
-            IsHitTestVisible = false,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
-            Padding = new Thickness(6, 2, 6, 2),
-            Child = new TextBlock
-            {
-                Text = AudioWaveformLabel(track),
-                Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
-                FontSize = 11,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            },
-        });
+            _selectedAudioTrackIndex = 0;
+        }
+        UpdateSelectedAudioTrack();
+    }
 
-        var button = new Button
+    private Grid CreateAudioTrackLane(AudioTrackRuntime track, int index)
+    {
+        var lane = new Grid
         {
-            Height = 42,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch,
-            Padding = new Thickness(0),
-            BorderThickness = new Thickness(0),
-            MinWidth = 0,
+            Height = TimelineLaneHeight,
+            Margin = new Thickness(0, 0, 6, TimelineLaneSpacing),
             Background = new SolidColorBrush(index == _selectedAudioTrackIndex
-                ? Microsoft.UI.Colors.DarkSlateBlue
-                : Microsoft.UI.Colors.DarkSlateGray),
-            Content = content,
+                ? Windows.UI.Color.FromArgb(255, 0x23, 0x2A, 0x35)
+                : Windows.UI.Color.FromArgb(255, 0x1C, 0x20, 0x28)),
             Tag = index,
         };
-        button.Click += AudioTrack_Click;
-        button.ContextFlyout = CreateAudioPropertiesMenu(track);
-        return button;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(lane, $"Audio track {index + 1}");
+        lane.Tapped += (_, _) => SelectAudioTrack(index);
+
+        if (!string.IsNullOrWhiteSpace(track.Project.AudioPath))
+        {
+            var waveform = new CanvasVirtualControl
+            {
+                ClearColor = Windows.UI.Color.FromArgb(0, 0, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Tag = track,
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(waveform, $"Waveform for audio track {index + 1}");
+            waveform.RegionsInvalidated += AudioWaveform_RegionsInvalidated;
+            waveform.PointerPressed += AudioWaveform_PointerPressed;
+            waveform.PointerMoved += AudioWaveform_PointerMoved;
+            waveform.PointerReleased += AudioWaveform_PointerReleased;
+            waveform.PointerCaptureLost += AudioWaveform_PointerCaptureLost;
+
+            var content = new Grid();
+            content.Children.Add(waveform);
+            content.Children.Add(new Border
+            {
+                IsHitTestVisible = false,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
+                Padding = new Thickness(6, 2, 6, 2),
+                Child = new TextBlock
+                {
+                    Text = AudioWaveformLabel(track),
+                    Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+                    FontSize = 11,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                },
+            });
+
+            var clip = new Button
+            {
+                Height = TimelineLaneHeight,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
+                Padding = new Thickness(0),
+                BorderThickness = new Thickness(0),
+                MinWidth = 0,
+                Background = new SolidColorBrush(index == _selectedAudioTrackIndex
+                    ? Microsoft.UI.Colors.DarkSlateBlue
+                    : Microsoft.UI.Colors.DarkSlateGray),
+                Content = content,
+                Tag = index,
+                ContextFlyout = CreateAudioPropertiesMenu(track),
+            };
+            clip.Click += AudioTrack_Click;
+            lane.Children.Add(clip);
+        }
+        else
+        {
+            lane.Children.Add(new TextBlock
+            {
+                Text = track.LoadError is null ? "Empty audio track · File > Add audio clip…" : track.LoadError,
+                Margin = new Thickness(8, 0, 0, 0),
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x6E, 0x76, 0x86)),
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+            });
+        }
+
+        return lane;
     }
 
     private static string AudioWaveformLabel(AudioTrackRuntime track)
@@ -1172,19 +1213,28 @@ public sealed partial class MainWindow : Window
             : $"{System.IO.Path.GetFileName(track.Project.AudioPath)}  ·  F{track.Project.StartFrame:000}";
     }
 
-    private void AudioWaveform_Draw(CanvasControl sender, CanvasDrawEventArgs args)
+    private void AudioWaveform_RegionsInvalidated(CanvasVirtualControl sender, CanvasRegionsInvalidatedEventArgs args)
     {
         if (sender.Tag is not AudioTrackRuntime track)
         {
             return;
         }
 
+        foreach (Windows.Foundation.Rect region in args.InvalidatedRegions)
+        {
+            using CanvasDrawingSession session = sender.CreateDrawingSession(region);
+            DrawAudioWaveform(track, session, (float)sender.ActualWidth, (float)sender.ActualHeight);
+        }
+    }
+
+    private void DrawAudioWaveform(AudioTrackRuntime track, CanvasDrawingSession session, float width, float height)
+    {
         if (track.WaveformPeaks.Length == 0)
         {
             return;
         }
 
-        float centre = (float)sender.ActualHeight / 2;
+        float centre = height / 2;
         float halfHeight = centre * 0.82f;
         double sourceDuration = track.SourceDurationSeconds;
         int firstPeak = 0;
@@ -1198,7 +1248,6 @@ public sealed partial class MainWindow : Window
         }
 
         int visiblePeaks = lastPeak - firstPeak;
-        float width = (float)sender.ActualWidth;
         float columnWidth = width / visiblePeaks;
         float gain = (float)Math.Clamp(AudioClipEditing.DecibelsToLinear(track.Project.GainDecibels), 0, 4);
         Windows.UI.Color colour = ToColour(0xFF64C8FF);
@@ -1211,7 +1260,7 @@ public sealed partial class MainWindow : Window
             }
 
             float x = (i + 0.5f) * columnWidth;
-            args.DrawingSession.DrawLine(
+            session.DrawLine(
                 x,
                 centre - amplitude,
                 x,
@@ -1228,17 +1277,17 @@ public sealed partial class MainWindow : Window
 
         Windows.UI.Color fadeColour = ToColour(0xFFFFC857);
         float top = 2;
-        float bottom = (float)sender.ActualHeight - 2;
+        float bottom = height - 2;
         if (track.Project.FadeInSeconds > 0)
         {
             float fadeEnd = (float)(track.Project.FadeInSeconds / clipDuration) * width;
-            args.DrawingSession.DrawLine(0, bottom, fadeEnd, top, fadeColour, 1.5f);
+            session.DrawLine(0, bottom, fadeEnd, top, fadeColour, 1.5f);
         }
 
         if (track.Project.FadeOutSeconds > 0)
         {
             float fadeStart = width - (float)(track.Project.FadeOutSeconds / clipDuration) * width;
-            args.DrawingSession.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
+            session.DrawLine(fadeStart, top, width, bottom, fadeColour, 1.5f);
         }
 
         if (ReferenceEquals(track, _audioRangeTrack))
@@ -1271,9 +1320,9 @@ public sealed partial class MainWindow : Window
             float x1 = (float)Math.Clamp(selectionEnd, 0, 1) * width;
             if (x1 > x0)
             {
-                args.DrawingSession.FillRectangle(x0, 0, x1 - x0, (float)sender.ActualHeight, ToColour(0x4064C8FF));
-                args.DrawingSession.DrawLine(x0, 0, x0, (float)sender.ActualHeight, fadeColour);
-                args.DrawingSession.DrawLine(x1, 0, x1, (float)sender.ActualHeight, fadeColour);
+                session.FillRectangle(x0, 0, x1 - x0, height, ToColour(0x4064C8FF));
+                session.DrawLine(x0, 0, x0, height, fadeColour);
+                session.DrawLine(x1, 0, x1, height, fadeColour);
             }
         }
     }
@@ -1313,33 +1362,29 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static Border CreateAudioTrackName(string text) => new()
+    private Grid CreateAudioTrackName(string text, bool selected, int index)
     {
-        Height = 36,
-        Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
-        CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(10, 0, 10, 0),
-        Child = new TextBlock
+        var header = new Grid
+        {
+            Height = TimelineLaneHeight,
+            Margin = new Thickness(0, 0, 6, TimelineLaneSpacing),
+            Padding = new Thickness(8, 0, 2, 0),
+            CornerRadius = new CornerRadius(4),
+            Background = new SolidColorBrush(selected
+                ? Windows.UI.Color.FromArgb(255, 0x2A, 0x32, 0x40)
+                : Windows.UI.Color.FromArgb(255, 0x22, 0x26, 0x2E)),
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(header, $"Audio track {index + 1}");
+        header.Children.Add(new TextBlock
         {
             Text = text,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.LightGray),
-        },
-    };
-
-    private static Border CreateAudioTrackLane(string text) => new()
-    {
-        Height = 36,
-        Background = new SolidColorBrush(Microsoft.UI.Colors.DarkSlateGray),
-        CornerRadius = new CornerRadius(4),
-        Padding = new Thickness(10, 0, 10, 0),
-        Child = new TextBlock
-        {
-            Text = text,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.Gray),
-        },
-    };
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xC7, 0xCD, 0xD7)),
+        });
+        header.Tapped += (_, _) => SelectAudioTrack(index);
+        return header;
+    }
 
     private void AudioTrack_Click(object sender, RoutedEventArgs e)
     {
@@ -1507,7 +1552,7 @@ public sealed partial class MainWindow : Window
         _frames.Add(new EditorFrame { Number = number });
         MarkEditChanged();
         CommitEdit();
-        AddTimelineButton(_frames[^1], _frames.Count - 1);
+        InvalidateVideoTimeline();
         SelectFrame(_frames.Count - 1);
     }
 
@@ -2206,7 +2251,6 @@ public sealed partial class MainWindow : Window
         }
 
         FinishActiveEdit();
-        int previousIndex = _selectedFrameIndex;
         _selectedFrameIndex = index;
         RenderCurrentInk();
         if (seekVideo)
@@ -2214,8 +2258,7 @@ public sealed partial class MainWindow : Window
             SeekToCurrentFrame();
         }
 
-        UpdateTimelineButton(previousIndex);
-        UpdateTimelineButton(_selectedFrameIndex);
+        InkTrackCanvas.Invalidate();
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
         UpdateInterpolationSelector();
@@ -2574,7 +2617,6 @@ public sealed partial class MainWindow : Window
         {
             var frame = new EditorFrame { Number = _frames.Count + 1 };
             _frames.Add(frame);
-            AddTimelineButton(frame, _frames.Count - 1);
             totalExposureFrames++;
             UnsavedIndicator.Visibility = Visibility.Visible;
         }
@@ -2657,85 +2699,11 @@ public sealed partial class MainWindow : Window
         _interpolatedFrameIndices.UnionWith(InkAnimation.GetInterpolatedFrameIndices(
             _frames,
             frame => GetLayerStrokes(frame, _activeInkLayerId)));
-        InkFramesPanel.Children.Clear();
-        _timelineButtons.Clear();
-        for (int i = 0; i < _frames.Count; i++)
-        {
-            AddTimelineButton(_frames[i], i);
-        }
-
+        InkTrackNameText.Text = CurrentInkLayer.Name;
         UpdateFrameReadout();
         KeyframeButton.Content = CurrentFrame.IsKeyframe ? "Remove keyframe" : "Set keyframe";
         UpdateInterpolationSelector();
-        for (int i = 0; i < _frames.Count; i++)
-        {
-            UpdateTimelineButton(i);
-        }
-        UpdateTrackPlayheads();
-    }
-
-    private void AddTimelineButton(EditorFrame frame, int index)
-    {
-        var button = new Button
-        {
-            Width = 54,
-            Padding = new Thickness(3, 0, 3, 0),
-            Tag = index,
-        };
-        button.Click += TimelineFrame_Click;
-        _timelineButtons.Add(button);
-        InkFramesPanel.Children.Add(button);
-        UpdateTimelineButton(index);
-    }
-
-    private void InkPlayheadSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
-    {
-        if (sender.ActualWidth <= 0 || _timelineButtons.Count == 0)
-        {
-            return;
-        }
-
-        double x = InkTimeline.GetPlayheadX(_frames, _playheadFramePosition);
-        DrawTrackPlayhead(args.DrawingSession, x, sender.ActualWidth, sender.ActualHeight);
-    }
-
-    private void UpdateTimelineButton(int index)
-    {
-        if (index < 0 || index >= _timelineButtons.Count)
-        {
-            return;
-        }
-
-        EditorFrame frame = _frames[index];
-        Button button = _timelineButtons[index];
-        button.Width = InkTimeline.GetCelWidth(frame);
-        bool isInterpolated = _interpolatedFrameIndices.Contains(index);
-        string prefix = frame.IsKeyframe ? "K " : isInterpolated ? "~" : "";
-        if (frame.DrawingLinkId.Length > 0)
-        {
-            prefix = "L ";
-        }
-        button.Content = $"{prefix}{frame.Number:000}";
-        ToolTipService.SetToolTip(
-            button,
-            $"{(frame.IsKeyframe ? "Keyframe" : isInterpolated ? "Interpolated cel" : "Cel")} {frame.Number}; " +
-            $"exposed for {frame.ExposureFrames} output frame(s)" +
-            (frame.GroupName.Length == 0 ? "" : $"; group: {frame.GroupName}") +
-            (frame.DrawingLinkId.Length == 0 ? "" : "; linked drawing"));
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button,
-            $"Cel {frame.Number}" + (frame.GroupName.Length == 0 ? "" : $", group {frame.GroupName}") +
-            (frame.DrawingLinkId.Length == 0 ? "" : ", linked drawing"));
-        bool isSelected = index == _selectedFrameIndex;
-        button.Background = (Brush)Application.Current.Resources[isSelected ? "AccentFillColorDefaultBrush" : "PanelRaisedBrush"];
-        button.Foreground = (Brush)Application.Current.Resources[isSelected ? "TextOnAccentFillColorPrimaryBrush" : "TextPrimaryBrush"];
-    }
-
-    private void TimelineFrame_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: int index })
-        {
-            SelectFrame(index);
-        }
+        InvalidateVideoTimeline();
     }
 
     private void AudioVolume_Changed(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
