@@ -13,6 +13,14 @@ permissions:
   contents: read
 
 jobs:
+  store-submission-tests:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Store submission automation without network access
+        shell: pwsh
+        run: .\build\Test-StoreSubmission.ps1
+
   build-and-test:
     runs-on: windows-2022
     strategy:
@@ -74,7 +82,7 @@ jobs:
           retention-days: 7
 
   store-package:
-    needs: build-and-test
+    needs: [build-and-test, store-submission-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/windows-store-package.yml
     with:
@@ -92,6 +100,9 @@ jobs:
       group: github-release
       cancel-in-progress: false
     steps:
+      - name: Check out reviewed release notes
+        uses: actions/checkout@v4
+
       - name: Download portable builds
         uses: actions/download-artifact@v4
         with:
@@ -130,13 +141,9 @@ jobs:
             fi
             msix_name="InkMotion-${TAG}-x86-x64.msixupload"
             mv "${uploads[0]}" "release/${msix_name}"
-            msix_note="**Microsoft Store update (manual submission):**
+            msix_note="**Microsoft Store update:** \`${msix_name}\` contains the verified x86 and x64 Store packages (package build ${{ github.run_number }}).
 
-          1. Download \`${msix_name}\` from this release. It contains the x86 and x64 Store packages (package build ${{ github.run_number }}).
-          2. In [Partner Center](https://partner.microsoft.com/dashboard), open InkMotion and create an update submission after the previous submission finishes processing.
-          3. Upload the \`.msixupload\` under **Packages**, review the inherited listing and availability settings, and submit for certification.
-
-          GitHub Actions builds and attaches the package automatically; it does **not** submit to or publish in the Microsoft Store. Microsoft signs the certified package; this upload file is not a direct installer."
+          The separate **store-submit** job uploads this package and reviewed What's new text for certification when Partner Center API credentials are configured and no submission is pending. Check that job's status and summary for the outcome; this GitHub release alone does not confirm Store submission or publication. Microsoft publishes after certification and signs the certified package; this upload file is not a direct installer."
           fi
           cat > notes.md <<EOF
           Automatic build of \`main\` at ${short_sha}, created after the x86 and x64 builds and tests passed.
@@ -145,6 +152,8 @@ jobs:
 
           ${msix_note}
           EOF
+          printf '\n## What is new\n\n' >> notes.md
+          jq -er '."en-us"' build/store-release-notes.json >> notes.md
           gh release create "$TAG" release/* \
             --target "$GITHUB_SHA" \
             --title "InkMotion build ${{ github.run_number }} (${short_sha})" \
@@ -157,3 +166,33 @@ jobs:
             echo
             echo "${msix_note}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  store-submit:
+    needs: [store-package, release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.store-package.outputs.package-ready == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    concurrency:
+      group: microsoft-store-submission
+      cancel-in-progress: false
+    steps:
+      - name: Check out reviewed submission automation
+        uses: actions/checkout@v4
+
+      - name: Download verified Store upload
+        uses: actions/download-artifact@v4
+        with:
+          name: InkMotion-Microsoft-Store
+          path: store
+
+      - name: Submit package and What's new for automatic publication after certification
+        shell: pwsh
+        env:
+          STORE_APP_ID: ${{ secrets.STORE_APP_ID }}
+          STORE_TENANT_ID: ${{ secrets.STORE_TENANT_ID }}
+          STORE_CLIENT_ID: ${{ secrets.STORE_CLIENT_ID }}
+          STORE_CLIENT_SECRET: ${{ secrets.STORE_CLIENT_SECRET }}
+        run: |
+          $packages = @(Get-ChildItem store -Recurse -Filter *.msixupload)
+          if ($packages.Count -ne 1) { throw "Expected exactly one verified Store upload; found $($packages.Count)." }
+          .\build\Submit-StoreUpdate.ps1 -PackagePath $packages[0].FullName -ReleaseNotesPath .\build\store-release-notes.json
