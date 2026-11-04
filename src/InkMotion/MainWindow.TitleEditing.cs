@@ -26,6 +26,7 @@ public sealed partial class MainWindow
         VideoTimelineEditing.GetVisibleLayers(_videoTracks, TitlePreviewSeconds, _frameRate, _videoMulticamGroups)
             .Where(location => location.Track.Kind == TimelineTrackKind.Text &&
                 VideoTimelineEditing.GetOpacity(location, TitlePreviewSeconds, _frameRate) > 0 &&
+                location.Clip.ObjectTracking is not { Enabled: true } &&
                 !string.IsNullOrWhiteSpace(location.Clip.Text) &&
                 location.Clip.FontSize * VideoTransformKeyframes.GetValueAtTime(
                     location.Clip, TitlePreviewSeconds, _frameRate).Scale * TitleAdornerSurface.ActualHeight /

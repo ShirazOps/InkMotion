@@ -234,6 +234,7 @@ public sealed class TimelineClipProject
     public double FontSize { get; set; } = 72;
     public uint Colour { get; set; } = 0xFFFFFFFF;
     public uint TextBackgroundColour { get; set; }
+    public InkObjectTracking? ObjectTracking { get; set; }
 }
 
 public sealed record VideoColourCurvePoint(double Input, double Output);
@@ -991,6 +992,7 @@ public static class VideoTimelineEditing
         copy.Id = Guid.NewGuid().ToString("N");
         copy.StartFrame = startFrame;
         copy.TransitionInSeconds = 0;
+        copy.ObjectTracking = null;
         return copy;
     }
 
@@ -1086,6 +1088,7 @@ public static class VideoTimelineEditing
         FontSize = clip.FontSize,
         Colour = clip.Colour,
         TextBackgroundColour = clip.TextBackgroundColour,
+        ObjectTracking = clip.ObjectTracking is null ? null : InkObjectMotion.Clone(clip.ObjectTracking),
     };
 
     /// <summary>Validates a timeline, returning an error message or null when it is valid.</summary>
@@ -1286,6 +1289,7 @@ public static class VideoTimelineEditing
         {
             case TimelineTrackKind.Video:
                 double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+                if (clip.ObjectTracking is not null) return false;
                 return !string.IsNullOrWhiteSpace(clip.SourcePath) &&
                     IsUnit(clip.Volume) &&
                     double.IsFinite(clip.EmbeddedAudioBalance) &&
@@ -1301,7 +1305,8 @@ public static class VideoTimelineEditing
                     double.IsFinite(clip.TransitionInSeconds) && clip.TransitionInSeconds >= 0 &&
                     double.IsFinite(clip.Scale) && clip.Scale is >= MinimumScale and <= MaximumScale;
             case TimelineTrackKind.Image:
-                return !string.IsNullOrWhiteSpace(clip.SourcePath) &&
+                return clip.ObjectTracking is null &&
+                    !string.IsNullOrWhiteSpace(clip.SourcePath) &&
                     clip.TransitionInSeconds == 0 &&
                     IsValidStillDuration(clip.DurationSeconds) &&
                     double.IsFinite(clip.Scale) &&
@@ -1314,9 +1319,10 @@ public static class VideoTimelineEditing
                     !string.IsNullOrWhiteSpace(clip.FontFamily) &&
                     clip.FontFamily.Length <= 128 &&
                     double.IsFinite(clip.FontSize) &&
-                    clip.FontSize is >= MinimumFontSize and <= MaximumFontSize;
+                    clip.FontSize is >= MinimumFontSize and <= MaximumFontSize &&
+                    (clip.ObjectTracking is null || InkObjectMotion.IsValid(clip.ObjectTracking));
             default:
-                return false;
+                return clip.ObjectTracking is null;
         }
     }
 

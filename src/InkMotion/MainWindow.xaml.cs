@@ -2080,9 +2080,14 @@ public sealed partial class MainWindow : Window
 
     private void DrawVisibleText(int frameIndex, double opacity)
     {
+        double seconds = _playheadFramePosition / _frameRate;
         foreach (InkTextOverlay overlay in _frames[frameIndex].TextOverlays)
         {
-            _renderedText.Add(new RenderedText(overlay, opacity));
+            if (InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) &&
+                InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, _videoTracks))
+            {
+                _renderedText.Add(new RenderedText(overlay, opacity, seconds));
+            }
         }
     }
 
@@ -2124,7 +2129,15 @@ public sealed partial class MainWindow : Window
 
         foreach (RenderedText renderedText in _renderedText)
         {
-            TimelineCompositor.DrawInkText(args.DrawingSession, renderedText.Overlay, renderedText.Opacity, width, height, 1);
+            if (!InkObjectMotion.IsSourceCurrent(renderedText.Tracking, _videoTracks)) continue;
+            var originalTransform = args.DrawingSession.Transform;
+            args.DrawingSession.Transform = InkObjectMotion.Transform(renderedText.Tracking, renderedText.Seconds, width, height) * originalTransform;
+            try
+            {
+                TimelineCompositor.DrawInkText(args.DrawingSession, renderedText.Overlay,
+                    renderedText.Opacity, width, height, 1);
+            }
+            finally { args.DrawingSession.Transform = originalTransform; }
         }
 
         DrawInkSelection(args.DrawingSession, width, height);
@@ -2781,7 +2794,11 @@ public sealed partial class MainWindow : Window
 
     private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity,
         InkObjectTracking? Tracking = null, double Seconds = 0);
-    private sealed record RenderedText(InkTextOverlay Overlay, double Opacity);
+    private sealed record RenderedText(InkTextOverlay Overlay, double Opacity,
+        double Seconds = 0)
+    {
+        public InkObjectTracking? Tracking => Overlay.ObjectTracking;
+    }
 
     private void UpdateFrameStatus()
     {

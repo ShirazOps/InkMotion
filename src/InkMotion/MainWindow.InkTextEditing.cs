@@ -192,10 +192,13 @@ public sealed partial class MainWindow
         bool valid = ReferenceEquals(_textInspectorFrame, CurrentFrame) &&
             InkTextOverlaySelector.SelectedItem is ComboBoxItem { Tag: InkTextOverlay text } &&
             CurrentFrame.TextOverlays.Contains(text);
-        ApplySelectedInkTextButton.IsEnabled = valid;
+        bool editable = valid &&
+            InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay { ObjectTracking.Enabled: true } };
+        ApplySelectedInkTextButton.IsEnabled = editable;
         RemoveSelectedInkTextButton.IsEnabled = valid;
-        InkSelectedTextProperties.IsEnabled = valid;
+        InkSelectedTextProperties.IsEnabled = editable;
         InkSurface.Invalidate();
+        UpdateInkTrackingControls();
         if (!valid || InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay selected })
         {
             return;
@@ -233,8 +236,13 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
-        BeginEdit();
         bool remove = sender is Button { Tag: "remove" };
+        if (!remove && selected.ObjectTracking is { Enabled: true })
+        {
+            StatusText.Text = "Turn Follow object off before editing the tracked text overlay.";
+            return;
+        }
+        BeginEdit();
         bool changedContent = !remove && selected.Text != InkTextBox.Text;
         try
         {

@@ -87,6 +87,7 @@ public sealed class InkTextOverlay
     public double FontSize { get; set; } = 48;
     public uint Colour { get; set; } = 0xFFFFFFFF;
     public List<InkTextStyleRange> StyleRanges { get; set; } = [];
+    public InkObjectTracking? ObjectTracking { get; set; }
 }
 
 public sealed class InkTextStyleRange
@@ -1164,7 +1165,8 @@ internal static class EditorProjectValidation
                     string.IsNullOrWhiteSpace(text.FontFamily) ||
                     text.FontFamily.Length > 128 ||
                     !double.IsFinite(text.FontSize) ||
-                    text.FontSize is < 6 or > 512))
+                    text.FontSize is < 6 or > 512 ||
+                    (text.ObjectTracking is not null && !InkObjectMotion.IsValid(text.ObjectTracking))))
             {
                 throw new InvalidDataException("A text overlay contains invalid content or styling.");
             }

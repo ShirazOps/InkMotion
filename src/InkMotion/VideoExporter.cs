@@ -311,6 +311,23 @@ public static class VideoExporter
                 if (layer.ObjectTracking is { Enabled: true, LostSeconds: double lost })
                     warnings.Add($"Object tracking on '{layer.Name}' stopped at {lost:0.###} s; its drawing is hidden from that point until corrected.");
             }
+            foreach (TimelineClipProject title in _project.VideoTracks
+                .Where(track => track.Kind == TimelineTrackKind.Text)
+                .SelectMany(track => track.Clips))
+            {
+                if (!InkObjectMotion.IsSourceCurrent(title.ObjectTracking, _project.VideoTracks))
+                    throw new InvalidOperationException($"Object tracking on title '{title.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
+                if (title.ObjectTracking is { Enabled: true, LostSeconds: double lost })
+                    warnings.Add($"Object tracking on title '{title.Text}' stopped at {lost:0.###} s; the title is hidden from that point until corrected.");
+            }
+            foreach (InkTextOverlay text in _project.Frames.SelectMany(frame => frame.TextOverlays)
+                .Where(text => text.ObjectTracking is not null))
+            {
+                if (!InkObjectMotion.IsSourceCurrent(text.ObjectTracking, _project.VideoTracks))
+                    throw new InvalidOperationException($"Object tracking on text '{text.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
+                if (text.ObjectTracking is { Enabled: true, LostSeconds: double lost })
+                    warnings.Add($"Object tracking on text '{text.Text}' stopped at {lost:0.###} s; the text is hidden from that point until corrected.");
+            }
             _target = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96);
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
             _inkScale = (float)(_profile.Height / reference);
@@ -373,7 +390,8 @@ public static class VideoExporter
                         case TimelineTrackKind.Text:
                             TimelineCompositor.DrawTitle(
                                 session, layer.Clip, width, height, opacity,
-                                VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate));
+                                VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
+                                seconds, _project.VideoTracks);
                             break;
                     }
                 }
