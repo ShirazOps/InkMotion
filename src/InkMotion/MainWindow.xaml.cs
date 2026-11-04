@@ -2254,6 +2254,10 @@ public sealed partial class MainWindow : Window
 
         if (index == _selectedFrameIndex)
         {
+            if (CurrentFrame.TextOverlays.Any(text => text.ObjectTracking is { Enabled: true }))
+            {
+                RenderCurrentInk();
+            }
             if (seekVideo)
             {
                 SeekToCurrentFrame();

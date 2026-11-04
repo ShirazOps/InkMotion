@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Xunit;
 
@@ -6,6 +7,54 @@ namespace InkMotion.Tests;
 
 public sealed class InkObjectTrackingTests
 {
+    [Fact]
+    public void UntrackedVideoSerialization_PreservesLegacySourceSignature()
+    {
+        var clip = new TimelineClipProject { Id = "video-1", SourcePath = "source.mp4", SourceDurationSeconds = 2 };
+        string signature = JsonSerializer.Serialize(clip);
+        Assert.DoesNotContain("ObjectTracking", signature);
+        var project = new EditorProject
+        {
+            VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+        };
+        InkObjectTracking tracking = Tracking();
+        tracking.SourceSignature = signature;
+        project.InkLayers[0].ObjectTracking = tracking;
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.True(InkObjectMotion.IsSourceCurrent(reopened.InkLayers[0].ObjectTracking, reopened.VideoTracks));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HiddenTrackedTitle_DoesNotBlockExportOrReportTrackingLoss(bool staleSource)
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        InkObjectTracking tracking = Tracking();
+        tracking.LostSeconds = 1;
+        tracking.SourceSignature = staleSource ? "{}" : "";
+        var project = new EditorProject
+        {
+            VideoTracks = [new()
+            {
+                Kind = TimelineTrackKind.Text,
+                IsVisible = false,
+                Clips = [new() { Text = "Hidden", DurationSeconds = 0.25, ObjectTracking = tracking }],
+            }],
+        };
+        var profile = new VideoExportProfile(ExportResolution.P720, 200, 100, 24);
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-hidden-title-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            VideoExportResult result = VideoExporter.Export(
+                new(project, profile, VideoExportCodec.H264, path, 100, PreferHardware: false),
+                null, CancellationToken.None);
+            Assert.True(File.Exists(path));
+            Assert.Empty(result.Warnings);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static InkObjectTracking Tracking() => new()
     {
         SourceClipId = "video-1", StartSeconds = 0, EndSeconds = 2, ReferenceSeconds = 0,

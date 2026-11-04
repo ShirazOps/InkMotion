@@ -312,7 +312,7 @@ public static class VideoExporter
                     warnings.Add($"Object tracking on '{layer.Name}' stopped at {lost:0.###} s; its drawing is hidden from that point until corrected.");
             }
             foreach (TimelineClipProject title in _project.VideoTracks
-                .Where(track => track.Kind == TimelineTrackKind.Text)
+                .Where(track => track.IsVisible && track.Kind == TimelineTrackKind.Text)
                 .SelectMany(track => track.Clips))
             {
                 if (!InkObjectMotion.IsSourceCurrent(title.ObjectTracking, _project.VideoTracks))

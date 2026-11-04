@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace InkMotion;
 
 public enum TimelineTrackKind
@@ -234,6 +236,7 @@ public sealed class TimelineClipProject
     public double FontSize { get; set; } = 72;
     public uint Colour { get; set; } = 0xFFFFFFFF;
     public uint TextBackgroundColour { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 

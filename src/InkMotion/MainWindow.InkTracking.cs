@@ -59,6 +59,7 @@ public sealed partial class MainWindow
     private void UpdateInkTrackingControls()
     {
         if (InkTrackingStatusText is null) return;
+        UpdateInkTextEditability();
         InkObjectTracking? tracking = SelectedTracking;
         bool targetAvailable = TrackingTargetIndex switch
         {
@@ -360,6 +361,7 @@ public sealed partial class MainWindow
             StatusText.Text = result.Message;
             CancelInkTrackingSelection();
             RenderCurrentInk();
+            if (targetIndex == 2) CompositionSurface.Invalidate();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -398,6 +400,7 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateInkTrackingControls();
         RenderCurrentInk();
+        if (TrackingTargetIndex == 2) CompositionSurface.Invalidate();
     }
 
     private void ClearInkTracking_Click(object sender, RoutedEventArgs e)
@@ -414,6 +417,7 @@ public sealed partial class MainWindow
         CancelInkTrackingSelection();
         UpdateInkTrackingControls();
         RenderCurrentInk();
+        if (TrackingTargetIndex == 2) CompositionSurface.Invalidate();
     }
 
     private void InkTrackingLost_Click(object sender, RoutedEventArgs e)
