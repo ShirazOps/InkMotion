@@ -8,9 +8,9 @@ A native Windows video, audio and animation editor built with C#, .NET 10, WinUI
 
 Download an x64 or x86 ZIP from [Releases](https://github.com/ShirazOps/InkMotion/releases), extract it and run `InkMotion.exe`. Release builds are self-contained; no separate .NET or Windows App SDK installation is needed. Builds are currently unsigned.
 
-Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar, inspector and timeline, with shared playback and undo/redo controls. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
+Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar and inspector, while one shared track layout keeps the default Video, Audio and Ink tracks visible in every workspace. Playback and undo/redo controls are shared. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
 
-The red playhead tracks playback across the track area in every editor. Click or drag the timeline ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips share one project-time scale, including start offsets and tempo changes: click a waveform to seek, or drag it to select a range. The Ink ruler seeks within cel exposures and follows playback as the strip scrolls. Switching editors keeps the same position.
+The red playhead tracks playback across the shared time ruler in every workspace. Click or drag the ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips and Ink cels align to the same ruler; cel widths reflect exposure duration. Audio clips include start offsets and tempo changes: click a waveform to seek, or drag it to select a range. Switching workspaces keeps the same position.
 
 Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LUT files remain externally linked, so keep them available. The project media bin identifies missing sources and can search folders for unique filename matches before relinking.
 
@@ -26,7 +26,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Double-click a title clip, title track header or title in the viewer to edit its text. In paused **Modified** Video preview, drag titles with mouse or touch, resize proportionally using corner handles and rotate with the round handle.
 - Title font and size, with matching text/background colour pickers and independent opacity controls. Viewer edits respect track locks, support undo/redo and update transform keyframes on animated titles.
 - Animate titles using **Set title motion keyframe**: mark the first pose, move the playhead and drag/rotate/resize the next pose. Subsequent pose edits automatically create or update keys; playback and export interpolate between them. Use **Previous/Next pose** or the title clip's blue motion markers to navigate.
-- Right-click video/image/title headers for track properties or clips for their respective inspector. Audio lanes/headers and the ink timeline/layer selector also provide property menus.
+- Right-click video/image/title headers for track properties or clips for their respective inspector. Audio lanes/headers and the Ink track header/lane also provide property menus.
 
 **Original / Modified** compares the active video source at the playhead with the edited composition. Original is a source comparison, not a second unedited timeline.
 
@@ -113,9 +113,13 @@ For x86, use `Platform=x86` and the corresponding output directory. [Windows CI]
 
 ### Microsoft Store updates
 
-Each successful `main` release automatically includes an x86/x64 `.msixupload` package when the Store identity secrets are configured. Download it from [GitHub Releases](https://github.com/ShirazOps/InkMotion/releases), create an update in [Partner Center](https://partner.microsoft.com/dashboard), upload it under **Packages**, review the submission and send it for certification. Release notes and the Actions summary include these steps. Store submission remains manual; no Partner Center API credentials are required.
+Each successful `main` release includes a verified x86/x64 `.msixupload` when the Store identity secrets are configured, plus a copy-ready `InkMotion-build-<build>-whats-new-<language>.txt` file for each language in [`build/store-release-notes.json`](build/store-release-notes.json). Download the files from [GitHub Releases](https://github.com/ShirazOps/InkMotion/releases). In [Partner Center](https://partner.microsoft.com/dashboard), create an update, upload the `.msixupload` under **Packages**, and copy the matching text into each listing's **What's new** field. Review the inherited listing, availability and publication settings, then submit for certification. Release notes and the Actions summary include these steps.
 
-Package versions use the CI build number (`1.0.<build>.0` with the current manifest). Keep manually submitted versions below subsequent generated versions; if you change the major/minor version in Partner Center, update the manifest base version accordingly. Wait for an existing submission to finish before submitting another update.
+Submission and publication are manual; no Microsoft Entra tenant or Store submission API credentials are required. Existing Store package identity values remain exclusively in **GitHub Actions secrets**, not repository variables or files. The workflow does not log into Partner Center, upload to the Store or change account permissions.
+
+Update the release-notes JSON in the feature PR before merging: keys are lowercase Store listing language codes and values are non-blank plain text of up to 1500 characters. The workflow validates these values, requires English (`en-us`) notes, and exports one UTF-8 text attachment per language. English notes also appear in GitHub release notes. Copy notes into any relevant platform-specific listing overrides during manual review. Do not put credentials or internal information in this publicly committed text.
+
+Package versions use the CI build number (`1.0.<build>.0` with the current manifest) and must exceed every published package. If you change the major/minor version in Partner Center, update the manifest base version accordingly. Wait for an existing submission to finish before uploading the desired newer build, and monitor certification in Partner Center. Tag/manual packaging runs continue to produce package artifacts; successful `main` CI runs attach packages and release-note text files to GitHub releases.
 
 <details>
 <summary>Workspace screenshots (empty-project layout examples)</summary>

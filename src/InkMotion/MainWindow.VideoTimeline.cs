@@ -1505,6 +1505,8 @@ public sealed partial class MainWindow
         double contentSeconds = Math.Max(markerEnd, Math.Max(GetPlaybackEndSeconds(), _playheadFramePosition / _frameRate)) + 10;
         double width = Math.Max(viewport, contentSeconds * _timelinePixelsPerSecond);
         double height = TimelineRulerHeight + (_videoTracks.Count * (TimelineLaneHeight + TimelineLaneSpacing));
+        double contentHeight = height + (_audioTracks.Count * (TimelineLaneHeight + TimelineLaneSpacing)) +
+            TimelineLaneHeight + TimelineLaneSpacing;
         if (!(Math.Abs(VideoTimelineCanvas.Width - width) <= 0.5))
         {
             VideoTimelineCanvas.Width = width;
@@ -1515,7 +1517,16 @@ public sealed partial class MainWindow
             VideoTimelineCanvas.Height = height;
         }
 
+        TrackLayoutContent.Width = width;
+        TrackLayoutContent.Height = contentHeight;
+        InkTrackCanvas.Width = width;
+        foreach (Grid lane in AudioTracksPanel.Children.OfType<Grid>())
+        {
+            lane.Width = width;
+        }
+
         VideoTimelineCanvas.Invalidate();
+        InkTrackCanvas.Invalidate();
         UpdateTrackPlayheads();
     }
 

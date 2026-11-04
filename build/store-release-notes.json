@@ -1,0 +1,3 @@
+{
+  "en-us": "Video, Audio, and Ink tracks now share one timeline across Video Editor, Audio Editor, Ink Editor, and Export.\n\n- New projects include a default track for video, audio, and ink.\n- Audio clips and ink cels align on a shared time ruler and zoom scale.\n- Ink cel widths reflect their exposure duration.\n- Switching workspaces retains the shared playback position."
+}

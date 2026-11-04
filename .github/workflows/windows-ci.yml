@@ -13,6 +13,20 @@ permissions:
   contents: read
 
 jobs:
+  store-release-notes-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate reviewed Store release notes
+        run: |
+          jq -e '
+            type == "object" and length > 0 and has("en-us") and
+            all(to_entries[];
+              (.key | test("^[a-z]{2,3}(-[a-z0-9]{2,8})+$")) and
+              (.value | type == "string" and length <= 1500 and test("[^[:space:]]"))
+            )
+          ' build/store-release-notes.json > /dev/null
+
   build-and-test:
     runs-on: windows-2022
     strategy:
@@ -74,7 +88,7 @@ jobs:
           retention-days: 7
 
   store-package:
-    needs: build-and-test
+    needs: [build-and-test, store-release-notes-check]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/windows-store-package.yml
     with:
@@ -92,6 +106,9 @@ jobs:
       group: github-release
       cancel-in-progress: false
     steps:
+      - name: Check out reviewed release notes
+        uses: actions/checkout@v4
+
       - name: Download portable builds
         uses: actions/download-artifact@v4
         with:
@@ -132,12 +149,18 @@ jobs:
             mv "${uploads[0]}" "release/${msix_name}"
             msix_note="**Microsoft Store update (manual submission):**
 
-          1. Download \`${msix_name}\` from this release. It contains the x86 and x64 Store packages (package build ${{ github.run_number }}).
-          2. In [Partner Center](https://partner.microsoft.com/dashboard), open InkMotion and create an update submission after the previous submission finishes processing.
-          3. Upload the \`.msixupload\` under **Packages**, review the inherited listing and availability settings, and submit for certification.
+          1. Download \`${msix_name}\` from this release. It contains the verified x86 and x64 Store packages (package build ${{ github.run_number }}).
+          2. In [Partner Center](https://partner.microsoft.com/dashboard), open InkMotion and create an update after the previous submission finishes processing.
+          3. Upload the \`.msixupload\` under **Packages**.
+          4. Copy the matching language's \`InkMotion-${TAG}-whats-new-<language>.txt\` attachment into the listing's **What's new** field.
+          5. Review the inherited listing, availability and publication settings, then submit for certification.
 
-          GitHub Actions builds and attaches the package automatically; it does **not** submit to or publish in the Microsoft Store. Microsoft signs the certified package; this upload file is not a direct installer."
+          GitHub Actions prepares these files but does not submit to or publish in the Microsoft Store. No submission API credentials are needed. Microsoft signs the certified package; this upload file is not a direct installer."
           fi
+          while IFS= read -r language; do
+            jq -er --arg language "$language" '.[$language]' build/store-release-notes.json \
+              > "release/InkMotion-${TAG}-whats-new-${language}.txt"
+          done < <(jq -r 'keys[]' build/store-release-notes.json)
           cat > notes.md <<EOF
           Automatic build of \`main\` at ${short_sha}, created after the x86 and x64 builds and tests passed.
 
@@ -145,6 +168,8 @@ jobs:
 
           ${msix_note}
           EOF
+          printf '\n## What is new\n\n' >> notes.md
+          jq -er '."en-us"' build/store-release-notes.json >> notes.md
           gh release create "$TAG" release/* \
             --target "$GITHUB_SHA" \
             --title "InkMotion build ${{ github.run_number }} (${short_sha})" \

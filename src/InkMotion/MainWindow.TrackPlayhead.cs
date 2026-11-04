@@ -1,68 +1,54 @@
-using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.Text;
-using Microsoft.Graphics.Canvas.UI.Xaml;
-using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.Graphics.Canvas.UI.Xaml;
 
 namespace InkMotion;
 
 public sealed partial class MainWindow
 {
-    private CanvasControl? _trackRulerDrag;
-    private uint? _trackRulerPointerId;
-    private double _audioTimelineSeconds = 1;
-
-    private void AudioTrackArea_SizeChanged(object sender, SizeChangedEventArgs e) => LayoutAudioClips();
+    private uint? _inkTrackPointerId;
 
     private void LayoutAudioClips()
     {
-        if (AudioTrackArea is null || AudioTracksPanel is null)
+        if (AudioTracksPanel is null)
         {
             return;
         }
 
-        _audioTimelineSeconds = Math.Max(1, GetPlaybackEndSeconds());
-        double width = AudioTrackArea.ActualWidth;
-        if (width <= 0)
+        foreach (Grid lane in AudioTracksPanel.Children.OfType<Grid>())
         {
-            return;
-        }
-
-        foreach (Button lane in AudioTracksPanel.Children.OfType<Button>())
-        {
-            if (lane.Tag is not int index || index < 0 || index >= _audioTracks.Count)
+            if (lane.Tag is not int index || index < 0 || index >= _audioTracks.Count ||
+                lane.Children.OfType<Button>().FirstOrDefault() is not { } clip)
             {
                 continue;
             }
 
             AudioTrackRuntime track = _audioTracks[index];
-            double start = AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate);
+            double left = AudioClipEditing.GetClipStartSeconds(track.Project, _frameRate) * _timelinePixelsPerSecond;
             double duration = AudioClipEditing.GetTimelineDuration(track.Project, track.SourceDurationSeconds);
-            double left = Math.Clamp(start / _audioTimelineSeconds, 0, 1) * width;
-            double right = double.IsFinite(duration)
-                ? Math.Clamp((start + duration) / _audioTimelineSeconds, 0, 1) * width
-                : width;
-            lane.Margin = new Thickness(left, 0, 0, 0);
-            lane.Width = Math.Max(0, right - left);
+            double width = double.IsFinite(duration)
+                ? Math.Max(4, duration * _timelinePixelsPerSecond)
+                : Math.Max(4, TrackLayoutContent.Width - left);
+            clip.Margin = new Thickness(left, 0, 0, 0);
+            clip.Width = width;
         }
-
-        AudioTimelineRuler.Invalidate();
-        AudioPlayheadSurface.Invalidate();
     }
 
     private void UpdateTrackPlayheads()
     {
-        if (AudioPlayheadSurface is null || InkPlayheadSurface is null)
+        if (TrackPlayheadLine is null)
         {
             return;
         }
 
         LayoutAudioClips();
-        AudioPlayheadSurface.Invalidate();
-        InkPlayheadSurface.Invalidate();
-        InkTimelineRuler.Invalidate();
+        TrackPlayheadLine.Margin = new Thickness(
+            Math.Max(0, _playheadFramePosition / _frameRate * _timelinePixelsPerSecond - 1),
+            TimelineRulerHeight,
+            0,
+            0);
+        InkTrackCanvas?.Invalidate();
         if (_isPlaying)
         {
             FollowTrackPlayhead();
@@ -71,19 +57,13 @@ public sealed partial class MainWindow
 
     private void FollowTrackPlayhead()
     {
-        ScrollViewer? scroller = _workspace switch
-        {
-            "Ink" => InkTimelineScroller,
-            "Video" or "Export" => VideoTimelineScroller,
-            _ => null,
-        };
-        if (scroller is null || scroller.ViewportWidth <= 0)
+        ScrollViewer scroller = VideoTimelineScroller;
+        if (scroller.ViewportWidth <= 0)
         {
             return;
         }
 
-        double x = _workspace == "Ink" ? InkTimeline.GetPlayheadX(_frames, _playheadFramePosition)
-            : _playheadFramePosition / _frameRate * _timelinePixelsPerSecond;
+        double x = _playheadFramePosition / _frameRate * _timelinePixelsPerSecond;
         double offset = scroller.HorizontalOffset;
         double viewport = scroller.ViewportWidth;
         if (x < offset || x > offset + viewport - 24)
@@ -92,73 +72,62 @@ public sealed partial class MainWindow
         }
     }
 
-    private static void DrawTrackPlayhead(CanvasDrawingSession session, double x, double width, double height)
+    private void InkTrackCanvas_RegionsInvalidated(CanvasVirtualControl sender, CanvasRegionsInvalidatedEventArgs args)
     {
-        if (width <= 0 || height <= 0)
+        _timelineLabelFormat ??= new Microsoft.Graphics.Canvas.Text.CanvasTextFormat
         {
-            return;
-        }
+            FontSize = 11,
+            WordWrapping = Microsoft.Graphics.Canvas.Text.CanvasWordWrapping.NoWrap,
+            VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center,
+            TrimmingGranularity = Microsoft.Graphics.Canvas.Text.CanvasTextTrimmingGranularity.Character,
+            Options = Microsoft.Graphics.Canvas.Text.CanvasDrawTextOptions.Clip,
+        };
 
-        float position = (float)Math.Clamp(x, 1, Math.Max(1, width - 1));
-        var colour = Windows.UI.Color.FromArgb(255, 255, 77, 79);
-        session.DrawLine(position, 0, position, (float)height, colour, 2);
-        session.FillRectangle(position - 4, 0, 8, 7, colour);
-    }
-
-    private void AudioPlayheadSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args) =>
-        DrawTrackPlayhead(args.DrawingSession,
-            _playheadFramePosition / _frameRate / _audioTimelineSeconds * sender.ActualWidth,
-            sender.ActualWidth, sender.ActualHeight);
-
-    private void AudioTimelineRuler_Draw(CanvasControl sender, CanvasDrawEventArgs args)
-    {
-        if (sender.ActualWidth <= 0)
+        double pixelsPerFrame = _timelinePixelsPerSecond / _frameRate;
+        foreach (Windows.Foundation.Rect region in args.InvalidatedRegions)
         {
-            return;
-        }
-
-        _timelineRulerFormat ??= new CanvasTextFormat { FontSize = 10, WordWrapping = CanvasWordWrapping.NoWrap };
-        var session = args.DrawingSession;
-        session.Clear(Windows.UI.Color.FromArgb(255, 31, 35, 43));
-        double pixelsPerSecond = sender.ActualWidth / _audioTimelineSeconds;
-        double step = GetRulerStep(pixelsPerSecond);
-        for (double time = 0; time <= _audioTimelineSeconds; time += step)
-        {
-            float x = (float)(time * pixelsPerSecond);
-            session.DrawLine(x, 16, x, 24, Colors.Gray);
-            session.DrawText(FormatTimelineTime(time, step < 1), x + 3, 0, Colors.LightGray, _timelineRulerFormat);
-        }
-    }
-
-    private void InkTimelineRuler_Draw(CanvasControl sender, CanvasDrawEventArgs args)
-    {
-        _timelineRulerFormat ??= new CanvasTextFormat { FontSize = 10, WordWrapping = CanvasWordWrapping.NoWrap };
-        var session = args.DrawingSession;
-        session.Clear(Windows.UI.Color.FromArgb(255, 31, 35, 43));
-        double x = 0;
-        int start = 0;
-        foreach (EditorFrame frame in _frames)
-        {
-            double width = InkTimeline.GetCelWidth(frame);
-            session.DrawText($"F{start + 1}", (float)x + 3, 0, Colors.LightGray, _timelineRulerFormat);
-            session.DrawLine((float)x, 16, (float)x, 24, Colors.Gray);
-            if (width / frame.ExposureFrames >= 4)
+            using var session = sender.CreateDrawingSession(region);
+            double lastLabelEnd = region.Left;
+            for (int celIndex = 0; celIndex < _frames.Count; celIndex++)
             {
-                for (int offset = 1; offset < frame.ExposureFrames; offset++)
+                EditorFrame frame = _frames[celIndex];
+                double left = InkTimeline.GetCelLeft(_frames, celIndex, pixelsPerFrame);
+                double width = InkTimeline.GetCelWidth(frame, pixelsPerFrame);
+                if (left + width < region.Left || left > region.Right)
                 {
-                    float tick = (float)(x + offset / (double)frame.ExposureFrames * width);
-                    session.DrawLine(tick, 20, tick, 24, Colors.DimGray);
+                    continue;
+                }
+
+                bool selected = celIndex == _selectedFrameIndex;
+                Windows.UI.Color fill = selected
+                    ? Windows.UI.Color.FromArgb(255, 0xD9, 0x73, 0x1A)
+                    : frame.IsKeyframe
+                        ? Windows.UI.Color.FromArgb(255, 0x4F, 0x62, 0x83)
+                        : Windows.UI.Color.FromArgb(255, 0x3A, 0x42, 0x52);
+                session.FillRectangle((float)left, 2, (float)Math.Max(1, width - 1), 30, fill);
+                if (selected)
+                {
+                    session.DrawRectangle((float)left, 2, (float)Math.Max(1, width - 1), 30,
+                        Windows.UI.Color.FromArgb(255, 255, 255, 255), 1);
+                }
+
+                string prefix = frame.DrawingLinkId.Length > 0 ? "L " : frame.IsKeyframe ? "K " :
+                    _interpolatedFrameIndices.Contains(celIndex) ? "~" : "";
+                string label = $"{prefix}{frame.Number:000}";
+                double labelWidth = Math.Min(width - 6, 40);
+                if (labelWidth >= 16 && (selected || left >= lastLabelEnd))
+                {
+                    session.DrawText(label, new Windows.Foundation.Rect(left + 3, 2, labelWidth, 30),
+                        Windows.UI.Color.FromArgb(255, 236, 239, 244), _timelineLabelFormat);
+                    lastLabelEnd = left + labelWidth + 4;
                 }
             }
-
-            x += width + InkTimeline.CelSpacing;
-            start += frame.ExposureFrames;
         }
     }
 
-    private void TrackRuler_PointerPressed(object sender, PointerRoutedEventArgs e)
+    private void InkTrackCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is not CanvasControl canvas || canvas.ActualWidth <= 0 ||
+        if (sender is not CanvasVirtualControl canvas ||
             (!e.GetCurrentPoint(canvas).Properties.IsLeftButtonPressed &&
              e.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Touch))
         {
@@ -167,50 +136,40 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
-        SeekTrackRuler(canvas, e.GetCurrentPoint(canvas).Position.X);
+        SelectTimelineFrame(InkTimeline.GetFramePositionAtX(
+            _frames, e.GetCurrentPoint(canvas).Position.X, _timelinePixelsPerSecond / _frameRate));
         if (canvas.CapturePointer(e.Pointer))
         {
-            _trackRulerDrag = canvas;
-            _trackRulerPointerId = e.Pointer.PointerId;
+            _inkTrackPointerId = e.Pointer.PointerId;
         }
         e.Handled = true;
     }
 
-    private void TrackRuler_PointerMoved(object sender, PointerRoutedEventArgs e)
+    private void InkTrackCanvas_PointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is CanvasControl canvas && canvas == _trackRulerDrag && e.Pointer.PointerId == _trackRulerPointerId)
+        if (sender is CanvasVirtualControl canvas && e.Pointer.PointerId == _inkTrackPointerId)
         {
-            SeekTrackRuler(canvas, e.GetCurrentPoint(canvas).Position.X);
+            SelectTimelineFrame(InkTimeline.GetFramePositionAtX(
+                _frames, e.GetCurrentPoint(canvas).Position.X, _timelinePixelsPerSecond / _frameRate));
             e.Handled = true;
         }
     }
 
-    private void TrackRuler_PointerReleased(object sender, PointerRoutedEventArgs e)
+    private void InkTrackCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is CanvasControl canvas && canvas == _trackRulerDrag && e.Pointer.PointerId == _trackRulerPointerId)
+        if (sender is CanvasVirtualControl canvas && e.Pointer.PointerId == _inkTrackPointerId)
         {
-            SeekTrackRuler(canvas, e.GetCurrentPoint(canvas).Position.X);
-            _trackRulerDrag = null;
-            _trackRulerPointerId = null;
+            _inkTrackPointerId = null;
             canvas.ReleasePointerCapture(e.Pointer);
             e.Handled = true;
         }
     }
 
-    private void TrackRuler_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    private void InkTrackCanvas_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
-        if (ReferenceEquals(sender, _trackRulerDrag) && e.Pointer.PointerId == _trackRulerPointerId)
+        if (e.Pointer.PointerId == _inkTrackPointerId)
         {
-            _trackRulerDrag = null;
-            _trackRulerPointerId = null;
+            _inkTrackPointerId = null;
         }
-    }
-
-    private void SeekTrackRuler(CanvasControl canvas, double x)
-    {
-        double seconds = canvas == InkTimelineRuler
-            ? InkTimeline.GetFramePositionAtX(_frames, x) / _frameRate
-            : Math.Clamp(x / canvas.ActualWidth, 0, 1) * _audioTimelineSeconds;
-        MoveTimelinePlayhead(seconds);
     }
 }

@@ -65,15 +65,8 @@ public sealed partial class MainWindow
             panel.Visibility = layout.ShowOptions && selected ? Visibility.Visible : Visibility.Collapsed;
             Grid.SetRowSpan(panel, layout.ShowPreview ? 1 : 3);
         }
-        foreach (Grid timeline in new[] { VideoTimelineWorkspace, AudioTimelineWorkspace, InkTimelineWorkspace })
-        {
-            bool selected = timeline == (_workspace switch
-            {
-                "Audio" => AudioTimelineWorkspace, "Ink" => InkTimelineWorkspace, _ => VideoTimelineWorkspace,
-            });
-            timeline.Visibility = layout.ShowTimeline && selected ? Visibility.Visible : Visibility.Collapsed;
-            Grid.SetColumnSpan(timeline, layout.ShowPreview || !layout.ShowOptions ? 3 : 1);
-        }
+        TrackLayoutWorkspace.Visibility = layout.ShowTimeline ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumnSpan(TrackLayoutWorkspace, layout.ShowPreview || !layout.ShowOptions ? 3 : 1);
         LiveAudioSpectrumSurface.Visibility = _workspace == "Audio" ? Visibility.Visible : Visibility.Collapsed;
         LiveAudioSpectrumSurface.Invalidate();
         LayoutOptionsMenu.IsChecked = layout.ShowOptions;
@@ -124,23 +117,6 @@ public sealed partial class MainWindow
     }
 
     private void EditorLayout_SizeChanged(object sender, SizeChangedEventArgs e) => ApplyEditorLayout();
-
-    private void AudioLayout_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateAudioLaneHeights();
-
-    private void UpdateAudioLaneHeights()
-    {
-        int count = Math.Max(1, _audioTracks.Count);
-        double height = Math.Max(42, (AudioTimelineWorkspace.ActualHeight - 48 - (count - 1) * 4) / count);
-        foreach (FrameworkElement lane in AudioTracksPanel.Children.OfType<FrameworkElement>())
-        {
-            lane.Height = height;
-        }
-        foreach (FrameworkElement name in AudioTrackNamesPanel.Children.OfType<FrameworkElement>())
-        {
-            name.Height = height;
-        }
-        LayoutAudioClips();
-    }
 
     private void ResizeEditorLayout(bool options, double delta)
     {

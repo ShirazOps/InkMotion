@@ -1368,34 +1368,49 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="VideoTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12,8,12,8">
+            <Grid x:Name="TrackLayoutWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12,8,12,8">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,0,0,6">
-                    <TextBlock Text="VIDEO TIMELINE" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
-                    <ToggleButton x:Name="SelectTimelineToolButton" Content="Select" Tag="Select"
-                                  IsChecked="True" Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Drag a clip body to move; drag either edge to shorten or extend" />
-                    <ToggleButton x:Name="BladeTimelineToolButton" Content="Blade" Tag="Blade"
-                                  Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Click inside a clip to split it" />
-                    <ToggleButton x:Name="TrimTimelineToolButton" Content="Trim" Tag="Trim"
-                                  Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Drag a selected clip's start or end handle" />
-                    <ToggleButton x:Name="RippleTimelineToolButton" Content="Ripple" Tag="Ripple"
-                                  Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Drag a clip edge and ripple later clips on the same track" />
-                    <ToggleButton x:Name="RollTimelineToolButton" Content="Roll" Tag="Roll"
-                                  Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Drag the cut between adjacent clips" />
-                    <ToggleButton x:Name="SlideTimelineToolButton" Content="Slide" Tag="Slide"
-                                  Click="TimelineToolMode_Click"
-                                  ToolTipService.ToolTip="Drag a clip between adjacent clips" />
+                    <TextBlock Text="TRACKS" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
+                    <StackPanel x:Name="VideoTimelineTools" Orientation="Horizontal" Spacing="12">
+                        <ToggleButton x:Name="SelectTimelineToolButton" Content="Select" Tag="Select"
+                                      IsChecked="True" Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Drag a clip body to move; drag either edge to shorten or extend" />
+                        <ToggleButton x:Name="BladeTimelineToolButton" Content="Blade" Tag="Blade"
+                                      Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Click inside a clip to split it" />
+                        <ToggleButton x:Name="TrimTimelineToolButton" Content="Trim" Tag="Trim"
+                                      Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Drag a selected clip's start or end handle" />
+                        <ToggleButton x:Name="RippleTimelineToolButton" Content="Ripple" Tag="Ripple"
+                                      Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Drag a clip edge and ripple later clips on the same track" />
+                        <ToggleButton x:Name="RollTimelineToolButton" Content="Roll" Tag="Roll"
+                                      Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Drag the cut between adjacent clips" />
+                        <ToggleButton x:Name="SlideTimelineToolButton" Content="Slide" Tag="Slide"
+                                      Click="TimelineToolMode_Click"
+                                      ToolTipService.ToolTip="Drag a clip between adjacent clips" />
+                    </StackPanel>
+                    <StackPanel x:Name="InkCelTools" Orientation="Horizontal" Spacing="8" Visibility="Collapsed">
+                        <Button Click="AddFrame_Click" ToolTipService.ToolTip="Add a cel after the current one" AutomationProperties.Name="Add cel">
+                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add cel" /></StackPanel>
+                        </Button>
+                        <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
+                        <Button Click="DuplicateFrame_Click" AutomationProperties.Name="Duplicate cel">
+                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" FontSize="12" /><TextBlock Text="Duplicate cel" /></StackPanel>
+                        </Button>
+                        <Button x:Name="DeleteFrameButton" Click="DeleteFrame_Click" IsEnabled="False" AutomationProperties.Name="Delete cel">
+                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74D;" FontSize="12" /><TextBlock Text="Delete cel" /></StackPanel>
+                        </Button>
+                    </StackPanel>
                     <TextBlock Text="Zoom" FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
-                    <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="400" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" />
+                    <Slider x:Name="TimelineZoomSlider" Width="140" Minimum="10" Maximum="1200" Value="60" StepFrequency="5" VerticalAlignment="Center" ValueChanged="TimelineZoom_Changed" AutomationProperties.Name="Timeline zoom" ToolTipService.ToolTip="Pixels per second shared by the video, audio and ink tracks" />
                     <TextBlock x:Name="VideoTimelineHint" Text="Select: drag body to move, edges to resize. Blade: split. Trim/Ripple: drag an edge. Roll: drag a cut. Slide: drag between clips." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock x:Name="InkTimelineHint" Text="Cels are drawn to their exposure on the shared ruler. Click a cel to select it; drag the ruler to scrub." FontSize="11" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Visibility="Collapsed" />
                 </StackPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
                     <Grid>
@@ -1403,97 +1418,59 @@
                             <ColumnDefinition Width="170" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel x:Name="VideoTrackHeadersPanel" />
+                        <StackPanel>
+                            <StackPanel x:Name="VideoTrackHeadersPanel" />
+                            <StackPanel x:Name="AudioTrackNamesPanel" />
+                            <Grid x:Name="InkTrackHeader" Height="34" Margin="0,0,6,2" Padding="8,0,2,0" CornerRadius="4" Background="#22262E"
+                                  AutomationProperties.Name="Ink track">
+                                <Grid.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="Ink layer and cel properties..." Click="InkTrackProperties_Click" />
+                                    </MenuFlyout>
+                                </Grid.ContextFlyout>
+                                <TextBlock x:Name="InkTrackNameText" Text="Ink" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#C7CDD7" />
+                            </Grid>
+                        </StackPanel>
                         <ScrollViewer x:Name="VideoTimelineScroller" Grid.Column="1" VerticalAlignment="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" SizeChanged="VideoTimelineScroller_SizeChanged">
-                            <canvas:CanvasVirtualControl
-                                x:Name="VideoTimelineCanvas"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Top"
-                                ClearColor="#181B21"
-                                ManipulationMode="None"
-                                RegionsInvalidated="VideoTimelineCanvas_RegionsInvalidated"
-                                PointerPressed="VideoTimelineCanvas_PointerPressed"
-                                DoubleTapped="VideoTimelineCanvas_DoubleTapped"
-                                RightTapped="VideoTimelineCanvas_RightTapped"
-                                PointerMoved="VideoTimelineCanvas_PointerMoved"
-                                PointerReleased="VideoTimelineCanvas_PointerReleased"
-                                PointerCaptureLost="VideoTimelineCanvas_PointerCaptureLost" />
+                            <Grid x:Name="TrackLayoutContent" HorizontalAlignment="Left" VerticalAlignment="Top">
+                                <StackPanel>
+                                    <canvas:CanvasVirtualControl
+                                        x:Name="VideoTimelineCanvas"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        ClearColor="#181B21"
+                                        ManipulationMode="None"
+                                        RegionsInvalidated="VideoTimelineCanvas_RegionsInvalidated"
+                                        PointerPressed="VideoTimelineCanvas_PointerPressed"
+                                        DoubleTapped="VideoTimelineCanvas_DoubleTapped"
+                                        RightTapped="VideoTimelineCanvas_RightTapped"
+                                        PointerMoved="VideoTimelineCanvas_PointerMoved"
+                                        PointerReleased="VideoTimelineCanvas_PointerReleased"
+                                        PointerCaptureLost="VideoTimelineCanvas_PointerCaptureLost" />
+                                    <StackPanel x:Name="AudioTracksPanel" />
+                                    <canvas:CanvasVirtualControl
+                                        x:Name="InkTrackCanvas"
+                                        Height="34"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Top"
+                                        ClearColor="#1C2028"
+                                        ManipulationMode="None"
+                                        AutomationProperties.Name="Ink cel track. Click a cel to select it; drag to scrub."
+                                        RegionsInvalidated="InkTrackCanvas_RegionsInvalidated"
+                                        PointerPressed="InkTrackCanvas_PointerPressed"
+                                        PointerMoved="InkTrackCanvas_PointerMoved"
+                                        PointerReleased="InkTrackCanvas_PointerReleased"
+                                        PointerCaptureLost="InkTrackCanvas_PointerCaptureLost">
+                                        <canvas:CanvasVirtualControl.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Ink layer and cel properties..." Click="InkTrackProperties_Click" />
+                                            </MenuFlyout>
+                                        </canvas:CanvasVirtualControl.ContextFlyout>
+                                    </canvas:CanvasVirtualControl>
+                                </StackPanel>
+                                <Rectangle x:Name="TrackPlayheadLine" Width="2" Fill="#FF4D4F" HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="False" />
+                            </Grid>
                         </ScrollViewer>
-                    </Grid>
-                </ScrollViewer>
-            </Grid>
-
-            <Grid x:Name="AudioTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" Visibility="Collapsed" SizeChanged="AudioLayout_SizeChanged">
-                <ScrollViewer HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="24" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="150" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="PLAYHEAD" Style="{StaticResource SectionHeaderTextStyle}" VerticalAlignment="Center" />
-                        <Grid x:Name="AudioTrackArea" Grid.Column="1" Grid.RowSpan="2" SizeChanged="AudioTrackArea_SizeChanged">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="24" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <canvas:CanvasControl x:Name="AudioTimelineRuler" Draw="AudioTimelineRuler_Draw"
-                                ManipulationMode="None"
-                                AutomationProperties.Name="Audio timeline ruler. Drag to position the playhead for split and other edits."
-                                PointerPressed="TrackRuler_PointerPressed" PointerMoved="TrackRuler_PointerMoved"
-                                PointerReleased="TrackRuler_PointerReleased" PointerCaptureLost="TrackRuler_PointerCaptureLost" />
-                            <StackPanel x:Name="AudioTracksPanel" Grid.Row="1" Spacing="4" />
-                            <canvas:CanvasControl x:Name="AudioPlayheadSurface" Grid.RowSpan="2"
-                                ClearColor="Transparent" IsHitTestVisible="False" Draw="AudioPlayheadSurface_Draw"
-                                AutomationProperties.Name="Shared playback position across all audio tracks" />
-                        </Grid>
-                        <StackPanel x:Name="AudioTrackNamesPanel" Grid.Row="1" Spacing="4" />
-                    </Grid>
-                </ScrollViewer>
-            </Grid>
-
-            <Grid x:Name="InkTimelineWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PanelStyle}" Padding="12" RowSpacing="10" Visibility="Collapsed">
-                <Grid.ContextFlyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem Text="Ink layer and cel properties..." Click="InkTrackProperties_Click" />
-                    </MenuFlyout>
-                </Grid.ContextFlyout>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="INK CELS" Style="{StaticResource SectionHeaderTextStyle}" Margin="0,0,8,0" VerticalAlignment="Center" />
-                    <Button Click="AddFrame_Click" ToolTipService.ToolTip="Add a cel after the current one" AutomationProperties.Name="Add cel">
-                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="12" /><TextBlock Text="Add cel" /></StackPanel>
-                    </Button>
-                    <Button x:Name="KeyframeButton" Content="Set keyframe" Click="ToggleKeyframe_Click" />
-                    <Button Click="DuplicateFrame_Click" AutomationProperties.Name="Duplicate cel">
-                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8C8;" FontSize="12" /><TextBlock Text="Duplicate cel" /></StackPanel>
-                    </Button>
-                    <Button x:Name="DeleteFrameButton" Click="DeleteFrame_Click" IsEnabled="False" AutomationProperties.Name="Delete cel">
-                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74D;" FontSize="12" /><TextBlock Text="Delete cel" /></StackPanel>
-                    </Button>
-                </StackPanel>
-                <ScrollViewer x:Name="InkTimelineScroller" Grid.Row="1" VerticalAlignment="Top"
-                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalScrollMode="Disabled">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="24" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <canvas:CanvasControl x:Name="InkTimelineRuler" Draw="InkTimelineRuler_Draw"
-                            ManipulationMode="None"
-                            AutomationProperties.Name="Ink timeline ruler. Drag to position the playhead within a cel exposure."
-                            PointerPressed="TrackRuler_PointerPressed" PointerMoved="TrackRuler_PointerMoved"
-                            PointerReleased="TrackRuler_PointerReleased" PointerCaptureLost="TrackRuler_PointerCaptureLost" />
-                        <StackPanel x:Name="InkFramesPanel" Grid.Row="1" Orientation="Horizontal" Spacing="4" Height="38" />
-                        <canvas:CanvasControl x:Name="InkPlayheadSurface" Grid.RowSpan="2" ClearColor="Transparent"
-                            IsHitTestVisible="False" Draw="InkPlayheadSurface_Draw"
-                            AutomationProperties.Name="Playback position across the ink cel timeline" />
                     </Grid>
                 </ScrollViewer>
             </Grid>

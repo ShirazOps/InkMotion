@@ -53,7 +53,7 @@ The optional global Ctrl+Shift+F10 stop shortcut now cancels countdown or stops/
    - Make Video Editor the initial workspace; organise preview, timeline, track management, and clip tools into predictable regions.
    - Model timeline lanes explicitly for video, audio, ink, images, and text; only expose operations that are wired to real behaviour.
    - Preserve current video playback, cel/ink animation, audio clips, audio tags, project save/load, and undo/redo.
-   - Done: four top-level pages (Video Editor, Audio Editor, Ink Editor, Export) switched from buttons in a custom dark title bar with File and Edit menus; each page shares the preview and transport bar and shows its own inspector and timeline.
+   - Done: four top-level pages (Video Editor, Audio Editor, Ink Editor, Export) switched from buttons in a custom dark title bar with File and Edit menus; each page shares the preview, transport bar and unified Video/Audio/Ink track layout while retaining its own inspector.
    - Done: project version 9 introduced ordered video, image, and title tracks with clips (source in/out, fades, opacity, volume, position, scale, title styling); version 8 projects migrate their video into a clip. The timeline supports drag, trim, split, ripple delete, and track hide/lock/mute/reorder with undo/redo. Modified preview now composites all visible active tracks and cross-dissolves through the shared export compositor; Original remains source comparison.
 
 2. **Ink Editor**
@@ -77,7 +77,7 @@ The optional global Ctrl+Shift+F10 stop shortcut now cancels countdown or stops/
 5. **Windows distribution**
    - Build and test x86 and x64 configurations on Windows runners.
    - Produce a Store-upload MSIX bundle for both architectures after the Partner Centre package identity is associated.
-   - Done: the Store workflow applies the Partner Centre identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification.
+   - Done: the Store workflow applies the Partner Centre identity from repository secrets, then builds and verifies the x86/x64 `.msixupload`; the app declares Per-Monitor V2 DPI awareness for certification. Successful main releases attach the verified upload and validated, reviewed What's new text files per language for manual Partner Center submission. Release notes and Actions summaries include upload instructions; no submission API credentials or automated Store publication are required.
 
 ## Important decisions and constraints
 
@@ -91,10 +91,10 @@ The optional global Ctrl+Shift+F10 stop shortcut now cancels countdown or stops/
 
 ## Expanded editor delivery sequence
 
-The expanded design uses one shell: four page buttons in the first row; relevant actions in the second row; a shared video/audio viewer on the left with Original/Modified comparison; page-specific tools and options on the right; and the corresponding timeline below. Deliver real processing and project persistence with each tool, not placeholder controls.
+The expanded design uses one shell: four page buttons in the first row; relevant actions in the second row; a shared video/audio viewer on the left with Original/Modified comparison; page-specific tools and options on the right; and one unified Video/Audio/Ink track layout below, visible in all four workspaces with a shared ruler and time-aligned cel exposures. Deliver real processing and project persistence with each tool, not placeholder controls.
 
 1. **Shared layout and preview comparison**
-   - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes fill available height and names share scrolling. Page action toolbars use responsive command-bar overflow rather than horizontal scrolling. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
+   - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes and headers share scrolling and align to the video/ink ruler. Page action toolbars use responsive command-bar overflow rather than horizontal scrolling. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
    - Implemented: page-specific action row and the shared viewer in Audio Editor as well as Video Editor, Ink Editor and Export.
    - Implemented: Modified shows image/title/ink overlays across pages. Only Ink Editor accepts drawing input and shows onion-skin guides.
    - Implemented: Original compares the active visible video at the same source-mapped timeline position, bypassing opacity, clip volume/mute, overlays and added audio. A mode change pauses playback and does not change project data or export settings. Where there is no active video source, show an explicit empty state.
