@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Foundation;
 
@@ -14,12 +15,67 @@ public sealed partial class MainWindow
     private uint? _inkTrackingPointer;
     private CancellationTokenSource? _inkTrackingCancellation;
     private double _inkTrackingBoxSeconds;
+    private InkLayerProject? _inkTrackingBoxLayer;
+    private InkTextOverlay? _inkTrackingBoxText;
+    private EditorFrame? _inkTrackingBoxFrame;
+    private TimelineClipProject? _inkTrackingBoxTitle;
+    private int _inkTrackingBoxTargetIndex;
+
+    private InkTextOverlay? SelectedInkTrackingText =>
+        ReferenceEquals(_textInspectorFrame, CurrentFrame) &&
+        InkTextOverlaySelector.SelectedItem is ComboBoxItem { Tag: InkTextOverlay text } &&
+        CurrentFrame.TextOverlays.Contains(text) ? text : null;
+
+    private TimelineClipLocation? SelectedTimelineTitle =>
+        SelectedTimelineClip is { Track.Kind: TimelineTrackKind.Text } title ? title : null;
+
+    private int TrackingTargetIndex => InkTrackingTargetSelector?.SelectedIndex ?? 0;
+
+    private InkObjectTracking? SelectedTracking
+    {
+        get => TrackingTargetIndex switch
+        {
+            1 => SelectedInkTrackingText?.ObjectTracking,
+            2 => SelectedTimelineTitle?.Clip.ObjectTracking,
+            _ => CurrentInkLayer.ObjectTracking,
+        };
+        set
+        {
+            switch (TrackingTargetIndex)
+            {
+                case 1:
+                    if (SelectedInkTrackingText is { } text) text.ObjectTracking = value;
+                    break;
+                case 2:
+                    if (SelectedTimelineTitle is { } title) title.Clip.ObjectTracking = value;
+                    break;
+                default:
+                    CurrentInkLayer.ObjectTracking = value;
+                    break;
+            }
+        }
+    }
 
     private void UpdateInkTrackingControls()
     {
         if (InkTrackingStatusText is null) return;
-        InkObjectTracking? tracking = CurrentInkLayer.ObjectTracking;
-        bool editable = !CurrentInkLayer.IsLocked && _inkTrackingCancellation is null;
+        UpdateInkTextEditability();
+        InkObjectTracking? tracking = SelectedTracking;
+        bool targetAvailable = TrackingTargetIndex switch
+        {
+            1 => SelectedInkTrackingText is not null,
+            2 => SelectedTimelineTitle is not null,
+            _ => true,
+        };
+        bool targetLocked = TrackingTargetIndex switch
+        {
+            2 => SelectedTimelineTitle?.Track.IsLocked != false,
+            1 => false,
+            _ => CurrentInkLayer.IsLocked,
+        };
+        bool editable = targetAvailable && !targetLocked &&
+            _inkTrackingCancellation is null;
+        InkTrackingTargetSelector.IsEnabled = _inkTrackingCancellation is null && !_selectInkTrackingBox;
         InkTrackingBoxButton.IsEnabled = editable;
         InkTrackObjectButton.IsEnabled = editable;
         InkTrackingEndBox.IsEnabled = editable;
@@ -28,17 +84,41 @@ public sealed partial class MainWindow
         ClearInkTrackingButton.IsEnabled = editable && tracking is not null;
         InkTrackingLostButton.IsEnabled = tracking?.LostSeconds is not null;
         CancelInkTrackingButton.IsEnabled = _inkTrackingCancellation is not null || _selectInkTrackingBox;
-        InkTrackingStatusText.Text = !InkObjectMotion.IsSourceCurrent(tracking, _videoTracks) ?
-            "Source clip changed or was removed. Clear tracking and analyse again; this layer is hidden while Follow object is enabled." :
-            tracking is null ? "Off for this layer. Draw first, select an object box, then track." :
+        InkTrackingStatusText.Text = !targetAvailable ? TrackingTargetIndex switch
+            {
+                1 => "Select a text overlay in the Text Overlay list first.",
+                2 => "Select a title clip on the video timeline first.",
+                _ => "Select a tracking target first.",
+            } :
+            !InkObjectMotion.IsSourceCurrent(tracking, _videoTracks) ?
+            "Source clip changed or was removed. Clear tracking and analyse again; this object is hidden while Follow object is enabled." :
+            tracking is null ? TrackingTargetIndex switch
+                {
+                    1 => "Off for this text overlay. Select an object box and track.",
+                    2 => "Off for this title clip. Select an object box and track.",
+                    _ => "Off for this layer. Draw first, select an object box, then track.",
+                } :
             $"{(tracking.Enabled ? "Following" : "Disabled")} · {tracking.StartSeconds:0.###}–{tracking.EndSeconds:0.###} s · " +
             $"{tracking.Keys.Count} motion keys" +
             (tracking.LostSeconds is double lost ? $" · STOP at {lost:0.###} s: correct the object box here and resume." : "");
     }
 
+    private void InkTrackingTarget_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_inkTrackingCancellation is not null || _selectInkTrackingBox) return;
+        UpdateInkTrackingControls();
+    }
+
     private void SelectInkTrackingBox_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentInkLayer.IsLocked || _inkTrackingCancellation is not null) return;
+        if (_inkTrackingCancellation is not null) return;
+        int targetIndex = TrackingTargetIndex;
+        if (targetIndex switch
+            {
+                1 => SelectedInkTrackingText is null,
+                2 => SelectedTimelineTitle is null || SelectedTimelineTitle.Track.IsLocked,
+                _ => CurrentInkLayer.IsLocked,
+            }) return;
         if (IsOriginalPreview)
         {
             StatusText.Text = "Switch to Modified preview before selecting an object.";
@@ -48,9 +128,19 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         ClearInkSelection();
         CancelInkTrackingSelection();
+        _inkTrackingBoxTargetIndex = targetIndex;
+        _inkTrackingBoxLayer = targetIndex == 0 ? CurrentInkLayer : null;
+        _inkTrackingBoxText = targetIndex == 1 ? SelectedInkTrackingText : null;
+        _inkTrackingBoxFrame = targetIndex == 1 ? CurrentFrame : null;
+        _inkTrackingBoxTitle = targetIndex == 2 ? SelectedTimelineTitle?.Clip : null;
         _selectInkTrackingBox = true;
         UpdateInkTrackingControls();
-        StatusText.Text = "Drag a box around a textured part of the object in the Modified Ink Editor viewer.";
+        StatusText.Text = targetIndex == 0
+            ? "Drag a box around a textured part of the object in the Modified Ink Editor viewer."
+            : targetIndex == 1
+                ? "Drag a box around a textured part of the object for the selected text overlay in the Modified Ink Editor viewer."
+                :
+                "Drag a box around a textured part of the object for the selected title clip in the Modified Ink Editor viewer.";
     }
 
     private void CancelInkTrackingSelection()
@@ -59,6 +149,10 @@ public sealed partial class MainWindow
         _inkTrackingPointer = null;
         _inkTrackingBoxStart = null;
         _inkTrackingBox = null;
+        _inkTrackingBoxLayer = null;
+        _inkTrackingBoxText = null;
+        _inkTrackingBoxFrame = null;
+        _inkTrackingBoxTitle = null;
         InkSurface.ReleasePointerCaptures();
         InkSurface.Invalidate();
     }
@@ -116,7 +210,7 @@ public sealed partial class MainWindow
 
     private async void TrackInkObject_Click(object sender, RoutedEventArgs e)
     {
-        if (_inkTrackingCancellation is not null || CurrentInkLayer.IsLocked) return;
+        if (_inkTrackingCancellation is not null) return;
         if (IsOriginalPreview)
         {
             StatusText.Text = "Switch to Modified preview before tracking an object.";
@@ -132,6 +226,21 @@ public sealed partial class MainWindow
             StatusText.Text = "Select the object box at the current playhead before starting or resuming.";
             return;
         }
+        int targetIndex = _inkTrackingBoxTargetIndex;
+        InkLayerProject? layer = targetIndex == 0 ? _inkTrackingBoxLayer : null;
+        InkTextOverlay? text = targetIndex == 1 ? _inkTrackingBoxText : null;
+        EditorFrame? textFrame = targetIndex == 1 ? _inkTrackingBoxFrame : null;
+        TimelineClipProject? title = targetIndex == 2 ? _inkTrackingBoxTitle : null;
+        if (targetIndex != TrackingTargetIndex ||
+            (targetIndex == 1 && (text is null || textFrame is null || !ReferenceEquals(textFrame, CurrentFrame) ||
+                !textFrame.TextOverlays.Contains(text) || !ReferenceEquals(text, SelectedInkTrackingText))) ||
+            (targetIndex == 2 && (title is null || !ReferenceEquals(title, SelectedTimelineTitle?.Clip))) ||
+            (targetIndex == 0 && (layer is null || !ReferenceEquals(layer, CurrentInkLayer))) ||
+            (targetIndex == 2 && SelectedTimelineTitle?.Track.IsLocked != false))
+        {
+            StatusText.Text = "The tracking target changed. Select its object box again.";
+            return;
+        }
         var visible = VideoTimelineEditing.GetVisibleLayers(_videoTracks, start, _frameRate, _videoMulticamGroups)
             .LastOrDefault(location => location.Track.Kind == TimelineTrackKind.Video);
         if (visible is null)
@@ -139,8 +248,18 @@ public sealed partial class MainWindow
             StatusText.Text = "Place the playhead inside a visible video clip beneath your ink.";
             return;
         }
-        InkLayerProject layer = CurrentInkLayer;
-        InkObjectTracking? original = layer.ObjectTracking;
+        if (targetIndex == 2 && !VideoTimelineEditing.GetVisibleLayers(_videoTracks, start, _frameRate, _videoMulticamGroups)
+            .Any(location => location.Track.Kind == TimelineTrackKind.Text && location.Clip.Id == title!.Id))
+        {
+            StatusText.Text = "Place the playhead inside the selected title clip before tracking it.";
+            return;
+        }
+        InkObjectTracking? original = targetIndex switch
+        {
+            1 => text!.ObjectTracking,
+            2 => title!.ObjectTracking,
+            _ => layer!.ObjectTracking,
+        };
         if (original is not null && !string.IsNullOrEmpty(original.SourceSignature) &&
             JsonSerializer.Serialize(visible.Clip) != original.SourceSignature)
         {
@@ -156,12 +275,20 @@ public sealed partial class MainWindow
         }
         if (original is not null && !resume)
         {
-            StatusText.Text = "Clear this layer's existing tracking before choosing a different source clip or starting range.";
+            StatusText.Text = "Clear the existing tracking before choosing a different source clip or starting range.";
             return;
         }
-        if (!resume && !GetDisplayedLayerStrokes(_selectedFrameIndex, layer.Id).Any(stroke => stroke.Count > 0))
+        bool hasTargetContent = targetIndex switch
         {
-            StatusText.Text = "Draw on this ink layer at the playhead before attaching it to an object.";
+            1 => !string.IsNullOrWhiteSpace(text!.Text),
+            2 => !string.IsNullOrWhiteSpace(title!.Text),
+            _ => GetDisplayedLayerStrokes(_selectedFrameIndex, layer!.Id).Any(stroke => stroke.Count > 0),
+        };
+        if (!resume && !hasTargetContent)
+        {
+            StatusText.Text = targetIndex == 0 ?
+                "Draw on this ink layer at the playhead before attaching it to an object." :
+                "Add non-empty text/title before attaching it to an object.";
             return;
         }
         double clipEnd = VideoTimelineEditing.GetStartSeconds(visible.Clip, _frameRate) +
@@ -174,7 +301,8 @@ public sealed partial class MainWindow
         }
         EditorProject snapshot = CreateProjectSnapshot();
         string sourceSignature = JsonSerializer.Serialize(snapshot.VideoTracks);
-        string layerSignature = JsonSerializer.Serialize(layer);
+        object target = targetIndex switch { 1 => text!, 2 => title!, _ => layer! };
+        string targetSignature = JsonSerializer.Serialize(target);
         double frameRate = _frameRate;
         var tracking = original is null ? new InkObjectTracking
         {
@@ -200,11 +328,21 @@ public sealed partial class MainWindow
             double aspect = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight);
             InkTrackingResult result = await Task.Run(() => InkObjectTracker.Analyse(snapshot, tracking.SourceClipId,
                 start, end, box, initial, aspect, progress, cancellation.Token, original));
-            if (!_inkLayers.Contains(layer) || layer.IsLocked || frameRate != _frameRate ||
-                JsonSerializer.Serialize(layer) != layerSignature ||
+            bool targetStillCurrent = targetIndex switch
+            {
+                1 => textFrame is not null && text is not null && _frames.Contains(textFrame) &&
+                    textFrame.TextOverlays.Contains(text) && ReferenceEquals(text, SelectedInkTrackingText) &&
+                    JsonSerializer.Serialize(text) == targetSignature,
+                2 => title is not null && SelectedTimelineTitle is { } selectedTitle &&
+                    ReferenceEquals(title, selectedTitle.Clip) && !selectedTitle.Track.IsLocked &&
+                    JsonSerializer.Serialize(title) == targetSignature,
+                _ => layer is not null && _inkLayers.Contains(layer) && !layer.IsLocked &&
+                    JsonSerializer.Serialize(layer) == targetSignature,
+            };
+            if (!targetStillCurrent || frameRate != _frameRate ||
                 JsonSerializer.Serialize(CreateProjectSnapshot().VideoTracks) != sourceSignature)
             {
-                StatusText.Text = "The layer or video changed during tracking; no motion was applied. Track again.";
+                StatusText.Text = "The tracking target or video changed during tracking; no motion was applied. Track again.";
                 return;
             }
             BeginEdit();
@@ -212,12 +350,18 @@ public sealed partial class MainWindow
             tracking.Keys.AddRange(result.Keys);
             tracking.LostSeconds = result.LostSeconds;
             tracking.Enabled = true;
-            layer.ObjectTracking = tracking;
+            switch (targetIndex)
+            {
+                case 1: text!.ObjectTracking = tracking; break;
+                case 2: title!.ObjectTracking = tracking; break;
+                default: layer!.ObjectTracking = tracking; break;
+            }
             MarkEditChanged();
             CommitEdit();
             StatusText.Text = result.Message;
             CancelInkTrackingSelection();
             RenderCurrentInk();
+            if (targetIndex == 2) CompositionSurface.Invalidate();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -244,7 +388,9 @@ public sealed partial class MainWindow
 
     private void InkFollowObject_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentInkLayer.IsLocked || CurrentInkLayer.ObjectTracking is not { } tracking) return;
+        if (SelectedTracking is not { } tracking ||
+            (TrackingTargetIndex == 0 && CurrentInkLayer.IsLocked) ||
+            (TrackingTargetIndex == 2 && SelectedTimelineTitle?.Track.IsLocked != false)) return;
         PausePlayback();
         FinishActiveEdit();
         ClearInkSelection();
@@ -254,25 +400,29 @@ public sealed partial class MainWindow
         CommitEdit();
         UpdateInkTrackingControls();
         RenderCurrentInk();
+        if (TrackingTargetIndex == 2) CompositionSurface.Invalidate();
     }
 
     private void ClearInkTracking_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentInkLayer.IsLocked || _inkTrackingCancellation is not null) return;
+        if (_inkTrackingCancellation is not null ||
+            (TrackingTargetIndex == 0 && CurrentInkLayer.IsLocked) ||
+            (TrackingTargetIndex == 2 && SelectedTimelineTitle?.Track.IsLocked != false)) return;
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
-        CurrentInkLayer.ObjectTracking = null;
+        SelectedTracking = null;
         MarkEditChanged();
         CommitEdit();
         CancelInkTrackingSelection();
         UpdateInkTrackingControls();
         RenderCurrentInk();
+        if (TrackingTargetIndex == 2) CompositionSurface.Invalidate();
     }
 
     private void InkTrackingLost_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentInkLayer.ObjectTracking?.LostSeconds is not double lost) return;
+        if (SelectedTracking?.LostSeconds is not double lost) return;
         PausePlayback();
         _playheadFramePosition = (int)Math.Round(lost * _frameRate);
         EnsureFrameExists(_playheadFramePosition);

@@ -187,16 +187,27 @@ public sealed partial class MainWindow
         }
     }
 
-    private void LoadSelectedInkText()
+    private void UpdateInkTextEditability()
     {
+        if (InkSelectedTextProperties is null) return;
         bool valid = ReferenceEquals(_textInspectorFrame, CurrentFrame) &&
             InkTextOverlaySelector.SelectedItem is ComboBoxItem { Tag: InkTextOverlay text } &&
             CurrentFrame.TextOverlays.Contains(text);
-        ApplySelectedInkTextButton.IsEnabled = valid;
+        bool editable = valid &&
+            InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay { ObjectTracking.Enabled: true } };
+        ApplySelectedInkTextButton.IsEnabled = editable;
         RemoveSelectedInkTextButton.IsEnabled = valid;
-        InkSelectedTextProperties.IsEnabled = valid;
+        InkSelectedTextProperties.IsEnabled = editable;
+    }
+
+    private void LoadSelectedInkText()
+    {
+        UpdateInkTextEditability();
         InkSurface.Invalidate();
-        if (!valid || InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay selected })
+        UpdateInkTrackingControls();
+        if (!ReferenceEquals(_textInspectorFrame, CurrentFrame) ||
+            InkTextOverlaySelector.SelectedItem is not ComboBoxItem { Tag: InkTextOverlay selected } ||
+            !CurrentFrame.TextOverlays.Contains(selected))
         {
             return;
         }
@@ -233,8 +244,13 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
-        BeginEdit();
         bool remove = sender is Button { Tag: "remove" };
+        if (!remove && selected.ObjectTracking is { Enabled: true })
+        {
+            StatusText.Text = "Turn Follow object off before editing the tracked text overlay.";
+            return;
+        }
+        BeginEdit();
         bool changedContent = !remove && selected.Text != InkTextBox.Text;
         try
         {
@@ -297,6 +313,11 @@ public sealed partial class MainWindow
             !CurrentFrame.TextOverlays.Contains(selected) || !TryGetInkTextRange(out int first, out int last))
         {
             StatusText.Text = "Select cel text and enter valid whole character numbers.";
+            return;
+        }
+        if (selected.ObjectTracking is { Enabled: true })
+        {
+            StatusText.Text = "Turn Follow object off before editing the tracked text overlay.";
             return;
         }
         if (InkTextBox.Text != selected.Text)

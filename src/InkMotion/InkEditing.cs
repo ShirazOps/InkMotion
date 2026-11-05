@@ -326,6 +326,7 @@ public static class InkEditing
             FontSize = text.FontSize,
             Colour = text.Colour,
             StyleRanges = text.StyleRanges.Select(range => InkTextEditing.CopyStyle(range, range.Start, range.Length)).ToList(),
+            ObjectTracking = text.ObjectTracking is null ? null : InkObjectMotion.Clone(text.ObjectTracking),
         }).ToList(),
         Strokes = CloneStrokes(frame.Strokes),
         LayerStrokes = frame.LayerStrokes.ToDictionary(pair => pair.Key, pair => CloneStrokes(pair.Value), StringComparer.Ordinal),

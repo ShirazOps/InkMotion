@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Xunit;
 
@@ -6,6 +7,54 @@ namespace InkMotion.Tests;
 
 public sealed class InkObjectTrackingTests
 {
+    [Fact]
+    public void UntrackedVideoSerialization_PreservesLegacySourceSignature()
+    {
+        var clip = new TimelineClipProject { Id = "video-1", SourcePath = "source.mp4", SourceDurationSeconds = 2 };
+        string signature = JsonSerializer.Serialize(clip);
+        Assert.DoesNotContain("ObjectTracking", signature);
+        var project = new EditorProject
+        {
+            VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip] }],
+        };
+        InkObjectTracking tracking = Tracking();
+        tracking.SourceSignature = signature;
+        project.InkLayers[0].ObjectTracking = tracking;
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.True(InkObjectMotion.IsSourceCurrent(reopened.InkLayers[0].ObjectTracking, reopened.VideoTracks));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HiddenTrackedTitle_DoesNotBlockExportOrReportTrackingLoss(bool staleSource)
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        InkObjectTracking tracking = Tracking();
+        tracking.LostSeconds = 1;
+        tracking.SourceSignature = staleSource ? "{}" : "";
+        var project = new EditorProject
+        {
+            VideoTracks = [new()
+            {
+                Kind = TimelineTrackKind.Text,
+                IsVisible = false,
+                Clips = [new() { Text = "Hidden", DurationSeconds = 0.25, ObjectTracking = tracking }],
+            }],
+        };
+        var profile = new VideoExportProfile(ExportResolution.P720, 200, 100, 24);
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-hidden-title-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            VideoExportResult result = VideoExporter.Export(
+                new(project, profile, VideoExportCodec.H264, path, 100, PreferHardware: false),
+                null, CancellationToken.None);
+            Assert.True(File.Exists(path));
+            Assert.Empty(result.Warnings);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static InkObjectTracking Tracking() => new()
     {
         SourceClipId = "video-1", StartSeconds = 0, EndSeconds = 2, ReferenceSeconds = 0,
@@ -47,6 +96,85 @@ public sealed class InkObjectTrackingTests
         Assert.Null(duplicate.ObjectTracking);
         string old = EditorProjectSerialiser.Serialise(new EditorProject()).Replace("\"Version\": 66", "\"Version\": 65");
         Assert.All(EditorProjectSerialiser.Deserialise(old).InkLayers, layer => Assert.Null(layer.ObjectTracking));
+    }
+
+    [Fact]
+    public void TextTracking_PersistsAndClonesWithoutSharingMotionKeys()
+    {
+        var tracking = Tracking();
+        var overlay = new InkTextOverlay { Text = "ARM", ObjectTracking = tracking };
+        var title = new TimelineClipProject { Text = "TITLE", ObjectTracking = Tracking() };
+        var project = new EditorProject
+        {
+            Frames = [new() { TextOverlays = [overlay] }],
+            VideoTracks = [new() { Kind = TimelineTrackKind.Text, Clips = [title] }],
+        };
+
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        InkTextOverlay reopenedText = reopened.Frames[0].TextOverlays[0];
+        TimelineClipProject reopenedTitle = reopened.VideoTracks[0].Clips[0];
+        Assert.Equal(2, reopenedText.ObjectTracking!.Keys.Count);
+        Assert.Equal(2, reopenedTitle.ObjectTracking!.Keys.Count);
+
+        EditorFrame clonedFrame = InkEditing.Clone(project.Frames[0]);
+        clonedFrame.TextOverlays[0].ObjectTracking!.Keys.Clear();
+        Assert.Equal(2, overlay.ObjectTracking!.Keys.Count);
+        TimelineClipProject clonedTitle = VideoTimelineEditing.Clone(title);
+        clonedTitle.ObjectTracking!.Keys.Clear();
+        Assert.Equal(2, title.ObjectTracking!.Keys.Count);
+        Assert.Null(VideoTimelineEditing.CopyForPlacement(title, 10).ObjectTracking);
+    }
+
+    [Fact]
+    public void TimelineTitleRendering_FollowsTrackedPositionAndHidesAfterTrackingStops()
+    {
+        using var device = new CanvasDevice(true);
+        var title = new TimelineClipProject
+        {
+            Text = "ARM",
+            X = 0.25,
+            Y = 0.5,
+            FontSize = 300,
+            ObjectTracking = new()
+            {
+                SourceClipId = "video-1",
+                StartSeconds = 0,
+                EndSeconds = 2,
+                ReferenceSeconds = 0,
+                AnchorX = 0.25,
+                AnchorY = 0.5,
+                BoxWidth = 0.2,
+                BoxHeight = 0.2,
+                Keys = [new(0, 0.25, 0.5), new(1, 0.75, 0.5)],
+            },
+        };
+        (int Left, int Right) BoundsAt(double seconds)
+        {
+            using var target = new CanvasRenderTarget(device, 400, 200, 96);
+            using (CanvasDrawingSession session = target.CreateDrawingSession())
+            {
+                session.Clear(Microsoft.UI.Colors.Transparent);
+                TimelineCompositor.DrawTitle(session, title, 400, 200, 1,
+                    VideoTransformKeyframes.GetValueAtTime(title, seconds, 24), seconds, []);
+            }
+            byte[] pixels = target.GetPixelBytes();
+            int left = 400, right = -1;
+            for (int y = 0; y < 200; y++)
+            for (int x = 0; x < 400; x++)
+            {
+                if (pixels[(y * 400 + x) * 4 + 3] == 0) continue;
+                left = Math.Min(left, x);
+                right = Math.Max(right, x);
+            }
+            return (left, right);
+        }
+
+        (int firstLeft, int firstRight) = BoundsAt(0);
+        (int laterLeft, int laterRight) = BoundsAt(1);
+        Assert.InRange(firstLeft, 20, 130);
+        Assert.InRange(laterLeft - firstLeft, 150, 260);
+        Assert.True(laterRight > laterLeft);
+        Assert.Equal((400, -1), BoundsAt(2));
     }
 
     [Fact]

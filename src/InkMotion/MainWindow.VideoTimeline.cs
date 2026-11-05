@@ -936,7 +936,8 @@ public sealed partial class MainWindow
                 case TimelineTrackKind.Text:
                     TimelineCompositor.DrawTitle(
                         session, layer.Clip, width, height, opacity,
-                        VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate));
+                        VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate),
+                        seconds, _videoTracks);
                     break;
             }
         }
@@ -2739,6 +2740,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        UpdateInkTrackingControls();
         bool wasRestoring = _isRestoringProject;
         _isRestoringProject = true;
         TimelineTrackProject? track = SelectedTimelineTrack;

@@ -212,17 +212,23 @@ public static class TimelineCompositor
         float width,
         float height,
         float opacity,
-        VideoTransformValue transform)
+        VideoTransformValue transform,
+        double? timelineSeconds = null,
+        IReadOnlyList<TimelineTrackProject>? videoTracks = null)
     {
         float fontSize = (float)(clip.FontSize * transform.Scale * height / TitleReferenceHeight);
-        if (fontSize < 1 || string.IsNullOrWhiteSpace(clip.Text))
+        double seconds = timelineSeconds ?? clip.ObjectTracking?.StartSeconds ?? 0;
+        if (fontSize < 1 || string.IsNullOrWhiteSpace(clip.Text) ||
+            !InkObjectMotion.IsVisible(clip.ObjectTracking, seconds) ||
+            (videoTracks is not null && !InkObjectMotion.IsSourceCurrent(clip.ObjectTracking, videoTracks)))
         {
             return;
         }
 
-        Matrix3x2 previous = session.Transform;
+        Matrix3x2 original = session.Transform;
         try
         {
+            Matrix3x2 previous = InkObjectMotion.Transform(clip.ObjectTracking, seconds, width, height) * original;
             session.Transform = Matrix3x2.CreateRotation(
                 (float)(transform.RotationDegrees * Math.PI / 180),
                 new Vector2((float)(transform.X * width), (float)(transform.Y * height))) * previous;
@@ -230,7 +236,7 @@ public static class TimelineCompositor
         }
         finally
         {
-            session.Transform = previous;
+            session.Transform = original;
         }
     }
 
@@ -444,7 +450,12 @@ public static class TimelineCompositor
 
         foreach (InkTextOverlay overlay in project.Frames[frameIndex].TextOverlays)
         {
-            DrawInkText(session, overlay, 1, width, height, sizeScale);
+            if (!InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) ||
+                !InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, project.VideoTracks)) continue;
+            var originalTransform = session.Transform;
+            session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
+            try { DrawInkText(session, overlay, 1, width, height, sizeScale); }
+            finally { session.Transform = originalTransform; }
         }
     }
 }
