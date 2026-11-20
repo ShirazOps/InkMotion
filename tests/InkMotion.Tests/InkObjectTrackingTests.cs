@@ -86,7 +86,7 @@ public sealed class InkObjectTrackingTests
         project.InkLayers[0].ObjectTracking = Tracking();
         project.InkLayers.Add(new() { Id = "ink-2", Name = "Other" });
         EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
-        Assert.Equal(66, reopened.Version);
+        Assert.Equal(EditorProject.CurrentVersion, reopened.Version);
         Assert.NotNull(reopened.InkLayers[0].ObjectTracking);
         Assert.Null(reopened.InkLayers[1].ObjectTracking);
         InkLayerProject clone = InkEditing.CloneLayer(reopened.InkLayers[0]);

@@ -17,15 +17,23 @@ public static class InkColourSampling
         (int pixelX, int pixelY) = GetPixel(x, y, width, height);
         using var pixel = new CanvasRenderTarget(device, 1, 1, 96,
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
+        bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(project);
         using (CanvasDrawingSession session = pixel.CreateDrawingSession())
         {
             session.Clear(TimelineCompositor.ToColour(background));
             session.Transform = Matrix3x2.CreateTranslation(-pixelX, -pixelY);
             drawMedia(session, (float)width, (float)height);
-            TimelineCompositor.DrawInkFrame(session, project, frameIndex, (float)width, (float)height, 1, timelineSeconds);
+            if (!hasBlendModes)
+            {
+                TimelineCompositor.DrawInkFrame(session, project, frameIndex, (float)width, (float)height, 1, timelineSeconds);
+            }
         }
 
-        byte[] bytes = pixel.GetPixelBytes();
+        using CanvasRenderTarget? composite = hasBlendModes
+            ? TimelineCompositor.CompositeInkFrame(device, pixel, 1, 1, project, frameIndex,
+                (float)width, (float)height, 1, timelineSeconds, Matrix3x2.CreateTranslation(-pixelX, -pixelY))
+            : null;
+        byte[] bytes = composite is null ? pixel.GetPixelBytes() : composite.GetPixelBytes();
         return FromPremultipliedBgra(bytes[0], bytes[1], bytes[2], bytes[3]);
     }
 

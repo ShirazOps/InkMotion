@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 66;
+    public const int CurrentVersion = 67;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
@@ -26,6 +26,15 @@ public sealed class EditorProject
     public List<EditorFrame> Frames { get; set; } = [new()];
 }
 
+public enum InkLayerBlendMode
+{
+    Normal,
+    Multiply,
+    Screen,
+    Add,
+    Overlay,
+}
+
 public sealed class InkLayerProject
 {
     public string Id { get; set; } = "ink-1";
@@ -33,6 +42,7 @@ public sealed class InkLayerProject
     public bool IsVisible { get; set; } = true;
     public bool IsLocked { get; set; }
     public double Opacity { get; set; } = 1;
+    public InkLayerBlendMode BlendMode { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 
@@ -598,6 +608,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 66)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1122,6 +1136,7 @@ internal static class EditorProjectValidation
                 string.IsNullOrWhiteSpace(layer.Name) ||
                 !double.IsFinite(layer.Opacity) ||
                 layer.Opacity is < 0 or > 1 ||
+                !Enum.IsDefined(layer.BlendMode) ||
                 (layer.ObjectTracking is not null && !InkObjectMotion.IsValid(layer.ObjectTracking))) ||
             project.InkLayers.Select(layer => layer.Id).Distinct(StringComparer.Ordinal).Count() != project.InkLayers.Count ||
             !project.InkLayers.Any(layer => layer.Id == project.ActiveInkLayerId) ||

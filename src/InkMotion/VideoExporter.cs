@@ -346,10 +346,11 @@ public static class VideoExporter
         public async Task SaveInkFrameAsync(int frame, StorageFile outputFile)
         {
             double seconds = frame / _profile.FrameRate;
+            bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(_project);
             using (CanvasDrawingSession session = _target.CreateDrawingSession())
             {
                 session.Clear(Microsoft.UI.Colors.Transparent);
-                if (_hasInk)
+                if (_hasInk && !hasBlendModes)
                 {
                     TimelineCompositor.DrawInkFrame(session, _project,
                         ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
@@ -358,7 +359,18 @@ public static class VideoExporter
             }
 
             using IRandomAccessStream stream = await outputFile.OpenAsync(FileAccessMode.ReadWrite);
-            await _target.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+            if (_hasInk && hasBlendModes)
+            {
+                using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+                    _device, _target, _profile.Width, _profile.Height, _project,
+                    ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
+                    _profile.Width, _profile.Height, _inkScale, seconds);
+                await composite.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+            }
+            else
+            {
+                await _target.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+            }
         }
 
         public byte[] Render(int frame)
@@ -366,6 +378,7 @@ public static class VideoExporter
             double seconds = frame / _profile.FrameRate;
             float width = _profile.Width;
             float height = _profile.Height;
+            bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(_project);
             IReadOnlyList<TimelineClipLocation> layers = VideoTimelineEditing.GetVisibleLayers(
                 _project.VideoTracks,
                 seconds,
@@ -424,7 +437,7 @@ public static class VideoExporter
                     }
                 }
 
-                if (_hasInk)
+                if (_hasInk && !hasBlendModes)
                 {
                     TimelineCompositor.DrawInkFrame(
                         session,
@@ -437,7 +450,16 @@ public static class VideoExporter
                 }
             }
 
-            return _target.GetPixelBytes();
+            if (!_hasInk || !hasBlendModes)
+            {
+                return _target.GetPixelBytes();
+            }
+
+            using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+                _device, _target, width, height, _project,
+                ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
+                width, height, _inkScale, seconds);
+            return composite.GetPixelBytes();
         }
 
         public void Dispose()

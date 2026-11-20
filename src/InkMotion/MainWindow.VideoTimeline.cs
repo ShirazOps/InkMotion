@@ -83,6 +83,9 @@ public sealed partial class MainWindow
         _videoAudioPreview.FallbackActive || _transitionVideoAudioPreview.FallbackActive;
     private readonly CompositeTransform _previewVideoTransform = new();
     private CanvasRenderTarget? _videoScopeSampleTarget;
+    private CanvasRenderTarget? _compositionBaseTarget;
+    private float _compositionBaseWidth;
+    private float _compositionBaseHeight;
     private CanvasBitmap? _videoLumaWaveformBitmap;
     private CanvasBitmap? _videoVectorscopeBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
@@ -957,6 +960,8 @@ public sealed partial class MainWindow
 
     private void CompositionSurface_CreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
     {
+        _compositionBaseTarget?.Dispose();
+        _compositionBaseTarget = null;
         DisposeOverlayBitmaps();
         DisposePreviewVideoFrameSources();
         DisposeVideoScopeSampleTarget();
@@ -972,7 +977,48 @@ public sealed partial class MainWindow
             return;
         }
 
-        DrawVideoComposition(sender, args.DrawingSession, seconds, width, height);
+        if (_compositionBaseTarget is null || _compositionBaseWidth != width || _compositionBaseHeight != height)
+        {
+            _compositionBaseTarget?.Dispose();
+            _compositionBaseTarget = new CanvasRenderTarget(sender.Device, width, height, 96,
+                Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                CanvasAlphaMode.Premultiplied);
+            _compositionBaseWidth = width;
+            _compositionBaseHeight = height;
+        }
+
+        var project = new EditorProject
+        {
+            FrameRate = _frameRate,
+            VideoTracks = _videoTracks,
+            InkLayers = _inkLayers,
+            Frames = _frames,
+        };
+        int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
+        bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(project);
+        using (CanvasDrawingSession session = _compositionBaseTarget.CreateDrawingSession())
+        {
+            session.Clear(Color.FromArgb(0, 0, 0, 0));
+            DrawVideoComposition(sender, session, seconds, width, height);
+            DrawInkGuides(session, width, height);
+            DrawInkOnionSkins(session, width, height);
+            if (!hasBlendModes)
+            {
+                TimelineCompositor.DrawInkFrame(session, project, frameIndex, width, height, 1, seconds);
+            }
+        }
+
+        if (hasBlendModes)
+        {
+            using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+                sender.Device, _compositionBaseTarget, width, height, project,
+                frameIndex, width, height, 1, seconds);
+            args.DrawingSession.DrawImage(composite);
+        }
+        else
+        {
+            args.DrawingSession.DrawImage(_compositionBaseTarget);
+        }
         TitleAdornerSurface.Invalidate();
     }
 
@@ -1560,6 +1606,8 @@ public sealed partial class MainWindow
         ClearPreviewSource();
         DisposePreviewVideoFrameSources();
         DisposeVideoScopeSampleTarget();
+        _compositionBaseTarget?.Dispose();
+        _compositionBaseTarget = null;
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
         _previewMediaPlayer.Dispose();

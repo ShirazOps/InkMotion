@@ -42,7 +42,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 ### Ink and animation
 
 - Mouse, touch and pressure-sensitive pen drawing, textured brushes, lines, rectangles, ellipses, solid shapes and enclosed-area bucket fill.
-- Partial/whole-stroke erasing and lasso selection, drawing transforms, independent layers with visibility/opacity/locks, layer duplication, merging and flips.
+- Partial/whole-stroke erasing and lasso selection, drawing transforms, independent layers with visibility/opacity/locks and Normal, Multiply, Screen, Add or Overlay blending, plus layer duplication, merging and flips. Blend modes apply against lower drawing layers and timeline video in preview and export; merge-down requires both layers to use Normal mode.
 - Cel exposures, keyframes, eased in-between animation, configurable onion skinning, named cel groups, range editing and independent or linked drawing cycles. Ink-only animations can play without adding video or audio.
 - Per-layer **Follow object**: draw on a cel, select a textured object box in Modified preview, then track its position, rotation and size until the chosen end time. Other layers remain untracked. After tracking loss, correct the box at the stop or a later visible frame and resume; motion between the last reliable pose and the correction is linearly interpolated. Tracking is saved and shared by preview/export.
 - Subtitle tracks support editable timeline cues, SubRip (`.srt`) import/export, overlapping captions on separate lanes and a default lower-screen caption style. Imported cue times align to the project frame rate.

@@ -222,9 +222,10 @@ public static class InkEditing
         InkLayerProject target = layers[index - 1];
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
-            !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity)
+            !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity ||
+            source.BlendMode != InkLayerBlendMode.Normal || target.BlendMode != InkLayerBlendMode.Normal)
         {
-            throw new InvalidOperationException("Unlock and show both adjacent layers, give them matching opacity, and clear object tracking before merging.");
+            throw new InvalidOperationException("Unlock and show both adjacent layers, give them matching opacity, set both to Normal blend mode, and clear object tracking before merging.");
         }
 
         var drawings = new List<List<List<InkPoint>>>(frames.Count);
@@ -304,6 +305,7 @@ public static class InkEditing
         IsVisible = layer.IsVisible,
         IsLocked = layer.IsLocked,
         Opacity = layer.Opacity,
+        BlendMode = layer.BlendMode,
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 

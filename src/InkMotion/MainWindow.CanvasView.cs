@@ -11,7 +11,11 @@ public sealed partial class MainWindow
 {
     private int _inkGridDivisions = 8;
 
-    private void InkGuides_Click(object sender, RoutedEventArgs e) => InkSurface.Invalidate();
+    private void InkGuides_Click(object sender, RoutedEventArgs e)
+    {
+        CompositionSurface.Invalidate();
+        InkSurface.Invalidate();
+    }
 
     private void InkGridDivisions_Changed(NumberBox sender, NumberBoxValueChangedEventArgs e)
     {
@@ -28,6 +32,7 @@ public sealed partial class MainWindow
         }
 
         _inkGridDivisions = (int)e.NewValue;
+        CompositionSurface.Invalidate();
         InkSurface.Invalidate();
     }
 
