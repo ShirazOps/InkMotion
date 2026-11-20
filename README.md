@@ -54,7 +54,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Per-layer **Follow object**: draw on a cel, select a textured object box in Modified preview, then track its position, rotation and size until the chosen end time. Other layers remain untracked. After tracking loss, correct the box at the stop or a later visible frame and resume; motion between the last reliable pose and the correction is linearly interpolated. Tracking is saved and shared by preview/export.
 - Subtitle tracks support editable timeline cues, SubRip (`.srt`) import/export, overlapping captions on separate lanes and a default lower-screen caption style. Imported cue times align to the project frame rate.
 - Cel text overlays with character-range styling; drawing-only or full-preview colour sampling.
-- Canvas zoom, pan, rotation, grids and output-pixel rulers. Import footage or images as references beneath the artwork.
+- Canvas zoom, pan, rotation, grids and output-pixel rulers. Optional vertical-centre mirror drawing and grid snapping preserve the existing freehand and shape behaviour when off. Import footage or images as references beneath the artwork.
 
 ### Export
 

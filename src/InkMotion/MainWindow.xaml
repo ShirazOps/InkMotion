@@ -1205,11 +1205,16 @@
                         <TextBlock Text="Zoom, pan and rotation move the video and ink together for drawing. They do not change saved coordinates, brush widths or export framing. Other workspaces use the normal view; Ink Editor retains these session settings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ToggleButton x:Name="InkGridToggle" Content="Canvas grid" Click="InkGuides_Click" />
                         <NumberBox x:Name="InkGridDivisionsBox" Header="Grid divisions per axis" Minimum="2" Maximum="64" Value="8" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="InkGridDivisions_Changed" />
+                        <ToggleButton x:Name="InkGridSnapToggle" Content="Snap strokes to grid" Click="InkGuides_Click"
+                                      ToolTipService.ToolTip="Snap pen samples and shape corners to the configured canvas grid. Off by default." />
                         <ToggleButton x:Name="InkCentreGuidesToggle" Content="Centre alignment guides" Click="InkGuides_Click" />
+                        <ToggleButton x:Name="InkSymmetryToggle" Content="Vertical mirror symmetry" Click="InkGuides_Click"
+                                      ToolTipService.ToolTip="Draw a mirrored stroke across the canvas centre line. Off by default." />
                         <ToggleButton x:Name="InkRulersToggle" Content="Output-pixel rulers" Click="InkGuides_Click" />
                         <TextBlock x:Name="InkRulerReadout" Text="Ruler calibration follows the selected export resolution." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="Rulers measure canvas coordinates in output pixels, not source-media pixels or physical units. They follow canvas zoom, pan and rotation, with adaptive tick spacing. Session-only overlays while paused in Modified Ink Editor; excluded from colour sampling, saved drawings and export." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                        <TextBlock Text="Session-only guides follow canvas zoom, pan and rotation. They appear behind ink while paused in Ink Editor only, never in saved drawings or exports. The grid divides each canvas axis equally; it does not snap or constrain strokes." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Session-only guides follow canvas zoom, pan and rotation. They appear behind ink while paused in Ink Editor only, never in saved drawings or exports. The grid divides each canvas axis equally; optional snapping affects pen samples and shape corners only when enabled." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Vertical symmetry, grid snapping and guides are session-only controls; mirrored strokes themselves are normal saved, editable strokes on the selected layer." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="INK LAYERS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkLayerSelector" DisplayMemberPath="Name" SelectionChanged="InkLayer_SelectionChanged">
                             <ComboBox.ContextFlyout>
