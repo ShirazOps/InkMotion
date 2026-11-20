@@ -238,7 +238,7 @@ public sealed class InkObjectTrackingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Tracker_FollowsMovingRotatingScalingTextureAndStopsWhenItDisappears(bool disappear)
+    public void Tracker_FollowsMovingRotatingScalingTextureAndResumesAfterCorrection(bool disappear)
     {
         if (!VideoExportTests.HasH264Encoder) return;
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-object-{Guid.NewGuid():N}.mp4");
@@ -263,7 +263,7 @@ public sealed class InkObjectTrackingTests
                     {
                         Vector2 local = Vector2.Transform(new(x, y), inverse) + new Vector2(48, 40);
                         byte value = 20;
-                        if ((!disappear || frame < 10) && local.X >= 0 && local.X < 96 && local.Y >= 0 && local.Y < 80)
+                        if ((!disappear || frame < 10 || frame >= 13) && local.X >= 0 && local.X < 96 && local.Y >= 0 && local.Y < 80)
                             value = texture[(int)local.Y * 96 + (int)local.X];
                         int pixel = (y * width + x) * 4;
                         pixels[pixel] = pixels[pixel + 1] = pixels[pixel + 2] = value;
@@ -284,6 +284,33 @@ public sealed class InkObjectTrackingTests
                 Assert.NotNull(result.LostSeconds);
                 Assert.InRange(result.LostSeconds!.Value, 9 / 24d, 12 / 24d);
                 Assert.True(result.Keys.Count > 4);
+                var tracking = new InkObjectTracking
+                {
+                    SourceClipId = clip.Id, StartSeconds = 0, EndSeconds = count / 24d,
+                    CanvasAspectRatio = width / (double)height, AnchorX = 150d / width, AnchorY = 0.5,
+                    BoxWidth = 0.24, BoxHeight = 0.35, LostSeconds = result.LostSeconds,
+                    Keys = result.Keys.ToList(),
+                };
+                const int correctionFrame = 14;
+                double correctedScale = 1 + correctionFrame * 0.004;
+                double correctionSeconds = correctionFrame / 24d;
+                InkTrackingResult resumed = InkObjectTracker.Analyse(project, clip.Id, correctionSeconds, count / 24d,
+                    new(0.5 + ((150d + correctionFrame) / width - 0.5) / 2, 0.5,
+                        0.12 * correctedScale, 0.35 * correctedScale),
+                    new(correctionSeconds, 0, 0, Rotation: correctionFrame * 0.008 * 180 / Math.PI),
+                    width * 2d / height, null, CancellationToken.None, tracking);
+                Assert.Null(resumed.LostSeconds);
+                Assert.InRange(resumed.Keys[^1].X * width, 162, 172);
+                Assert.False(InkObjectMotion.IsVisible(tracking, 11 / 24d));
+                tracking.Keys.RemoveAll(key => key.Seconds >= correctionSeconds);
+                tracking.Keys.AddRange(resumed.Keys);
+                tracking.LostSeconds = resumed.LostSeconds;
+                Assert.True(InkObjectMotion.IsVisible(tracking, 11 / 24d));
+                InkObjectPose gapPose = InkObjectMotion.Evaluate(tracking, 11 / 24d);
+                InkObjectPose beforeGap = tracking.Keys.Last(key => key.Seconds < 11 / 24d);
+                InkObjectPose afterGap = tracking.Keys.First(key => key.Seconds > 11 / 24d);
+                double gapAmount = (11 / 24d - beforeGap.Seconds) / (afterGap.Seconds - beforeGap.Seconds);
+                Assert.Equal(beforeGap.X + (afterGap.X - beforeGap.X) * gapAmount, gapPose.X, 8);
             }
             else
             {
