@@ -254,6 +254,7 @@ public sealed partial class MainWindow
         CheckAudioEncodersButton.IsEnabled = false;
         ExportVideoButton.IsEnabled = false;
         ExportPngSequenceButton.IsEnabled = false;
+        ExportGifButton.IsEnabled = false;
         ExportAudioButton.IsEnabled = false;
         ToolbarExportButton.IsEnabled = false;
         ToolbarExportAudioButton.IsEnabled = false;
@@ -293,6 +294,7 @@ public sealed partial class MainWindow
             CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingAudioEncoders;
             ExportVideoButton.IsEnabled = !_submittingExport;
             ExportPngSequenceButton.IsEnabled = !_submittingExport;
+            ExportGifButton.IsEnabled = !_submittingExport;
             ExportAudioButton.IsEnabled = !_submittingExport;
             ToolbarExportButton.IsEnabled = !_submittingExport;
             ToolbarExportAudioButton.IsEnabled = !_submittingExport;
@@ -547,6 +549,56 @@ public sealed partial class MainWindow
         await SubmitExportJobAsync(snapshot, outputDirectory, null, null, settings);
     }
 
+    private async void ExportGif_Click(object sender, RoutedEventArgs e)
+    {
+        if (_submittingExport || _measuringVideoPerformance ||
+            _checkingVideoEncoders || _checkingAudioEncoders)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        EditorProject snapshot = CreateProjectSnapshot();
+        if (!ExportPlanning.HasInk(snapshot))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Nothing to export: add ink or cel text first.";
+            return;
+        }
+
+        double frameRate = GetExportFrameRate();
+        if (!double.IsFinite(frameRate) || frameRate < 24 || frameRate > 50)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose a GIF frame rate from 24 to 50 fps; GIF timing uses 10 ms increments.";
+            return;
+        }
+
+        if (!TryGetExportProfile(frameRate, out VideoExportProfile profile))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose valid output dimensions. Custom dimensions must be even, between 2 and 8,192 pixels, with no more than 33,554,432 pixels total.";
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = _projectFile is null ? "Untitled" : Path.GetFileNameWithoutExtension(_projectFile.Name),
+            DefaultFileExtension = ".gif",
+        };
+        picker.FileTypeChoices.Add("Animated GIF", [".gif"]);
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var settings = new GifExportSettings(profile, InkSurface.ActualHeight);
+        await SubmitExportJobAsync(snapshot, file.Path, null, null, gif: settings);
+    }
+
     private void CancelExport_Click(object sender, RoutedEventArgs e)
     {
         if (ExportJobsSelector.SelectedItem is not ExportJobStatus { IsActive: true } job)
@@ -571,6 +623,7 @@ public sealed partial class MainWindow
         bool canSubmit = !busy && !_measuringVideoPerformance;
         ExportVideoButton.IsEnabled = canSubmit;
         ExportPngSequenceButton.IsEnabled = canSubmit;
+        ExportGifButton.IsEnabled = canSubmit;
         ToolbarExportButton.IsEnabled = canSubmit;
         ToolbarExportAudioButton.IsEnabled = canSubmit;
         ExportAudioButton.IsEnabled = canSubmit;

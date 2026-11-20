@@ -33,6 +33,9 @@ public sealed class ExportJobsTests : IDisposable
         var pngSequence = new PngSequenceExportSettings(VideoExportProfile.Create(640, 480, 24), 720);
         ExportJobStatus pngJob = _store.Create(project, Path.Combine(_root, "frames"), null, null, pngSequence);
         Assert.Equal(pngSequence, _store.ReadRequest(pngJob.Id).PngSequence);
+        var gif = new GifExportSettings(VideoExportProfile.Create(640, 480, 24), 720);
+        ExportJobStatus gifJob = _store.Create(project, Path.Combine(_root, "animation.gif"), null, null, gif: gif);
+        Assert.Equal(gif, _store.ReadRequest(gifJob.Id).Gif);
         Assert.Throws<ArgumentException>(() => _store.Create(project, Path.Combine(_root, "bad.wav"), null, null));
         Assert.Throws<ArgumentException>(() => _store.JobDirectory(@"..\outside"));
     }
@@ -156,6 +159,34 @@ public sealed class ExportJobsTests : IDisposable
         Assert.InRange(samples.Max(Math.Abs), 0.1f, 0.3f);
         ExportJobStatus recovered = Assert.Single(new ExportJobStore(Path.Combine(_root, "jobs")).Scan().Jobs);
         Assert.Equal(result, recovered);
+    }
+
+    [Fact]
+    public async Task GifExport_RunsInRealWorker()
+    {
+        var project = new EditorProject
+        {
+            Frames =
+            [
+                new()
+                {
+                    ExposureFrames = 2,
+                    Strokes =
+                    [
+                        [new() { X = 0.4, Y = 0.5 }, new() { X = 0.6, Y = 0.5 }],
+                    ],
+                },
+            ],
+        };
+        var settings = new GifExportSettings(VideoExportProfile.Create(32, 32, 24), 32);
+        ExportJobStatus job = _store.Launch(project, Path.Combine(_root, "animation.gif"),
+            null, null, WorkerExecutable, gif: settings);
+
+        ExportJobStatus result = await WaitForTerminal(job.Id);
+
+        Assert.True(result.Phase == ExportJobPhase.Completed, result.Message);
+        Assert.StartsWith("GIF89a", File.ReadAllText(job.OutputPath, System.Text.Encoding.ASCII));
+        Assert.Contains("NETSCAPE2.0", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(job.OutputPath)));
     }
 
     [Fact]
