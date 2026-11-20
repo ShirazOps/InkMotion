@@ -100,7 +100,7 @@ public sealed partial class MainWindow
                 } :
             $"{(tracking.Enabled ? "Following" : "Disabled")} · {tracking.StartSeconds:0.###}–{tracking.EndSeconds:0.###} s · " +
             $"{tracking.Keys.Count} motion keys" +
-            (tracking.LostSeconds is double lost ? $" · STOP at {lost:0.###} s: correct the object box here and resume." : "");
+            (tracking.LostSeconds is double lost ? $" · STOP at {lost:0.###} s: correct the box here or at a later visible frame and resume; motion across the gap is interpolated." : "");
     }
 
     private void InkTrackingTarget_Changed(object sender, SelectionChangedEventArgs e)
@@ -268,11 +268,6 @@ public sealed partial class MainWindow
         }
         bool resume = original is not null && original.SourceClipId == visible.Clip.Id &&
             start > original.StartSeconds && start < original.EndSeconds;
-        if (resume && original!.LostSeconds is double lost && start > lost + 0.5 / _frameRate)
-        {
-            StatusText.Text = "Use Go to tracking stop and correct the box there; do not skip untracked footage.";
-            return;
-        }
         if (original is not null && !resume)
         {
             StatusText.Text = "Clear the existing tracking before choosing a different source clip or starting range.";
@@ -311,6 +306,9 @@ public sealed partial class MainWindow
             CanvasAspectRatio = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight),
             ReferenceSeconds = start, AnchorX = box.X, AnchorY = box.Y, BoxWidth = box.Width, BoxHeight = box.Height,
         } : InkObjectMotion.Clone(original);
+        double? priorLostSeconds = resume ? original!.LostSeconds : null;
+        bool interpolatesCorrectionGap = priorLostSeconds is double priorLost &&
+            start > priorLost + 0.5 / _frameRate;
         InkObjectPose initial = resume ?
             new(start, box.X, box.Y,
                 Math.Sqrt(box.Width * box.Height / (tracking.BoxWidth * tracking.BoxHeight)),
@@ -358,7 +356,9 @@ public sealed partial class MainWindow
             }
             MarkEditChanged();
             CommitEdit();
-            StatusText.Text = result.Message;
+            StatusText.Text = interpolatesCorrectionGap
+                ? $"Motion was interpolated across the gap from {priorLostSeconds:0.###} s to {start:0.###} s. {result.Message}"
+                : result.Message;
             CancelInkTrackingSelection();
             RenderCurrentInk();
             if (targetIndex == 2) CompositionSurface.Invalidate();
@@ -428,6 +428,6 @@ public sealed partial class MainWindow
         EnsureFrameExists(_playheadFramePosition);
         SelectFrame(InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition), preservePlayhead: true);
         SeekToCurrentFrame();
-        StatusText.Text = "Tracking stopped here. Select a corrected box around the same object, then resume.";
+        StatusText.Text = "Tracking stopped here. Correct the box here or seek to a later visible frame; motion across the gap will be interpolated.";
     }
 }
