@@ -1895,6 +1895,12 @@ public sealed partial class MainWindow : Window
         {
             _activeStroke = [];
             CurrentStrokes.Add(_activeStroke);
+            _activeSymmetricStroke = InkSymmetryToggle?.IsChecked == true ? [] : null;
+            if (_activeSymmetricStroke is not null)
+            {
+                CurrentStrokes.Add(_activeSymmetricStroke);
+            }
+
             if (_inkShape is not null)
             {
                 _shapeStartPoint = pointerPoint.Position;
@@ -2037,10 +2043,11 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        (double x, double y) = GetInkCanvasPosition(point, snapToGrid: false);
         var inkPoint = new InkPoint
         {
-            X = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
-            Y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1),
+            X = x,
+            Y = y,
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
@@ -2048,12 +2055,18 @@ public sealed partial class MainWindow : Window
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
+        if (InkGridSnapToggle?.IsChecked == true)
+        {
+            inkPoint.X = InkStrokeEditing.SnapToGrid(inkPoint.X, _inkGridDivisions);
+            inkPoint.Y = InkStrokeEditing.SnapToGrid(inkPoint.Y, _inkGridDivisions);
+        }
         if (_activeStroke.Count == 0 ||
             _activeStroke[^1].X != inkPoint.X ||
             _activeStroke[^1].Y != inkPoint.Y ||
             _activeStroke[^1].Pressure != inkPoint.Pressure)
         {
             _activeStroke.Add(inkPoint);
+            _activeSymmetricStroke?.Add(InkStrokeEditing.ReflectAcrossVerticalAxis(inkPoint));
             MarkEditChanged();
             RenderCurrentInk();
         }
@@ -2221,11 +2234,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        (double x0, double y0) = GetInkCanvasPosition(_shapeStartPoint);
+        (double x1, double y1) = GetInkCanvasPosition(point);
         List<InkPoint> points = InkStrokeEditing.CreateShape(shape,
-            Math.Clamp(_shapeStartPoint.X / InkSurface.ActualWidth, 0, 1),
-            Math.Clamp(_shapeStartPoint.Y / InkSurface.ActualHeight, 0, 1),
-            Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1),
-            Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1), _brushWidth, _brushColour,
+            x0, y0, x1, y1, _brushWidth, _brushColour,
             filled: InkSolidFillCheckBox.IsChecked == true);
         foreach (InkPoint shapePoint in points)
         {
@@ -2233,6 +2245,7 @@ public sealed partial class MainWindow : Window
         }
         _activeStroke.Clear();
         _activeStroke.AddRange(points);
+        SyncActiveSymmetricStroke();
         MarkEditChanged();
         RenderCurrentInk();
     }
@@ -2447,6 +2460,7 @@ public sealed partial class MainWindow : Window
         _isRestoringProject = false;
         _activePointerId = null;
         _activeStroke = null;
+        _activeSymmetricStroke = null;
         _pendingEdit = null;
         _pendingEditChanged = false;
         _playheadFramePosition = InkTimeline.GetStartFramePosition(_frames, _selectedFrameIndex);
@@ -2565,9 +2579,14 @@ public sealed partial class MainWindow : Window
         {
             CurrentStrokes.Remove(_activeStroke);
         }
+        if (_activeSymmetricStroke is { Count: 0 })
+        {
+            CurrentStrokes.Remove(_activeSymmetricStroke);
+        }
 
         _activePointerId = null;
         _activeStroke = null;
+        _activeSymmetricStroke = null;
         _lastEraserPoint = null;
         if (_inkLasso.Count > 0)
         {

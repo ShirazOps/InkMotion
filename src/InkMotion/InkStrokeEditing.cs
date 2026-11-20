@@ -9,6 +9,31 @@ public enum InkShape
 
 public static class InkStrokeEditing
 {
+    public static InkPoint ReflectAcrossVerticalAxis(InkPoint point)
+    {
+        ArgumentNullException.ThrowIfNull(point);
+        return new InkPoint
+        {
+            X = 1 - point.X,
+            Y = point.Y,
+            Pressure = point.Pressure,
+            BrushWidth = point.BrushWidth,
+            BrushColour = point.BrushColour,
+            BrushTexture = point.BrushTexture,
+            IsFilled = point.IsFilled,
+        };
+    }
+
+    public static double SnapToGrid(double position, int divisions)
+    {
+        if (!double.IsFinite(position) || position is < 0 or > 1 || divisions is < 2 or > 64)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), "Grid snapping requires a canvas coordinate and 2-64 divisions.");
+        }
+
+        return Math.Clamp(Math.Round(position * divisions, MidpointRounding.AwayFromZero) / divisions, 0, 1);
+    }
+
     public static List<InkPoint> CreateShape(InkShape shape, double x0, double y0, double x1, double y1, double brushWidth, uint colour,
         bool filled = false)
     {

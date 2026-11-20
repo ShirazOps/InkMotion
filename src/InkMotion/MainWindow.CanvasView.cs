@@ -10,6 +10,7 @@ namespace InkMotion;
 public sealed partial class MainWindow
 {
     private int _inkGridDivisions = 8;
+    private List<InkPoint>? _activeSymmetricStroke;
 
     private void InkGuides_Click(object sender, RoutedEventArgs e)
     {
@@ -50,6 +51,11 @@ public sealed partial class MainWindow
             session.DrawLine((float)guide.X1 * width, (float)guide.Y1 * height,
                 (float)guide.X2 * width, (float)guide.Y2 * height,
                 ToColour(guide.IsCentre ? 0x99FFB454u : 0x557F9AAAu), thickness);
+        }
+
+        if (InkSymmetryToggle?.IsChecked == true)
+        {
+            session.DrawLine(width / 2, 0, width / 2, height, ToColour(0xCC71D6C1u), thickness);
         }
     }
 
@@ -148,5 +154,29 @@ public sealed partial class MainWindow
         InkCanvasPanYBox.Value = 0;
         UpdateInkCanvasView();
         StatusText.Text = "Canvas view reset. Drawings and export framing are unchanged.";
+    }
+
+    private (double X, double Y) GetInkCanvasPosition(Point point, bool snapToGrid = true)
+    {
+        double x = Math.Clamp(point.X / InkSurface.ActualWidth, 0, 1);
+        double y = Math.Clamp(point.Y / InkSurface.ActualHeight, 0, 1);
+        if (snapToGrid && InkGridSnapToggle?.IsChecked == true)
+        {
+            x = InkStrokeEditing.SnapToGrid(x, _inkGridDivisions);
+            y = InkStrokeEditing.SnapToGrid(y, _inkGridDivisions);
+        }
+
+        return (x, y);
+    }
+
+    private void SyncActiveSymmetricStroke()
+    {
+        if (_activeStroke is null || _activeSymmetricStroke is null)
+        {
+            return;
+        }
+
+        _activeSymmetricStroke.Clear();
+        _activeSymmetricStroke.AddRange(_activeStroke.Select(InkStrokeEditing.ReflectAcrossVerticalAxis));
     }
 }

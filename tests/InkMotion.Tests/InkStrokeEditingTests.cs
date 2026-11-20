@@ -99,4 +99,47 @@ public sealed class InkStrokeEditingTests
         Assert.Throws<ArgumentOutOfRangeException>(() => InkStrokeEditing.Stabilise(input, previous, double.NaN));
         Assert.Throws<ArgumentOutOfRangeException>(() => InkStrokeEditing.Erase([], 0, 0, 0, 100, 8, false));
     }
+
+    [Fact]
+    public void VerticalReflection_CopiesStrokeStyleAndMirrorsCanvasPosition()
+    {
+        var source = new InkPoint
+        {
+            X = 0.2,
+            Y = 0.7,
+            Pressure = 0.8,
+            BrushWidth = 6,
+            BrushColour = 0x80123456,
+            BrushTexture = InkBrushTexture.Grain,
+            IsFilled = true,
+        };
+
+        InkPoint reflected = InkStrokeEditing.ReflectAcrossVerticalAxis(source);
+
+        Assert.NotSame(source, reflected);
+        Assert.Equal(0.8, reflected.X, 8);
+        Assert.Equal(source.Y, reflected.Y);
+        Assert.Equal(source.Pressure, reflected.Pressure);
+        Assert.Equal(source.BrushWidth, reflected.BrushWidth);
+        Assert.Equal(source.BrushColour, reflected.BrushColour);
+        Assert.Equal(source.BrushTexture, reflected.BrushTexture);
+        Assert.Equal(source.IsFilled, reflected.IsFilled);
+    }
+
+    [Theory]
+    [InlineData(0, 8, 0)]
+    [InlineData(0.18, 8, 0.125)]
+    [InlineData(0.2, 8, 0.25)]
+    [InlineData(1, 8, 1)]
+    public void GridSnap_UsesNearestConfiguredDivision(double position, int divisions, double expected)
+    {
+        Assert.Equal(expected, InkStrokeEditing.SnapToGrid(position, divisions), 8);
+    }
+
+    [Fact]
+    public void GridSnap_RejectsInvalidCoordinatesAndDivisions()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkStrokeEditing.SnapToGrid(double.NaN, 8));
+        Assert.Throws<ArgumentOutOfRangeException>(() => InkStrokeEditing.SnapToGrid(0.5, 1));
+    }
 }
