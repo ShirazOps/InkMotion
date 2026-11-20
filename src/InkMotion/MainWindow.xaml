@@ -920,6 +920,8 @@
                         </Grid>
                         <Button x:Name="ExportPngSequenceButton" Content="Export transparent PNG sequence…" Click="ExportPngSequence_Click"
                                 ToolTipService.ToolTip="Export visible drawing layers and cel text as numbered transparent PNG frames. Timeline media and titles are excluded." />
+                        <Button x:Name="ExportGifButton" Content="Export animated GIF…" Click="ExportGif_Click"
+                                ToolTipService.ToolTip="Export visible drawing layers and cel text as a transparent looping animated GIF at 24–50 fps. Timeline media and titles are excluded." />
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
                         <TextBlock Text="EXPORT JOBS" Style="{StaticResource SectionHeaderTextStyle}" />

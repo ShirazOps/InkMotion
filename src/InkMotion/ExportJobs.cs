@@ -10,7 +10,7 @@ public sealed record ExportVideoSettings(VideoExportProfile Profile, VideoExport
 
 public sealed record ExportJobRequest(string Id, string ProjectJson, string OutputPath,
     AudioExportSettings? Audio, ExportVideoSettings? Video, int Version = 1,
-    PngSequenceExportSettings? PngSequence = null);
+    PngSequenceExportSettings? PngSequence = null, GifExportSettings? Gif = null);
 
 public enum ExportJobPhase { Queued, Starting, Running, Completed, Cancelled, Failed, Interrupted }
 
@@ -53,13 +53,19 @@ public sealed class ExportJobStore
         ExportJobRequest request = ReadJson<ExportJobRequest>(Path.Combine(JobDirectory(id), "request.json"));
         if (request.Version != 1 || request.Id != id || string.IsNullOrWhiteSpace(request.ProjectJson) ||
             (request.Audio is null ? 0 : 1) + (request.Video is null ? 0 : 1) +
-            (request.PngSequence is null ? 0 : 1) != 1 ||
+            (request.PngSequence is null ? 0 : 1) + (request.Gif is null ? 0 : 1) != 1 ||
             string.IsNullOrWhiteSpace(request.OutputPath) || !Path.IsPathFullyQualified(request.OutputPath))
         {
             throw new InvalidDataException("Unsupported or invalid export job request.");
         }
 
         request.PngSequence?.Validate();
+        request.Gif?.Validate();
+        if (request.Gif is not null &&
+            !string.Equals(Path.GetExtension(request.OutputPath), ".gif", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("GIF export requests must use the .gif extension.");
+        }
         return request;
     }
 
@@ -102,9 +108,10 @@ public sealed class ExportJobStore
     }
 
     public ExportJobStatus Create(EditorProject project, string outputPath, AudioExportSettings? audio,
-        ExportVideoSettings? video, PngSequenceExportSettings? pngSequence = null)
+        ExportVideoSettings? video, PngSequenceExportSettings? pngSequence = null, GifExportSettings? gif = null)
     {
-        if ((audio is null ? 0 : 1) + (video is null ? 0 : 1) + (pngSequence is null ? 0 : 1) != 1)
+        if ((audio is null ? 0 : 1) + (video is null ? 0 : 1) + (pngSequence is null ? 0 : 1) +
+            (gif is null ? 0 : 1) != 1)
         {
             throw new ArgumentException("Choose exactly one export type.");
         }
@@ -123,6 +130,11 @@ public sealed class ExportJobStore
         ExportPlanning.ValidateOutputPath(snapshot, outputPath);
         audio?.Validate();
         pngSequence?.Validate();
+        gif?.Validate();
+        if (gif is not null && !string.Equals(Path.GetExtension(outputPath), ".gif", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("Choose a GIF output path with the .gif extension.", nameof(outputPath));
+        }
         if (pngSequence is not null && (Directory.Exists(outputPath) || File.Exists(outputPath)))
         {
             throw new InvalidOperationException("Choose a PNG sequence folder that does not already exist; existing folders are never overwritten.");
@@ -137,7 +149,7 @@ public sealed class ExportJobStore
             video = video with { CheckpointKey = video.CheckpointKey ?? id };
         }
         var request = new ExportJobRequest(id, EditorProjectSerialiser.Serialise(snapshot), outputPath, audio, video,
-            PngSequence: pngSequence);
+            PngSequence: pngSequence, Gif: gif);
         var status = new ExportJobStatus(id, outputPath, ExportJobPhase.Queued, 0, "Waiting for export worker.",
             DateTimeOffset.UtcNow);
         Directory.CreateDirectory(JobDirectory(id));
@@ -147,7 +159,8 @@ public sealed class ExportJobStore
     }
 
     public ExportJobStatus Launch(EditorProject project, string outputPath, AudioExportSettings? audio,
-        ExportVideoSettings? video, string executable, PngSequenceExportSettings? pngSequence = null)
+        ExportVideoSettings? video, string executable, PngSequenceExportSettings? pngSequence = null,
+        GifExportSettings? gif = null)
     {
         // Serialise submissions across editor instances, including reservation of surround stem paths.
         using var submission = new Mutex(false, @"Local\InkMotion.ExportJobSubmission");
@@ -188,7 +201,7 @@ public sealed class ExportJobStore
                 }
             }
 
-            ExportJobStatus status = Create(project, outputPath, audio, video, pngSequence);
+            ExportJobStatus status = Create(project, outputPath, audio, video, pngSequence, gif);
             _ = StartNextQueued(executable);
             ExportJobStatus submitted = ReadStatus(status.Id);
             if (submitted.Phase == ExportJobPhase.Failed &&
@@ -334,7 +347,7 @@ public sealed class ExportJobStore
 
         ExportJobRequest request = ReadRequest(id);
         return Launch(EditorProjectSerialiser.Deserialise(request.ProjectJson), request.OutputPath,
-            request.Audio, request.Video, executable, request.PngSequence);
+            request.Audio, request.Video, executable, request.PngSequence, request.Gif);
     }
 
     public bool IsCancellationRequested(string id) => File.Exists(Path.Combine(JobDirectory(id), "cancel"));

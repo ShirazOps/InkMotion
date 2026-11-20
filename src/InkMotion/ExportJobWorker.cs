@@ -99,6 +99,16 @@ public static class ExportJobWorker
                         $"{sequence.Profile.Width:N0} × {sequence.Profile.Height:N0}";
                     warnings = result.Warnings;
                 }
+                else if (request.Gif is { } gif)
+                {
+                    GifExportResult result = GifExporter.ExportAsync(project, gif, request.OutputPath,
+                        new InlineProgress<VideoExportProgress>(update => Report(update.Fraction,
+                            $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0}")),
+                        cancellation.Token).GetAwaiter().GetResult();
+                    summary = $"Exported {result.FrameCount:N0} GIF frames at " +
+                        $"{gif.Profile.Width:N0} × {gif.Profile.Height:N0}";
+                    warnings = result.Warnings;
+                }
                 else
                 {
                     ExportVideoSettings video = request.Video!;

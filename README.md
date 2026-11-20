@@ -60,6 +60,7 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 
 - H.264 or HEVC MP4 at 720p, 1080p, 1440p, 4K UHD or custom even dimensions up to 8,192 pixels per side and 33.5 megapixels total, with independent output frame rates from 24-120 fps. Custom export dimensions do not change the project canvas.
 - Transparent PNG sequences of visible drawing layers and cel text, saved as numbered frames in a new folder. Timeline footage and titles are excluded.
+- Animated looping GIFs of visible drawing layers and cel text, with transparent backgrounds. GIF transparency is binary, and timing uses 10 ms increments, so export supports 24–50 fps; timeline footage and titles are excluded.
 - Software encoding or a hardware preference with reported software fallback. Preview and export share the composition and effect pipeline.
 - Separate PCM/float WAV, MP3 and AAC/M4A mixes. Multichannel WAV supports the project layout; MP4 carries up to 5.1 AAC, with a companion full-layout WAV when needed.
 - Optional local FFmpeg adds 16/24-bit FLAC mixes up to 384 kHz and 8 channels, 48 kHz mono/stereo Opus, and Matroska video with AAC, PCM, FLAC or Opus audio.
