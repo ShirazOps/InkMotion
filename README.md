@@ -39,6 +39,13 @@ Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LU
 - Selected-track and live preview master peak/RMS meters; complete-export-mix analysis with peak/RMS and integrated LUFS. Source spectrum and spectrogram analysis.
 - Record a selected Windows audio input to WAV and place the take on the timeline. Audio/video clip linking and source relinking are also supported.
 
+### Beginner guide
+
+- On first launch, choose **Start guide** for a click-through quick-start: add video or an image, open Ink Editor, create a layer, choose the pen, draw, preview and export.
+- Pop-ups explain the highlighted control; steps advance only after the corresponding action succeeds. Cancelling an import/export picker or a failed export submission does not advance the guide. Export acceptance is not export completion: check **Export jobs** for the result.
+- **Show me** reveals the current control. **Skip guide** or Esc exits; restart from **Help > Beginner quick-start guide**. The guide temporarily reveals editing panels without replacing saved layouts. Edits are real and undoable, and existing work is not reset.
+- Welcome dismissal and completion are remembered on this PC, separately from project files.
+
 ### Ink and animation
 
 - Mouse, touch and pressure-sensitive pen drawing, textured brushes, lines, rectangles, ellipses, solid shapes and enclosed-area bucket fill.
