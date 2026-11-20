@@ -80,6 +80,7 @@ public sealed class InkLayerMergeTests
     [InlineData("source-hidden")]
     [InlineData("target-hidden")]
     [InlineData("opacity")]
+    [InlineData("blend-mode")]
     public void InvalidMergeDoesNotMutateProject(string reason)
     {
         var project = new EditorProject
@@ -94,6 +95,7 @@ public sealed class InkLayerMergeTests
             case "source-hidden": project.InkLayers[1].IsVisible = false; break;
             case "target-hidden": project.InkLayers[0].IsVisible = false; break;
             case "opacity": project.InkLayers[1].Opacity = 0.5; break;
+            case "blend-mode": project.InkLayers[1].BlendMode = InkLayerBlendMode.Multiply; break;
         }
 
         string before = EditorProjectSerialiser.Serialise(project);

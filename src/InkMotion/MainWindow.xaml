@@ -1226,7 +1226,7 @@
                         <Button Content="Flip layer top/bottom" Tag="flip-vertical" Click="InkLayerAction_Click" />
                         <TextBlock Text="Flip the unlocked layer across the canvas centre on every cel. Tweening remains editable; text and other layers are unchanged. Undo restores the drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Merge layer down" Tag="merge" Click="InkLayerAction_Click" />
-                        <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Merge combines this layer with the layer immediately beneath it across all cels. Both must be visible, unlocked, Normal blend mode and have matching opacity. Generated in-betweens become stored strokes; undo restores the separate layers. Text is unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ToggleButton x:Name="InkLayerVisibilityButton" Content="Hide layer" Click="InkLayerVisibility_Click" />
                         <ToggleButton x:Name="InkLayerLockButton" Content="Lock drawing" Click="InkLayerLock_Click" />
                         <TextBlock Text="Drawing lock protects layer strokes, opacity and order. Visibility, cel timing, keyframes, whole-cel operations and cel-global text are unchanged." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
@@ -1234,6 +1234,15 @@
                             <TextBlock Text="Opacity" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkLayerOpacitySlider" Width="150" Minimum="0" Maximum="1" Value="1" StepFrequency="0.05" ValueChanged="InkLayerOpacity_Changed" LostFocus="InkLayerOpacity_LostFocus" />
                         </StackPanel>
+                        <ComboBox x:Name="InkLayerBlendModeSelector" Header="Blend mode" SelectedIndex="0"
+                                  SelectionChanged="InkLayerBlendMode_Changed" AutomationProperties.Name="Ink layer blend mode">
+                            <ComboBoxItem Content="Normal" Tag="Normal" />
+                            <ComboBoxItem Content="Multiply" Tag="Multiply" />
+                            <ComboBoxItem Content="Screen" Tag="Screen" />
+                            <ComboBoxItem Content="Add" Tag="Add" />
+                            <ComboBoxItem Content="Overlay" Tag="Overlay" />
+                        </ComboBox>
+                        <TextBlock Text="Blend modes composite this layer with the image below it, including lower ink layers and timeline video. Normal preserves standard alpha blending." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkBrushPresetSelector" Header="Round brush preset" PlaceholderText="Apply a preset" HorizontalAlignment="Stretch" SelectionChanged="InkBrushPreset_SelectionChanged" />
                         <TextBlock Text="Presets set width, opacity and stabilisation, retaining hue. All use the same pressure-sensitive round brush; the highlighter has translucent overlapping dabs, not a separate blend mode." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

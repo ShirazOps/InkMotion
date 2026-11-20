@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.Text;
 using Windows.Foundation;
@@ -24,6 +25,9 @@ public static class TimelineCompositor
 
     public static Color WithOpacity(Color colour, double opacity) =>
         Color.FromArgb((byte)(colour.A * Math.Clamp(opacity, 0, 1)), colour.R, colour.G, colour.B);
+
+    public static bool HasNonNormalBlendModes(EditorProject project) =>
+        project.InkLayers.Any(layer => layer.IsVisible && layer.BlendMode != InkLayerBlendMode.Normal);
 
     public static double GetInkWidth(InkPoint point) =>
         point.BrushWidth * (0.25 + (1.5 * point.Pressure));
@@ -416,7 +420,7 @@ public static class TimelineCompositor
         }
     }
 
-    /// <summary>Draws every visible ink layer and the frame's text overlays for one animation drawing.</summary>
+    /// <summary>Draws normal-mode layers and text into an existing session. Use CompositeInkFrame for blend modes.</summary>
     public static void DrawInkFrame(
         CanvasDrawingSession session,
         EditorProject project,
@@ -426,6 +430,11 @@ public static class TimelineCompositor
         float sizeScale,
         double? timelineSeconds = null)
     {
+        if (project.InkLayers.Any(layer => layer.IsVisible && layer.BlendMode != InkLayerBlendMode.Normal))
+        {
+            throw new InvalidOperationException("Blend-mode layers require a background image; use CompositeInkFrame.");
+        }
+
         double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
         foreach (InkLayerProject layer in project.InkLayers.Where(layer => layer.IsVisible))
         {
@@ -458,4 +467,156 @@ public static class TimelineCompositor
             finally { session.Transform = originalTransform; }
         }
     }
+
+    public static CanvasRenderTarget CompositeInkFrame(
+        ICanvasResourceCreator device,
+        ICanvasImage background,
+        float targetWidth,
+        float targetHeight,
+        EditorProject project,
+        int frameIndex,
+        float width,
+        float height,
+        float sizeScale,
+        double? timelineSeconds = null,
+        Matrix3x2? contentTransform = null)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(background);
+        ArgumentNullException.ThrowIfNull(project);
+        if (frameIndex < 0 || frameIndex >= project.Frames.Count ||
+            !float.IsFinite(targetWidth) || targetWidth <= 0 ||
+            !float.IsFinite(targetHeight) || targetHeight <= 0 ||
+            !float.IsFinite(width) || width <= 0 ||
+            !float.IsFinite(height) || height <= 0 ||
+            !float.IsFinite(sizeScale) || sizeScale <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(frameIndex), "The ink frame and composition dimensions must be valid.");
+        }
+
+        Matrix3x2 drawingTransform = contentTransform ?? Matrix3x2.Identity;
+        double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
+        CanvasRenderTarget current = CreateTarget(device, targetWidth, targetHeight);
+        try
+        {
+            using (CanvasDrawingSession session = current.CreateDrawingSession())
+            {
+                session.Clear(Color.FromArgb(0, 0, 0, 0));
+                session.DrawImage(background);
+            }
+
+            foreach (InkLayerProject layer in project.InkLayers.Where(layer => layer.IsVisible))
+            {
+                if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+                    !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks))
+                {
+                    continue;
+                }
+
+                if (layer.BlendMode == InkLayerBlendMode.Normal)
+                {
+                    using CanvasDrawingSession session = current.CreateDrawingSession();
+                    session.Transform = drawingTransform;
+                    DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+                    continue;
+                }
+
+                using var foreground = CreateTarget(device, targetWidth, targetHeight);
+                using (CanvasDrawingSession session = foreground.CreateDrawingSession())
+                {
+                    session.Clear(Color.FromArgb(0, 0, 0, 0));
+                    session.Transform = drawingTransform;
+                    DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+                }
+
+                CanvasRenderTarget next = CreateTarget(device, targetWidth, targetHeight);
+                try
+                {
+                    using CanvasDrawingSession session = next.CreateDrawingSession();
+                    session.Clear(Color.FromArgb(0, 0, 0, 0));
+                    using var effect = new BlendEffect
+                    {
+                        Background = current,
+                        Foreground = foreground,
+                        Mode = GetBlendEffectMode(layer.BlendMode),
+                    };
+                    session.DrawImage(effect);
+                }
+                catch
+                {
+                    next.Dispose();
+                    throw;
+                }
+
+                current.Dispose();
+                current = next;
+            }
+
+            using (CanvasDrawingSession session = current.CreateDrawingSession())
+            {
+                session.Transform = drawingTransform;
+                foreach (InkTextOverlay overlay in project.Frames[frameIndex].TextOverlays)
+                {
+                    if (!InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) ||
+                        !InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, project.VideoTracks))
+                    {
+                        continue;
+                    }
+
+                    Matrix3x2 originalTransform = session.Transform;
+                    session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
+                    try { DrawInkText(session, overlay, 1, width, height, sizeScale); }
+                    finally { session.Transform = originalTransform; }
+                }
+            }
+
+            return current;
+        }
+        catch
+        {
+            current.Dispose();
+            throw;
+        }
+    }
+
+    private static void DrawInkLayer(
+        CanvasDrawingSession session,
+        EditorProject project,
+        InkLayerProject layer,
+        int frameIndex,
+        float width,
+        float height,
+        float sizeScale,
+        double seconds)
+    {
+        IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+        Matrix3x2 originalTransform = session.Transform;
+        session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
+        try
+        {
+            foreach (List<InkPoint> stroke in strokes)
+            {
+                if (stroke.Count > 0)
+                {
+                    Color colour = WithOpacity(ToColour(stroke[0].BrushColour), layer.Opacity);
+                    DrawInkStroke(session, stroke, colour, width, height, sizeScale);
+                }
+            }
+        }
+        finally { session.Transform = originalTransform; }
+    }
+
+    private static CanvasRenderTarget CreateTarget(ICanvasResourceCreator device, float width, float height) =>
+        new(device, width, height, 96,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            CanvasAlphaMode.Premultiplied);
+
+    private static BlendEffectMode GetBlendEffectMode(InkLayerBlendMode mode) => mode switch
+    {
+        InkLayerBlendMode.Multiply => BlendEffectMode.Multiply,
+        InkLayerBlendMode.Screen => BlendEffectMode.Screen,
+        InkLayerBlendMode.Add => BlendEffectMode.LinearDodge,
+        InkLayerBlendMode.Overlay => BlendEffectMode.Overlay,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Normal does not use a blend effect."),
+    };
 }

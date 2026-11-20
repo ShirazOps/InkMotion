@@ -32,8 +32,6 @@ public sealed partial class MainWindow : Window
     private readonly List<AudioTrackRuntime> _audioTracks = [];
     private readonly AudioPreviewBus _audioPreviewBus = new();
     private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
-    private readonly List<RenderedStroke> _renderedStrokes = [];
-    private readonly List<RenderedText> _renderedText = [];
     private readonly DispatcherQueueTimer _playbackTimer;
     private readonly Stopwatch _timelineClock = new();
     private int _selectedFrameIndex;
@@ -158,6 +156,10 @@ public sealed partial class MainWindow : Window
         }
         InkLayerOpacitySlider.Value = CurrentInkLayer.Opacity;
         InkLayerOpacitySlider.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
+        InkLayerBlendModeSelector.SelectedItem = InkLayerBlendModeSelector.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag?.ToString() == CurrentInkLayer.BlendMode.ToString());
+        InkLayerBlendModeSelector.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
         UpdateInkTrackingControls();
     }
 
@@ -449,13 +451,30 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            bool hasInk = _renderedStrokes.Count > 0 || _renderedText.Count > 0;
+            bool hasInk = HasVisibleInkAtPlayhead();
             EmptyState.Visibility = HasTimelineClips || hasInk ? Visibility.Collapsed : Visibility.Visible;
             EmptyPreviewHeading.Text = _workspace == "Audio" ? "Audio and video preview" : "Your canvas is ready";
             EmptyPreviewHint.Text = _workspace == "Audio"
                 ? "Add audio to the tracks below. Add video to see it alongside your mix."
                 : "Add a video, image or title, then draw in Ink Editor.";
         }
+    }
+
+    private bool HasVisibleInkAtPlayhead()
+    {
+        int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
+        double seconds = _playheadFramePosition / _frameRate;
+        if (_inkLayers.Any(layer => layer.IsVisible &&
+            InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) &&
+            InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks) &&
+            InkObjectMotion.Strokes(_frames, frameIndex, layer, _frameRate).Any(stroke => stroke.Count > 0)))
+        {
+            return true;
+        }
+
+        return _frames[frameIndex].TextOverlays.Any(overlay =>
+            InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) &&
+            InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, _videoTracks));
     }
 
     private static void SetPageButtonState(Button button, bool selected)
@@ -2065,57 +2084,64 @@ public sealed partial class MainWindow : Window
     private void RenderCurrentInk()
     {
         RefreshInkTextSelection();
-        _renderedStrokes.Clear();
-        _renderedText.Clear();
-        if (_workspace == "Ink" && !_isPlaying && OnionSkinToggle?.IsChecked == true)
-        {
-            double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
-            foreach (InkOnionGuide guide in InkOnionSkin.Plan(_frames.Count, _selectedFrameIndex,
-                _onionPreviousCount, _onionNextCount, opacity, OnionFalloffSlider?.Value ?? 1))
-            {
-                uint? colour = OnionOriginalColoursToggle?.IsChecked == true
-                    ? null : guide.IsPrevious ? 0xFF00BFFFu : 0xFFFF69B4u;
-                DrawVisibleLayers(guide.FrameIndex, colour, guide.Opacity);
-                if (OnionTextToggle?.IsChecked != false)
-                {
-                    DrawVisibleText(guide.FrameIndex, guide.Opacity);
-                }
-
-            }
-        }
-
-        DrawVisibleLayers(_selectedFrameIndex, null, 1);
-        DrawVisibleText(_selectedFrameIndex, 1);
         InkSurface.Invalidate();
+        CompositionSurface.Invalidate();
         UpdatePreviewEmptyState();
     }
 
-    private void DrawVisibleText(int frameIndex, double opacity)
+    private void DrawInkOnionSkins(CanvasDrawingSession session, float width, float height)
     {
-        double seconds = _playheadFramePosition / _frameRate;
-        foreach (InkTextOverlay overlay in _frames[frameIndex].TextOverlays)
+        if (_workspace != "Ink" || _isPlaying || IsOriginalPreview || OnionSkinToggle?.IsChecked != true)
         {
-            if (InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) &&
-                InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, _videoTracks))
-            {
-                _renderedText.Add(new RenderedText(overlay, opacity, seconds));
-            }
+            return;
         }
-    }
 
-    private void DrawVisibleLayers(int frameIndex, uint? colour, double opacityScale)
-    {
         double seconds = _playheadFramePosition / _frameRate;
-        foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
+        double opacity = OnionSkinOpacitySlider?.Value ?? 0.25;
+        bool originalColours = OnionOriginalColoursToggle?.IsChecked == true;
+        foreach (InkOnionGuide guide in InkOnionSkin.Plan(_frames.Count, _selectedFrameIndex,
+            _onionPreviousCount, _onionNextCount, opacity, OnionFalloffSlider?.Value ?? 1))
         {
-            if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
-                !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks)) continue;
-            double opacity = layer.Opacity * opacityScale;
-            foreach (List<InkPoint> stroke in InkObjectMotion.Strokes(_frames, frameIndex, layer, _frameRate))
+            uint? colour = originalColours ? null : guide.IsPrevious ? 0xFF00BFFFu : 0xFFFF69B4u;
+            foreach (InkLayerProject layer in _inkLayers.Where(layer => layer.IsVisible))
             {
-                if (stroke.Count > 0)
+                if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+                    !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks))
                 {
-                    _renderedStrokes.Add(new RenderedStroke(stroke, colour, opacity, layer.ObjectTracking, seconds));
+                    continue;
+                }
+
+                Matrix3x2 originalTransform = session.Transform;
+                session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
+                try
+                {
+                    foreach (List<InkPoint> stroke in InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate))
+                    {
+                        if (stroke.Count > 0)
+                        {
+                            Windows.UI.Color strokeColour = TimelineCompositor.WithOpacity(
+                                ToColour(colour ?? stroke[0].BrushColour), layer.Opacity * guide.Opacity);
+                            TimelineCompositor.DrawInkStroke(session, stroke, strokeColour, width, height, 1);
+                        }
+                    }
+                }
+                finally { session.Transform = originalTransform; }
+            }
+
+            if (OnionTextToggle?.IsChecked != false)
+            {
+                foreach (InkTextOverlay overlay in _frames[guide.FrameIndex].TextOverlays)
+                {
+                    if (!InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) ||
+                        !InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, _videoTracks))
+                    {
+                        continue;
+                    }
+
+                    Matrix3x2 originalTransform = session.Transform;
+                    session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
+                    try { TimelineCompositor.DrawInkText(session, overlay, guide.Opacity, width, height, 1); }
+                    finally { session.Transform = originalTransform; }
                 }
             }
         }
@@ -2125,33 +2151,6 @@ public sealed partial class MainWindow : Window
     {
         float width = (float)sender.ActualWidth;
         float height = (float)sender.ActualHeight;
-        DrawInkGuides(args.DrawingSession, width, height);
-        foreach (RenderedStroke renderedStroke in _renderedStrokes)
-        {
-            if (!InkObjectMotion.IsSourceCurrent(renderedStroke.Tracking, _videoTracks)) continue;
-            List<InkPoint> stroke = renderedStroke.Points;
-            Windows.UI.Color colour = TimelineCompositor.WithOpacity(
-                ToColour(renderedStroke.Colour ?? stroke[0].BrushColour),
-                renderedStroke.Opacity);
-            var originalTransform = args.DrawingSession.Transform;
-            args.DrawingSession.Transform = InkObjectMotion.Transform(renderedStroke.Tracking, renderedStroke.Seconds, width, height) * originalTransform;
-            try { TimelineCompositor.DrawInkStroke(args.DrawingSession, stroke, colour, width, height, 1); }
-            finally { args.DrawingSession.Transform = originalTransform; }
-        }
-
-        foreach (RenderedText renderedText in _renderedText)
-        {
-            if (!InkObjectMotion.IsSourceCurrent(renderedText.Tracking, _videoTracks)) continue;
-            var originalTransform = args.DrawingSession.Transform;
-            args.DrawingSession.Transform = InkObjectMotion.Transform(renderedText.Tracking, renderedText.Seconds, width, height) * originalTransform;
-            try
-            {
-                TimelineCompositor.DrawInkText(args.DrawingSession, renderedText.Overlay,
-                    renderedText.Opacity, width, height, 1);
-            }
-            finally { args.DrawingSession.Transform = originalTransform; }
-        }
-
         DrawInkSelection(args.DrawingSession, width, height);
         DrawSelectedInkText(args.DrawingSession, width, height);
         DrawInkRulers(args.DrawingSession, width, height);
@@ -2806,14 +2805,6 @@ public sealed partial class MainWindow : Window
             Player?.Dispose();
             Player = null;
         }
-    }
-
-    private sealed record RenderedStroke(List<InkPoint> Points, uint? Colour, double Opacity,
-        InkObjectTracking? Tracking = null, double Seconds = 0);
-    private sealed record RenderedText(InkTextOverlay Overlay, double Opacity,
-        double Seconds = 0)
-    {
-        public InkObjectTracking? Tracking => Overlay.ObjectTracking;
     }
 
     private void UpdateFrameStatus()

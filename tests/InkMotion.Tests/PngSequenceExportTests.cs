@@ -105,6 +105,79 @@ public sealed class PngSequenceExportTests
     }
 
     [Fact]
+    public async Task Export_AppliesBlendModeAgainstLowerInkLayerAndKeepsTransparency()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion PNG blend {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        var project = new EditorProject
+        {
+            InkLayers = [new(), new() { Id = "top", BlendMode = InkLayerBlendMode.Multiply }],
+            Frames =
+            [
+                new()
+                {
+                    Strokes =
+                    [
+                        [new() { X = 0.1, Y = 0.5, BrushWidth = 4, Pressure = 1, BrushColour = 0xFFFF0000 },
+                         new() { X = 0.9, Y = 0.5, BrushWidth = 4, Pressure = 1, BrushColour = 0xFFFF0000 }],
+                    ],
+                    LayerStrokes = new()
+                    {
+                        ["top"] =
+                        [
+                            [new() { X = 0.1, Y = 0.5, BrushWidth = 4, Pressure = 1, BrushColour = 0xFF0000FF },
+                             new() { X = 0.9, Y = 0.5, BrushWidth = 4, Pressure = 1, BrushColour = 0xFF0000FF }],
+                        ],
+                    },
+                },
+            ],
+        };
+
+        try
+        {
+            await PngSequenceExporter.ExportAsync(
+                project,
+                new(VideoExportProfile.Create(32, 32, 24), 32),
+                output,
+                null,
+                CancellationToken.None);
+
+            StorageFile frame = await StorageFile.GetFileFromPathAsync(Path.Combine(output, "frame_000001.png"));
+            using IRandomAccessStream stream = await frame.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+            var pixelData = await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied,
+                new BitmapTransform(),
+                ExifOrientationMode.IgnoreExifOrientation,
+                ColorManagementMode.DoNotColorManage);
+            byte[] pixels = pixelData.DetachPixelData();
+
+            int centre = ((16 * 32) + 16) * 4;
+            Assert.Equal(0, pixels[centre]);
+            Assert.Equal(0, pixels[centre + 1]);
+            Assert.Equal(0, pixels[centre + 2]);
+            Assert.True(pixels[centre + 3] > 0);
+            Assert.Equal(0, pixels[3]);
+        }
+        finally
+        {
+            foreach (string file in Directory.Exists(output) ? Directory.GetFiles(output) : [])
+            {
+                File.Delete(file);
+            }
+
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output);
+            }
+
+            Directory.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task Export_CancellationRemovesTheStagingSequence()
     {
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion PNG sequence {Guid.NewGuid():N}");

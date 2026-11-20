@@ -121,6 +121,24 @@ public sealed partial class MainWindow
         };
     }
 
+    private void InkLayerBlendMode_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRestoringProject || _isInitialising ||
+            InkLayerBlendModeSelector.SelectedItem is not ComboBoxItem { Tag: string value } ||
+            !Enum.TryParse(value, out InkLayerBlendMode mode) ||
+            CurrentInkLayer.BlendMode == mode)
+        {
+            return;
+        }
+
+        BeginEdit();
+        CurrentInkLayer.BlendMode = mode;
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = $"{CurrentInkLayer.Name} blend mode set to {mode}.";
+    }
+
     private void InkBrushPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isInitialising || InkBrushPresetSelector.SelectedItem is not string name)
