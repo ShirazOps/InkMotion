@@ -50,11 +50,8 @@ public sealed partial class MainWindow
 
     private void UpdateInkRulerReadout()
     {
-        if (InkRulerReadout is not null &&
-            ExportResolutionSelector?.SelectedItem is ComboBoxItem { Tag: string name } &&
-            Enum.TryParse(name, out ExportResolution resolution))
+        if (InkRulerReadout is not null && TryGetExportProfile(24, out VideoExportProfile profile))
         {
-            VideoExportProfile profile = VideoExportProfile.Create(resolution, 24);
             InkRulerReadout.Text = $"Ruler calibration: {profile.Width:N0} x {profile.Height:N0} output pixels. Change resolution on Export.";
         }
     }
@@ -63,13 +60,11 @@ public sealed partial class MainWindow
     {
         if (_workspace != "Ink" || _isPlaying || IsOriginalPreview ||
             InkRulersToggle?.IsChecked != true || width <= 0 || height <= 0 ||
-            ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string name } ||
-            !Enum.TryParse(name, out ExportResolution resolution))
+            !TryGetExportProfile(24, out VideoExportProfile profile))
         {
             return;
         }
 
-        VideoExportProfile profile = VideoExportProfile.Create(resolution, 24);
         double zoom = PreviewCanvasTransform.ScaleX;
         float unit = (float)(1 / zoom);
         float band = 20 * unit;

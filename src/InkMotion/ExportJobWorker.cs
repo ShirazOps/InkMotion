@@ -88,6 +88,17 @@ public static class ExportJobWorker
                     summary = $"Exported {result.SampleRate:N0} Hz · {result.Channels} channels";
                     warnings = result.Warnings;
                 }
+                else if (request.PngSequence is { } sequence)
+                {
+                    PngSequenceExportResult result = PngSequenceExporter.ExportAsync(project, sequence,
+                        request.OutputPath,
+                        new InlineProgress<VideoExportProgress>(update => Report(update.Fraction,
+                            $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0}")),
+                        cancellation.Token).GetAwaiter().GetResult();
+                    summary = $"Exported {result.FrameCount:N0} transparent PNG frames at " +
+                        $"{sequence.Profile.Width:N0} × {sequence.Profile.Height:N0}";
+                    warnings = result.Warnings;
+                }
                 else
                 {
                     ExportVideoSettings video = request.Video!;

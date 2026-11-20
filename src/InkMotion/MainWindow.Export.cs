@@ -168,10 +168,9 @@ public sealed partial class MainWindow
             if (VideoBackendSelector.SelectedIndex > 0)
             {
                 FFmpegVideoSettings settings = GetFFmpegVideoSettings()!;
-                if (ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
-                    !Enum.TryParse(resolutionName, out ExportResolution resolution))
-                    throw new InvalidOperationException("Choose a video resolution.");
-                var request = new VideoExportRequest(new(), VideoExportProfile.Create(resolution, GetExportFrameRate()),
+                if (!TryGetExportProfile(GetExportFrameRate(), out VideoExportProfile profile))
+                    throw new InvalidOperationException("Choose valid output dimensions and frame rate.");
+                var request = new VideoExportRequest(new(), profile,
                     GetSelectedExportCodec(), "", 720, FFmpeg: settings);
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 string encoder = await Task.Run(() => FFmpegVideoExporter.Probe(request, timeout.Token));
@@ -244,9 +243,7 @@ public sealed partial class MainWindow
     {
         if (_measuringVideoPerformance || _checkingVideoEncoders || _checkingAudioEncoders ||
             _submittingExport || _hasActiveExports ||
-            ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
-            !Enum.TryParse(resolutionName, out ExportResolution resolution) ||
-            !double.IsFinite(GetExportFrameRate()) || GetExportFrameRate() < 24 || GetExportFrameRate() > 120)
+            !TryGetExportProfile(GetExportFrameRate(), out VideoExportProfile profile))
         {
             return;
         }
@@ -256,6 +253,7 @@ public sealed partial class MainWindow
         CheckVideoEncodersButton.IsEnabled = false;
         CheckAudioEncodersButton.IsEnabled = false;
         ExportVideoButton.IsEnabled = false;
+        ExportPngSequenceButton.IsEnabled = false;
         ExportAudioButton.IsEnabled = false;
         ToolbarExportButton.IsEnabled = false;
         ToolbarExportAudioButton.IsEnabled = false;
@@ -263,7 +261,6 @@ public sealed partial class MainWindow
             "Measuring a two-second synthetic sample for the selected profile. This writes only a temporary file.";
         try
         {
-            VideoExportProfile profile = VideoExportProfile.Create(resolution, GetExportFrameRate());
             VideoExportCodec codec = GetSelectedExportCodec();
             bool preferHardware = ExportHardwareToggle.IsOn;
             FFmpegVideoSettings? ffmpeg = GetFFmpegVideoSettings();
@@ -295,6 +292,7 @@ public sealed partial class MainWindow
             CheckVideoEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingVideoEncoders;
             CheckAudioEncodersButton.IsEnabled = !_submittingExport && !_hasActiveExports && !_checkingAudioEncoders;
             ExportVideoButton.IsEnabled = !_submittingExport;
+            ExportPngSequenceButton.IsEnabled = !_submittingExport;
             ExportAudioButton.IsEnabled = !_submittingExport;
             ToolbarExportButton.IsEnabled = !_submittingExport;
             ToolbarExportAudioButton.IsEnabled = !_submittingExport;
@@ -302,6 +300,48 @@ public sealed partial class MainWindow
     }
 
     private double GetExportFrameRate() => ExportFrameRateBox?.Value ?? 24;
+
+    private bool TryGetExportProfile(double frameRate, out VideoExportProfile profile)
+    {
+        profile = null!;
+        if (!double.IsFinite(frameRate) || frameRate < 24 || frameRate > 120 ||
+            ExportResolutionSelector?.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
+            !Enum.TryParse(resolutionName, out ExportResolution resolution))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (resolution == ExportResolution.Custom)
+            {
+                if (CustomExportWidthBox is null || CustomExportHeightBox is null ||
+                    !double.IsFinite(CustomExportWidthBox.Value) || !double.IsFinite(CustomExportHeightBox.Value) ||
+                    CustomExportWidthBox.Value is < 2 or > VideoExportProfile.MaximumCustomDimension ||
+                    CustomExportHeightBox.Value is < 2 or > VideoExportProfile.MaximumCustomDimension ||
+                    CustomExportWidthBox.Value != Math.Truncate(CustomExportWidthBox.Value) ||
+                    CustomExportHeightBox.Value != Math.Truncate(CustomExportHeightBox.Value))
+                {
+                    return false;
+                }
+
+                profile = VideoExportProfile.Create(
+                    (int)CustomExportWidthBox.Value,
+                    (int)CustomExportHeightBox.Value,
+                    frameRate);
+            }
+            else
+            {
+                profile = VideoExportProfile.Create(resolution, frameRate);
+            }
+
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
 
     private void AudioExportCodec_Changed(object sender, SelectionChangedEventArgs e) => UpdateAudioExportOptions();
 
@@ -376,6 +416,13 @@ public sealed partial class MainWindow
     private void ExportFrameRate_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args) =>
         UpdateExportProfileReadout();
 
+    private void ExportCustomDimensions_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        UpdateExportProfileReadout();
+        UpdateInkRulerReadout();
+        InkSurface?.Invalidate();
+    }
+
     private VideoExportCodec GetSelectedExportCodec() =>
         ExportCodecSelector?.SelectedItem is ComboBoxItem { Tag: string tag } &&
         Enum.TryParse(tag, out VideoExportCodec codec)
@@ -385,9 +432,7 @@ public sealed partial class MainWindow
     private async void ExportVideo_Click(object sender, RoutedEventArgs e)
     {
         if (_submittingExport || _measuringVideoPerformance ||
-            _checkingVideoEncoders || _checkingAudioEncoders ||
-            ExportResolutionSelector.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
-            !Enum.TryParse(resolutionName, out ExportResolution resolution))
+            _checkingVideoEncoders || _checkingAudioEncoders)
         {
             return;
         }
@@ -399,6 +444,13 @@ public sealed partial class MainWindow
         {
             ExportStatusText.Visibility = Visibility.Visible;
             ExportStatusText.Text = "Choose an output frame rate from 24 to 120 fps.";
+            return;
+        }
+
+        if (!TryGetExportProfile(frameRate, out VideoExportProfile profile))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose valid output dimensions. Custom dimensions must be even, between 2 and 8,192 pixels, with no more than 33,554,432 pixels total.";
             return;
         }
 
@@ -437,7 +489,7 @@ public sealed partial class MainWindow
         }
 
         var settings = new ExportVideoSettings(
-            VideoExportProfile.Create(resolution, frameRate),
+            profile,
             GetSelectedExportCodec(),
             InkSurface.ActualHeight,
             ExportHardwareToggle.IsOn,
@@ -445,6 +497,54 @@ public sealed partial class MainWindow
             int.Parse(audioRate),
             int.Parse(audioBitRate), ffmpeg);
         await SubmitExportJobAsync(CreateProjectSnapshot(), file.Path, null, settings);
+    }
+
+    private async void ExportPngSequence_Click(object sender, RoutedEventArgs e)
+    {
+        if (_submittingExport || _measuringVideoPerformance ||
+            _checkingVideoEncoders || _checkingAudioEncoders)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        EditorProject snapshot = CreateProjectSnapshot();
+        if (!ExportPlanning.HasInk(snapshot))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Nothing to export: add ink or cel text first.";
+            return;
+        }
+
+        double frameRate = GetExportFrameRate();
+        if (!double.IsFinite(frameRate) || frameRate < 24 || frameRate > 120)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose an output frame rate from 24 to 120 fps.";
+            return;
+        }
+
+        if (!TryGetExportProfile(frameRate, out VideoExportProfile profile))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose valid output dimensions. Custom dimensions must be even, between 2 and 8,192 pixels, with no more than 33,554,432 pixels total.";
+            return;
+        }
+
+        var picker = new FolderPicker { SuggestedStartLocation = PickerLocationId.PicturesLibrary };
+        picker.FileTypeFilter.Add("*");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFolder? folder = await picker.PickSingleFolderAsync();
+        if (folder is null)
+        {
+            return;
+        }
+
+        string projectName = Path.GetFileNameWithoutExtension(_projectFile?.Name ?? "Untitled");
+        string outputDirectory = Path.Combine(folder.Path, $"{projectName} PNG Sequence");
+        var settings = new PngSequenceExportSettings(profile, InkSurface.ActualHeight);
+        await SubmitExportJobAsync(snapshot, outputDirectory, null, null, settings);
     }
 
     private void CancelExport_Click(object sender, RoutedEventArgs e)
@@ -470,11 +570,14 @@ public sealed partial class MainWindow
     {
         bool canSubmit = !busy && !_measuringVideoPerformance;
         ExportVideoButton.IsEnabled = canSubmit;
+        ExportPngSequenceButton.IsEnabled = canSubmit;
         ToolbarExportButton.IsEnabled = canSubmit;
         ToolbarExportAudioButton.IsEnabled = canSubmit;
         ExportAudioButton.IsEnabled = canSubmit;
         AudioExportOptions.IsEnabled = canSubmit;
         ExportResolutionSelector.IsEnabled = canSubmit;
+        CustomExportWidthBox.IsEnabled = canSubmit;
+        CustomExportHeightBox.IsEnabled = canSubmit;
         ExportCodecSelector.IsEnabled = canSubmit;
         ExportFrameRateBox.IsEnabled = canSubmit;
         ExportHardwareToggle.IsEnabled = canSubmit;

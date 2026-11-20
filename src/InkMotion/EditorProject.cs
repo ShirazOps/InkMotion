@@ -116,10 +116,14 @@ public enum ExportResolution
     P1080,
     P1440,
     Uhd4K,
+    Custom,
 }
 
 public sealed record VideoExportProfile(ExportResolution Resolution, int Width, int Height, double FrameRate)
 {
+    public const int MaximumCustomDimension = 8192;
+    public const long MaximumCustomPixelCount = 33_554_432;
+
     public static IReadOnlyList<(ExportResolution Resolution, string Name, int Width, int Height)> Resolutions { get; } =
     [
         (ExportResolution.P720, "720p", 1280, 720),
@@ -136,12 +140,30 @@ public sealed record VideoExportProfile(ExportResolution Resolution, int Width, 
             throw new ArgumentOutOfRangeException(nameof(resolution));
         }
 
+        ValidateFrameRate(frameRate);
+        return new VideoExportProfile(resolution, dimensions.Width, dimensions.Height, frameRate);
+    }
+
+    public static VideoExportProfile Create(int width, int height, double frameRate)
+    {
+        if (width is < 2 or > MaximumCustomDimension || width % 2 != 0 ||
+            height is < 2 or > MaximumCustomDimension || height % 2 != 0 ||
+            (long)width * height > MaximumCustomPixelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width),
+                $"Custom dimensions must be even, between 2 and {MaximumCustomDimension} pixels, and contain no more than {MaximumCustomPixelCount:N0} pixels.");
+        }
+
+        ValidateFrameRate(frameRate);
+        return new VideoExportProfile(ExportResolution.Custom, width, height, frameRate);
+    }
+
+    private static void ValidateFrameRate(double frameRate)
+    {
         if (!double.IsFinite(frameRate) || (frameRate != 12 && (frameRate < 24 || frameRate > 120)))
         {
             throw new ArgumentOutOfRangeException(nameof(frameRate));
         }
-
-        return new VideoExportProfile(resolution, dimensions.Width, dimensions.Height, frameRate);
     }
 }
 

@@ -39,7 +39,7 @@ public static class ExportPlanning
         if (sources.OfType<string>().Any(path => !string.IsNullOrWhiteSpace(path) &&
             string.Equals(Path.GetFullPath(path), fullPath, StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidOperationException("Choose a different output file: export cannot overwrite a source used by this project.");
+            throw new InvalidOperationException("Choose a different output path: export cannot overwrite a source used by this project.");
         }
     }
 
