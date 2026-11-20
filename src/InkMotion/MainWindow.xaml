@@ -35,6 +35,9 @@
                         <MenuFlyoutItem Text="Add video clip…" Click="AddVideoClip_Click" />
                         <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
                         <MenuFlyoutItem Text="Add title" Click="AddTitleClip_Click" />
+                        <MenuFlyoutItem Text="Add subtitle…" Click="AddSubtitleClip_Click" />
+                        <MenuFlyoutItem Text="Import subtitles (SRT)…" Click="ImportSubtitles_Click" />
+                        <MenuFlyoutItem Text="Export subtitles (SRT)…" Click="ExportSubtitles_Click" />
                         <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
                         <MenuFlyoutItem Text="Screen recorder…" Click="ScreenRecorder_Click" />
                         <MenuFlyoutSeparator />
@@ -107,6 +110,7 @@
                     <AppBarElementContainer><Button Content="Add video…" Click="AddVideoClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add image…" Click="AddImageClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add title" Click="AddTitleClip_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Add subtitle" Click="AddSubtitleClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add marker" Click="AddMarker_Click" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, markers, the playhead and timeline start" /></AppBarElementContainer>

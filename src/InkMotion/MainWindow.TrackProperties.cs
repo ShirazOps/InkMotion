@@ -30,9 +30,10 @@ public sealed partial class MainWindow
             clipProperties.Click += (_, _) => ShowTimelineClipProperties(track, clip);
             menu.Items.Add(clipProperties);
         }
-        if (track.Kind == TimelineTrackKind.Text && track.Clips.Count > 0)
+        if (track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) && track.Clips.Count > 0)
         {
-            var edit = new MenuFlyoutItem { Text = "Edit title text...", IsEnabled = !track.IsLocked };
+            string itemText = track.Kind == TimelineTrackKind.Subtitle ? "Edit subtitle text..." : "Edit title text...";
+            var edit = new MenuFlyoutItem { Text = itemText, IsEnabled = !track.IsLocked };
             edit.Click += (_, _) =>
             {
                 if (clip is null)
@@ -85,7 +86,7 @@ public sealed partial class MainWindow
         RefreshVideoTrackHeaders();
         UpdateVideoInspector();
         ClipTextBox.StartBringIntoView();
-        if (track.Kind == TimelineTrackKind.Text)
+        if (track.Kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle)
         {
             ClipTextBox.Focus(FocusState.Programmatic);
         }

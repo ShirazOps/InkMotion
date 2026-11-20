@@ -262,7 +262,7 @@ public static class VideoOpacityKeyframes
     }
 
     private static bool IsSupportedKind(TimelineTrackKind kind) =>
-        kind is TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text;
+        kind is TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text or TimelineTrackKind.Subtitle;
 
     private static bool IsInClip(TimelineClipProject clip, TimelineTrackKind kind, int frameOffset, double frameRate)
     {
