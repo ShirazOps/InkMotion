@@ -84,16 +84,37 @@ public static class InkObjectTracker
         {
             cancellationToken.ThrowIfCancellationRequested();
             byte[] current = Luma(renderer.Render(frame));
-            var matches = new List<(Vector2 From, Vector2 To)>();
-            foreach (Feature feature in features)
+            List<(Vector2 From, Vector2 To)> MatchFeatures(int searchRadius)
             {
-                var match = VideoMaskTracking.TrackPoint(feature.Patch, current, width, height,
-                    (int)Math.Round(feature.Point.X), (int)Math.Round(feature.Point.Y), 12);
-                if (match.Error <= 36)
-                    matches.Add((feature.Point, new(match.X, match.Y)));
+                var matches = new List<(Vector2 From, Vector2 To)>();
+                foreach (Feature feature in features)
+                {
+                    var match = VideoMaskTracking.TrackPoint(feature.Patch, current, width, height,
+                        (int)Math.Round(feature.Point.X), (int)Math.Round(feature.Point.Y), searchRadius);
+                    if (match.Error <= 36)
+                        matches.Add((feature.Point, new(match.X, match.Y)));
+                }
+                return matches;
+            }
+
+            var matches = MatchFeatures(12);
+            bool fitted = TryFitSimilarity(matches, out Matrix3x2 motion, out double stepScale, out double stepRotation);
+            if (!fitted || matches.Count < Math.Ceiling(features.Count * 0.75))
+            {
+                List<(Vector2 From, Vector2 To)> widerMatches = MatchFeatures(28);
+                bool widerFit = TryFitSimilarity(widerMatches, out Matrix3x2 widerMotion,
+                    out double widerScale, out double widerRotation);
+                if (widerFit && (!fitted || widerMatches.Count > matches.Count))
+                {
+                    matches = widerMatches;
+                    motion = widerMotion;
+                    stepScale = widerScale;
+                    stepRotation = widerRotation;
+                    fitted = true;
+                }
             }
             double seconds = frame / project.FrameRate;
-            if (!TryFitSimilarity(matches, out Matrix3x2 motion, out double stepScale, out double stepRotation))
+            if (!fitted)
                 return new(keys, seconds, $"Object lost at {seconds:0.###} s. Seek to the flagged point, reselect the object box and resume.");
             centre = Vector2.Transform(centre, motion);
             scale *= stepScale;

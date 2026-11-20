@@ -236,13 +236,17 @@ public sealed class InkObjectTrackingTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Tracker_FollowsMovingRotatingScalingTextureAndResumesAfterCorrection(bool disappear)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Tracker_FollowsMovingRotatingScalingTextureAndResumesAfterCorrection(bool disappear, bool fastMovement)
     {
         if (!VideoExportTests.HasH264Encoder) return;
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-object-{Guid.NewGuid():N}.mp4");
         const int width = 384, height = 216, count = 18;
+        double initialCentre = fastMovement ? 80 : 150;
+        double movementPerFrame = fastMovement ? 15 : 1;
+        double expectedFinalCentre = initialCentre + (count - 1) * movementPerFrame;
         var random = new Random(17);
         byte[] texture = new byte[96 * 80];
         random.NextBytes(texture);
@@ -256,7 +260,7 @@ public sealed class InkObjectTrackingTests
                     var pixels = new byte[width * height * 4];
                     Matrix3x2 transform = Matrix3x2.CreateScale(1 + frame * 0.004f) *
                         Matrix3x2.CreateRotation(frame * 0.008f) *
-                        Matrix3x2.CreateTranslation(150 + frame, 108);
+                        Matrix3x2.CreateTranslation((float)(initialCentre + frame * movementPerFrame), 108);
                     Matrix3x2.Invert(transform, out Matrix3x2 inverse);
                     for (int y = 0; y < height; y++)
                     for (int x = 0; x < width; x++)
@@ -278,7 +282,8 @@ public sealed class InkObjectTrackingTests
                 SourceDurationSeconds = count / 24d };
             var project = new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip] }] };
             InkTrackingResult result = InkObjectTracker.Analyse(project, clip.Id, 0, count / 24d,
-                new(150d / width, 0.5, 0.24, 0.35), new(0, 150d / width, 0.5), width / (double)height, null, CancellationToken.None);
+                new(initialCentre / width, 0.5, 0.24, 0.35), new(0, initialCentre / width, 0.5),
+                width / (double)height, null, CancellationToken.None);
             if (disappear)
             {
                 Assert.NotNull(result.LostSeconds);
@@ -287,7 +292,7 @@ public sealed class InkObjectTrackingTests
                 var tracking = new InkObjectTracking
                 {
                     SourceClipId = clip.Id, StartSeconds = 0, EndSeconds = count / 24d,
-                    CanvasAspectRatio = width / (double)height, AnchorX = 150d / width, AnchorY = 0.5,
+                    CanvasAspectRatio = width / (double)height, AnchorX = initialCentre / width, AnchorY = 0.5,
                     BoxWidth = 0.24, BoxHeight = 0.35, LostSeconds = result.LostSeconds,
                     Keys = result.Keys.ToList(),
                 };
@@ -316,28 +321,29 @@ public sealed class InkObjectTrackingTests
             {
                 Assert.Null(result.LostSeconds);
                 InkObjectPose last = result.Keys[^1];
-                Assert.InRange(last.X * width, 162, 172);
+                Assert.InRange(last.X * width, expectedFinalCentre - 5, expectedFinalCentre + 5);
                 Assert.InRange(last.Scale, 1.03, 1.13);
                 Assert.InRange(last.Rotation, 4, 12);
                 var tracking = new InkObjectTracking
                 {
                     SourceClipId = clip.Id, StartSeconds = 0, EndSeconds = count / 24d,
-                    CanvasAspectRatio = width / (double)height, AnchorX = 150d / width, AnchorY = 0.5,
+                    CanvasAspectRatio = width / (double)height, AnchorX = initialCentre / width, AnchorY = 0.5,
                     BoxWidth = 0.24, BoxHeight = 0.35, Keys = result.Keys.ToList(),
                 };
                 const int restart = 8;
                 double correctedScale = 1 + restart * 0.004;
+                double correctedCentre = initialCentre + restart * movementPerFrame;
                 InkTrackingResult resumed = InkObjectTracker.Analyse(project, clip.Id, restart / 24d, count / 24d,
-                    new(0.5 + ((150d + restart) / width - 0.5) / 2, 0.5,
+                    new(0.5 + (correctedCentre / width - 0.5) / 2, 0.5,
                         0.12 * correctedScale, 0.35 * correctedScale),
                     new(restart / 24d, 0, 0, Rotation: restart * 0.008 * 180 / Math.PI),
                     width * 2d / height, null, CancellationToken.None, tracking);
                 Assert.Null(resumed.LostSeconds);
-                Assert.InRange(resumed.Keys[^1].X * width, 162, 172);
+                Assert.InRange(resumed.Keys[^1].X * width, expectedFinalCentre - 5, expectedFinalCentre + 5);
                 Assert.InRange(resumed.Keys[^1].Scale, 1.03, 1.13);
                 project.InkLayers[0].IsVisible = true;
                 project.InkLayers[0].ObjectTracking = tracking;
-                project.Frames[0].Strokes = [[new() { X = 150d / width, Y = 0.5, BrushWidth = 8, BrushColour = 0xFFFF0000 }]];
+                project.Frames[0].Strokes = [[new() { X = initialCentre / width, Y = 0.5, BrushWidth = 8, BrushColour = 0xFFFF0000 }]];
                 var profile = new VideoExportProfile(ExportResolution.P720, 192, 192, 24);
                 string output = path + ".tracked.mp4";
                 try
