@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
         InitialiseExportJobs();
         InitialiseEditorLayout();
         InitialiseFFmpegPreference();
+        InitialiseQuickStartGuide();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -131,6 +132,7 @@ public sealed partial class MainWindow : Window
         RenderCurrentInk();
         UpdateFrameStatus();
         StatusText.Text = $"{layer.Name} added.";
+        ObserveQuickStartAction(QuickStartAction.LayerAdded);
     }
 
     private void RefreshInkLayers()
@@ -355,6 +357,8 @@ public sealed partial class MainWindow : Window
         if (sender is FrameworkElement { Tag: string workspace })
         {
             ShowWorkspace(workspace);
+            if (workspace == "Ink") ObserveQuickStartAction(QuickStartAction.InkWorkspaceOpened);
+            if (workspace == "Export") ObserveQuickStartAction(QuickStartAction.ExportWorkspaceOpened);
         }
     }
 
@@ -1537,6 +1541,7 @@ public sealed partial class MainWindow : Window
             SyncVideoPreview(_timelineStartPosition.TotalSeconds, forceSeek: true);
             _playbackTimer.Start();
             SetPlayButtonState(isPlaying: true);
+            ObserveQuickStartAction(QuickStartAction.PlaybackStarted);
         }
     }
 
@@ -1717,6 +1722,7 @@ public sealed partial class MainWindow : Window
         _inkShape = null;
         _isInkLasso = false;
         StatusText.Text = "Pen tool selected.";
+        ObserveQuickStartAction(QuickStartAction.PenSelected);
     }
 
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
@@ -1956,8 +1962,10 @@ public sealed partial class MainWindow : Window
                     AddPoint(pointerPoint.Position, pointerPoint.Properties.Pressure, finalPoint: true);
                 }
             }
+            bool inkDrawn = !_isEraser && !_isInkLasso && _activeStroke is { Count: > 0 };
             InkSurface.ReleasePointerCapture(e.Pointer);
             FinishActiveEdit();
+            if (inkDrawn) ObserveQuickStartAction(QuickStartAction.InkDrawn);
         }
 
         e.Handled = true;
@@ -2768,6 +2776,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        CloseQuickStartGuide();
         _inkTrackingCancellation?.Cancel();
         StopAudioRecordingForClose();
         _mediaBinClosed = true;

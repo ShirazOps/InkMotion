@@ -337,6 +337,8 @@ public sealed partial class MainWindow
         StatusText.Text = ReferenceEquals(track, preferred) || preferred is null
             ? message
             : $"{message}  ·  placed on {track.Name} to avoid an overlap";
+        if (kind is TimelineTrackKind.Video or TimelineTrackKind.Image)
+            ObserveQuickStartAction(QuickStartAction.MediaAdded);
     }
 
     private void CreateMulticamGroup_Click(object sender, RoutedEventArgs e)

@@ -39,6 +39,7 @@ public sealed partial class MainWindow
             StatusText.Text = job.Phase is ExportJobPhase.Queued or ExportJobPhase.Starting
                 ? "Export added to the queue. Queued exports continue after the editor closes."
                 : "Export worker started. Export continues if the editor closes.";
+            if (video is not null) ObserveQuickStartAction(QuickStartAction.VideoExportSubmitted);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
         {

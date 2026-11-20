@@ -41,6 +41,10 @@ public sealed partial class MainWindow
     {
         if (!_layoutReady) return;
         WorkspaceLayout layout = _editorLayouts.Workspaces[_workspace];
+        if (_quickStartGuide.IsActive)
+        {
+            layout = layout with { ShowOptions = true, ShowPreview = true, ShowTimeline = true };
+        }
         double width = Math.Max(0, EditorLayoutGrid.ActualWidth - 16);
         double height = Math.Max(0, EditorLayoutGrid.ActualHeight - 16);
         EditorOptionsColumn.Width = new GridLength(layout.GetOptionsWidth(width));
