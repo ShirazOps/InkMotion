@@ -143,7 +143,7 @@ public static class VideoColourGrading
             return "Clip colour settings are outside their supported ranges.";
         }
 
-        if (kind == TimelineTrackKind.Text && !IsNeutral(clip))
+        if (kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) && !IsNeutral(clip))
         {
             return "Colour grading is supported only for video and image clips.";
         }

@@ -315,14 +315,18 @@ public static class VideoExporter
             }
             if (!inkOnly)
             {
-                foreach (TimelineClipProject title in _project.VideoTracks
-                    .Where(track => track.IsVisible && track.Kind == TimelineTrackKind.Text)
-                    .SelectMany(track => track.Clips))
+                foreach (TimelineTrackProject textTrack in _project.VideoTracks
+                    .Where(track => track.IsVisible &&
+                        track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle)))
                 {
-                    if (!InkObjectMotion.IsSourceCurrent(title.ObjectTracking, _project.VideoTracks))
-                        throw new InvalidOperationException($"Object tracking on title '{title.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
-                    if (title.ObjectTracking is { Enabled: true, LostSeconds: double lost })
-                        warnings.Add($"Object tracking on title '{title.Text}' stopped at {lost:0.###} s; the title is hidden from that point until corrected.");
+                    string clipType = textTrack.Kind == TimelineTrackKind.Subtitle ? "subtitle" : "title";
+                    foreach (TimelineClipProject clip in textTrack.Clips)
+                    {
+                        if (!InkObjectMotion.IsSourceCurrent(clip.ObjectTracking, _project.VideoTracks))
+                            throw new InvalidOperationException($"Object tracking on {clipType} '{clip.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
+                        if (clip.ObjectTracking is { Enabled: true, LostSeconds: double lost })
+                            warnings.Add($"Object tracking on {clipType} '{clip.Text}' stopped at {lost:0.###} s; it is hidden from that point until corrected.");
+                    }
                 }
             }
             foreach (InkTextOverlay text in _project.Frames.SelectMany(frame => frame.TextOverlays)
@@ -411,6 +415,7 @@ public static class VideoExporter
                                 flipVertical: imageFlip.Vertical);
                             break;
                         case TimelineTrackKind.Text:
+                        case TimelineTrackKind.Subtitle:
                             TimelineCompositor.DrawTitle(
                                 session, layer.Clip, width, height, opacity,
                                 VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),

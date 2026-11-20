@@ -212,6 +212,95 @@ public sealed partial class MainWindow
             "Added title. Edit its text in the inspector.");
     }
 
+    private void AddSubtitleClip_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        AddTimelineClip(
+            TimelineTrackKind.Subtitle,
+            new TimelineClipProject
+            {
+                Text = "Subtitle",
+                StartFrame = PlayheadFrameNumber,
+                DurationSeconds = 3,
+                Y = 0.88,
+                FontSize = 48,
+                TextBackgroundColour = 0xB0000000,
+            },
+            "Added subtitle. Edit its text in the inspector.");
+    }
+
+    private async void ImportSubtitles_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        FinishActiveEdit();
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".srt");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<TimelineTrackProject> imported =
+                SubtitleSrt.Import(await FileIO.ReadTextAsync(file), _frameRate);
+            BeginEdit();
+            for (int index = imported.Count - 1; index >= 0; index--)
+            {
+                VideoTimelineEditing.InsertTrack(_videoTracks, imported[index]);
+            }
+            MarkEditChanged();
+            CommitEdit();
+            _selectedTimelineTrackId = imported[0].Id;
+            _selectedTimelineClipId = imported[0].Clips.OrderBy(clip => clip.StartFrame).First().Id;
+            RefreshVideoTimeline();
+            SeekToCurrentFrame();
+            int cueCount = imported.Sum(track => track.Clips.Count);
+            StatusText.Text = $"Imported {cueCount} subtitle cue(s) from {file.Name} into {imported.Count} track(s). Cue times were aligned to {_frameRate:0.###} fps.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
+        {
+            StatusText.Text = $"Could not import subtitles: {ex.Message}";
+        }
+    }
+
+    private async void ExportSubtitles_Click(object sender, RoutedEventArgs e)
+    {
+        TimelineTrackProject[] tracks = _videoTracks
+            .Where(track => track.Kind == TimelineTrackKind.Subtitle && track.Clips.Count > 0)
+            .ToArray();
+        if (tracks.Length == 0)
+        {
+            StatusText.Text = "There are no subtitle cues to export.";
+            return;
+        }
+
+        var picker = new FileSavePicker
+        {
+            SuggestedFileName = "subtitles",
+        };
+        picker.FileTypeChoices.Add("SubRip subtitles", new List<string> { ".srt" });
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await FileIO.WriteTextAsync(file, SubtitleSrt.Export(tracks, _frameRate));
+            StatusText.Text = $"Exported subtitles to {file.Name}.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
+        {
+            StatusText.Text = $"Could not export subtitles: {ex.Message}";
+        }
+    }
+
     private async Task<StorageFile?> PickTimelineFileAsync(IEnumerable<string> extensions)
     {
         var picker = new FileOpenPicker();
@@ -453,7 +542,7 @@ public sealed partial class MainWindow
         _unavailablePreviewVideoSources.Clear();
         DisposePreviewVideoFrameSources();
         string[] paths = _videoTracks
-            .Where(track => track.Kind != TimelineTrackKind.Text)
+            .Where(track => track.Kind is not (TimelineTrackKind.Text or TimelineTrackKind.Subtitle))
             .SelectMany(track => track.Clips)
             .Select(clip => clip.SourcePath)
             .OfType<string>()
@@ -934,6 +1023,7 @@ public sealed partial class MainWindow
                     DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
                     break;
                 case TimelineTrackKind.Text:
+                case TimelineTrackKind.Subtitle:
                     TimelineCompositor.DrawTitle(
                         session, layer.Clip, width, height, opacity,
                         VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate),
@@ -1669,7 +1759,7 @@ public sealed partial class MainWindow
             }
         }
 
-        if (track.Kind == TimelineTrackKind.Text)
+        if (track.Kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle)
         {
             foreach (VideoTransformKeyframe key in clip.TransformKeyframes)
             {
@@ -1800,7 +1890,8 @@ public sealed partial class MainWindow
         }
     }
 
-    private static string GetClipLabel(TimelineTrackProject track, TimelineClipProject clip) => track.Kind == TimelineTrackKind.Text
+    private static string GetClipLabel(TimelineTrackProject track, TimelineClipProject clip) =>
+        track.Kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle
         ? clip.Text.Split('\n', 2)[0].Trim()
         : Path.GetFileName(clip.SourcePath) ?? "Clip";
 
@@ -1924,7 +2015,7 @@ public sealed partial class MainWindow
         }
 
         TimelineTrackProject track = _videoTracks[index];
-        e.Handled = track.Kind != TimelineTrackKind.Text;
+        e.Handled = track.Kind is not (TimelineTrackKind.Text or TimelineTrackKind.Subtitle);
         _selectedTimelineTrackId = track.Id;
         TimelineClipLocation? location = VideoTimelineEditing.FindClipAt(track, seconds, _frameRate);
         double handleTolerance = (e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch ? 14 : 8)
@@ -1954,7 +2045,8 @@ public sealed partial class MainWindow
         bool nearEnd = endDistance <= handleTolerance;
         int clickedClipFrame = VideoMaskShapeKeyframes.GetFrameOffset(location.Clip, seconds, _frameRate);
         int keyToleranceFrames = Math.Max(1, (int)Math.Ceiling(7 / _timelinePixelsPerSecond * _frameRate));
-        if (_timelineToolMode == TimelineToolMode.Select && track.Kind == TimelineTrackKind.Text &&
+        if (_timelineToolMode == TimelineToolMode.Select &&
+            track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) &&
             Math.Abs(point.Position.Y - (LaneTop(index) + 9)) <= 7)
         {
             VideoTransformKeyframe? motionKey = location.Clip.TransformKeyframes
@@ -2297,7 +2389,7 @@ public sealed partial class MainWindow
             header.ContextFlyout = CreateTimelineTrackMenu(track);
             header.DoubleTapped += (_, e) =>
             {
-                if (track.Kind == TimelineTrackKind.Text)
+                if (track.Kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle)
                 {
                     SelectTitleOnTrack(track);
                     EditSelectedTitle();
@@ -2653,7 +2745,8 @@ public sealed partial class MainWindow
         bool batch = sender is Button { Tag: "batch" };
         PausePlayback();
         FinishActiveEdit();
-        if (!TryGetEditableClip(out TimelineClipLocation selected) || selected.Track.Kind == TimelineTrackKind.Text)
+        if (!TryGetEditableClip(out TimelineClipLocation selected) ||
+            selected.Track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle))
         {
             return;
         }
@@ -2780,7 +2873,7 @@ public sealed partial class MainWindow
 
         bool isVideo = kind == TimelineTrackKind.Video;
         bool isImage = kind == TimelineTrackKind.Image;
-        bool isTitle = kind == TimelineTrackKind.Text;
+        bool isTitle = kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle;
         bool supportsTransform = isVideo || isImage || isTitle;
         bool supportsMediaTransform = isVideo || isImage;
         VideoSlipActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -3267,7 +3360,7 @@ public sealed partial class MainWindow
             return;
         }
         if (SelectedTimelineClip is not TimelineClipLocation selected ||
-            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text) ||
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text or TimelineTrackKind.Subtitle) ||
             VideoTransformKeyframes.GetValueAtTime(selected.Clip, CurrentPlaybackSeconds, _frameRate).RotationDegrees == args.NewValue ||
             !TryBeginClipPropertyEdit(out var location))
         {

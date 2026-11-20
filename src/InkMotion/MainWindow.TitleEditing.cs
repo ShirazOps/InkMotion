@@ -24,7 +24,7 @@ public sealed partial class MainWindow
 
     private IReadOnlyList<TimelineClipLocation> VisibleViewerTitles() =>
         VideoTimelineEditing.GetVisibleLayers(_videoTracks, TitlePreviewSeconds, _frameRate, _videoMulticamGroups)
-            .Where(location => location.Track.Kind == TimelineTrackKind.Text &&
+            .Where(location => location.Track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) &&
                 VideoTimelineEditing.GetOpacity(location, TitlePreviewSeconds, _frameRate) > 0 &&
                 location.Clip.ObjectTracking is not { Enabled: true } &&
                 !string.IsNullOrWhiteSpace(location.Clip.Text) &&
@@ -67,7 +67,7 @@ public sealed partial class MainWindow
     {
         if (_workspace != "Video" || IsOriginalPreview || _isPlaying ||
             sender.ActualWidth <= 0 || sender.ActualHeight <= 0 ||
-            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text } selected ||
+            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text or TimelineTrackKind.Subtitle } selected ||
             !VisibleViewerTitles().Any(location => location.Clip.Id == selected.Clip.Id))
         {
             return;
@@ -108,7 +108,7 @@ public sealed partial class MainWindow
         Vector2 position = new((float)point.Position.X, (float)point.Position.Y);
         TimelineClipLocation? target = null;
         string operation = "move";
-        if (SelectedTimelineClip is { Track.Kind: TimelineTrackKind.Text } selected &&
+        if (SelectedTimelineClip is { Track.Kind: TimelineTrackKind.Text or TimelineTrackKind.Subtitle } selected &&
             VisibleViewerTitles().Any(location => location.Clip.Id == selected.Clip.Id))
         {
             VideoTransformValue selectedValue = VideoTransformKeyframes.GetValueAtTime(selected.Clip, TitlePreviewSeconds, _frameRate);
@@ -189,7 +189,7 @@ public sealed partial class MainWindow
             gesture.Started = true;
         }
         if (VideoTransformKeyframes.SetValueAtTime(
-            gesture.Location.Clip, TimelineTrackKind.Text, TitlePreviewSeconds, _frameRate, value))
+            gesture.Location.Clip, gesture.Location.Track.Kind, TitlePreviewSeconds, _frameRate, value))
         {
             ApplyClipPreview();
             TitleAdornerSurface.Invalidate();
@@ -251,7 +251,7 @@ public sealed partial class MainWindow
     {
         Point point = e.GetPosition(VideoTimelineCanvas);
         int index = GetTrackIndexAt(point.Y);
-        if (index < 0 || _videoTracks[index].Kind != TimelineTrackKind.Text)
+        if (index < 0 || _videoTracks[index].Kind is not (TimelineTrackKind.Text or TimelineTrackKind.Subtitle))
         {
             return;
         }
@@ -286,7 +286,8 @@ public sealed partial class MainWindow
 
     private async void EditSelectedTitle()
     {
-        if (_titleDialogOpen || SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text } selected)
+        if (_titleDialogOpen ||
+            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text or TimelineTrackKind.Subtitle } selected)
         {
             return;
         }
@@ -298,10 +299,13 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         var input = new TextBox { Text = selected.Clip.Text, AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap, MaxLength = 500, MinWidth = 300, MinHeight = 120 };
+            TextWrapping = TextWrapping.Wrap, MaxLength = selected.Track.Kind == TimelineTrackKind.Subtitle ? 2048 : 500,
+            MinWidth = 300, MinHeight = 120 };
         var dialog = new ContentDialog
         {
-            XamlRoot = Content.XamlRoot, Title = "Edit title text", Content = input,
+            XamlRoot = Content.XamlRoot,
+            Title = selected.Track.Kind == TimelineTrackKind.Subtitle ? "Edit subtitle text" : "Edit title text",
+            Content = input,
             PrimaryButtonText = "Apply", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
         };
         input.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(input.Text);
@@ -328,7 +332,8 @@ public sealed partial class MainWindow
 
     private void TitleColourPicker_ColorChanged(ColorPicker sender, ColorChangedEventArgs args)
     {
-        if (_isInitialising || _isRestoringProject || SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text } selected)
+        if (_isInitialising || _isRestoringProject ||
+            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Text or TimelineTrackKind.Subtitle } selected)
         {
             return;
         }

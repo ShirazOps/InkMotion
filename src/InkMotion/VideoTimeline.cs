@@ -7,6 +7,7 @@ public enum TimelineTrackKind
     Video,
     Image,
     Text,
+    Subtitle,
 }
 
 public sealed class VideoMulticamGroup
@@ -165,7 +166,7 @@ public sealed class TimelineClipProject
     public double PlaybackSpeed { get; set; } = 1;
     public bool IsReversed { get; set; }
     public bool ReverseEmbeddedAudio { get; set; } = true;
-    /// <summary>Timeline length of image and text clips.</summary>
+    /// <summary>Timeline length of image, title, and subtitle clips.</summary>
     public double DurationSeconds { get; set; } = VideoTimelineEditing.DefaultStillDurationSeconds;
     public double Opacity { get; set; } = 1;
     public List<VideoOpacityKeyframe> OpacityKeyframes { get; set; } = [];
@@ -268,6 +269,7 @@ public static class VideoTimelineEditing
         TimelineTrackKind.Video => "Video",
         TimelineTrackKind.Image => "Image",
         TimelineTrackKind.Text => "Title",
+        TimelineTrackKind.Subtitle => "Subtitle",
         _ => kind.ToString(),
     };
 
@@ -327,8 +329,8 @@ public static class VideoTimelineEditing
     }
 
     /// <summary>
-    /// Inserts a track of the given kind. Titles go above everything, images above the video tracks,
-    /// and video tracks below the existing video tracks, so overlays stay visible by default.
+    /// Inserts a track of the given kind. Text and subtitle tracks go above everything, images above
+    /// the video tracks, and video tracks below existing video tracks, so overlays stay visible by default.
     /// </summary>
     public static int InsertTrack(List<TimelineTrackProject> tracks, TimelineTrackProject track, int? aboveIndex = null)
     {
@@ -343,7 +345,7 @@ public static class VideoTimelineEditing
         {
             index = track.Kind switch
             {
-                TimelineTrackKind.Text => 0,
+                TimelineTrackKind.Text or TimelineTrackKind.Subtitle => 0,
                 TimelineTrackKind.Image => FirstIndexOrCount(tracks, existing => existing.Kind == TimelineTrackKind.Video),
                 _ => tracks.Count,
             };
@@ -690,7 +692,7 @@ public static class VideoTimelineEditing
             .Where(location => location.Track.Kind == TimelineTrackKind.Video)
             .ToArray();
 
-    /// <summary>Returns visible image and title clips at the given time in drawing order (bottom track first).</summary>
+    /// <summary>Returns visible image, title, and subtitle clips at the given time in drawing order (bottom track first).</summary>
     public static IReadOnlyList<TimelineClipLocation> GetVisibleOverlays(
         IReadOnlyList<TimelineTrackProject> tracks,
         double seconds,
@@ -712,7 +714,7 @@ public static class VideoTimelineEditing
 
     /// <summary>
     /// Returns every visible clip at the given time, of any kind, in compositing order (bottom track first).
-    /// Export uses this so video, image and title tracks stack exactly as they are ordered on the timeline.
+    /// Export uses this so video, image, title, and subtitle tracks stack as they are ordered on the timeline.
     /// </summary>
     public static IReadOnlyList<TimelineClipLocation> GetVisibleLayers(
         IReadOnlyList<TimelineTrackProject> tracks,
@@ -876,7 +878,7 @@ public static class VideoTimelineEditing
         return end;
     }
 
-    /// <summary>Sets the timeline length of an image or title clip when the new range stays free.</summary>
+    /// <summary>Sets the timeline length of a still, title, or subtitle clip when the new range stays free.</summary>
     public static bool TrySetStillDuration(TimelineTrackProject track, TimelineClipProject clip, double seconds, double frameRate)
     {
         ArgumentNullException.ThrowIfNull(track);
@@ -1315,6 +1317,7 @@ public static class VideoTimelineEditing
                     double.IsFinite(clip.Scale) &&
                     clip.Scale is >= MinimumScale and <= MaximumScale;
             case TimelineTrackKind.Text:
+            case TimelineTrackKind.Subtitle:
                 return !string.IsNullOrWhiteSpace(clip.Text) &&
                     clip.TransitionInSeconds == 0 &&
                     clip.Text.Length <= 2048 &&

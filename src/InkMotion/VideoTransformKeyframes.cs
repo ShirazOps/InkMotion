@@ -318,7 +318,7 @@ public static class VideoTransformKeyframes
     }
 
     private static bool IsSupportedKind(TimelineTrackKind kind) =>
-        kind is TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text;
+        kind is TimelineTrackKind.Video or TimelineTrackKind.Image or TimelineTrackKind.Text or TimelineTrackKind.Subtitle;
 
     private static bool IsValidValue(VideoTransformValue value) =>
         double.IsFinite(value.X) && value.X is >= 0 and <= 1 &&

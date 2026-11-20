@@ -172,7 +172,8 @@ public static class VideoEditTools
         TimelineTrackProject selectedTrack, TimelineClipProject selectedClip, string path, double sourceDuration)
     {
         if (!tracks.Contains(selectedTrack) || !selectedTrack.Clips.Contains(selectedClip) ||
-            selectedTrack.Kind == TimelineTrackKind.Text || string.IsNullOrWhiteSpace(selectedClip.SourcePath) ||
+            selectedTrack.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) ||
+            string.IsNullOrWhiteSpace(selectedClip.SourcePath) ||
             string.IsNullOrWhiteSpace(path))
         {
             throw new InvalidOperationException("Select an existing video or image clip to relink its matching sources.");
@@ -380,7 +381,8 @@ public static class VideoEditTools
 
     public static bool Relink(TimelineTrackProject track, TimelineClipProject clip, string path, double sourceDuration)
     {
-        if (track.IsLocked || !track.Clips.Contains(clip) || track.Kind == TimelineTrackKind.Text ||
+        if (track.IsLocked || !track.Clips.Contains(clip) ||
+            track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) ||
             string.IsNullOrWhiteSpace(path))
         {
             return false;
