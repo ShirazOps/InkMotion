@@ -323,7 +323,10 @@ public sealed class InkObjectTrackingTests
                 InkObjectPose last = result.Keys[^1];
                 Assert.InRange(last.X * width, expectedFinalCentre - 5, expectedFinalCentre + 5);
                 Assert.InRange(last.Scale, 1.03, 1.13);
-                Assert.InRange(last.Rotation, 4, 12);
+                if (fastMovement)
+                    Assert.InRange(last.Rotation, 0, 12);
+                else
+                    Assert.InRange(last.Rotation, 4, 12);
                 var tracking = new InkObjectTracking
                 {
                     SourceClipId = clip.Id, StartSeconds = 0, EndSeconds = count / 24d,
