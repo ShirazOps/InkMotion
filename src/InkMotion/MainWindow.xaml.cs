@@ -1767,6 +1767,14 @@ public sealed partial class MainWindow : Window
 
     private void ExportResolution_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (CustomExportDimensionsPanel is not null)
+        {
+            CustomExportDimensionsPanel.Visibility =
+                ExportResolutionSelector.SelectedItem is ComboBoxItem { Tag: "Custom" }
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+
         UpdateFFmpegVideoOptions();
         UpdateExportProfileReadout();
         UpdateInkRulerReadout();
@@ -1775,9 +1783,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateExportProfileReadout()
     {
-        if (ExportProfileReadout is null ||
-            ExportResolutionSelector?.SelectedItem is not ComboBoxItem { Tag: string resolutionName } ||
-            !Enum.TryParse(resolutionName, out ExportResolution resolution))
+        if (ExportProfileReadout is null)
         {
             return;
         }
@@ -1789,7 +1795,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        VideoExportProfile profile = VideoExportProfile.Create(resolution, frameRate);
+        if (!TryGetExportProfile(frameRate, out VideoExportProfile profile))
+        {
+            ExportProfileReadout.Text =
+                $"Choose valid output dimensions. Custom dimensions must be even, between 2 and {VideoExportProfile.MaximumCustomDimension:N0} pixels, with no more than {VideoExportProfile.MaximumCustomPixelCount:N0} pixels total.";
+            return;
+        }
+
         double megabits = ExportPlanning.GetVideoBitRate(profile, GetSelectedExportCodec(), (ExportQualitySlider?.Value ?? 50) / 100) / 1_000_000d;
         ExportProfileReadout.Text =
             $"{profile.Width} × {profile.Height} · {profile.FrameRate:0.###} fps · target {megabits:0.#} Mbps (~{megabits * 60 / 8:0} MB/min video)";

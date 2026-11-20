@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas;
 using Windows.Foundation;
+using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace InkMotion;
 
@@ -298,7 +300,7 @@ public static class VideoExporter
         private readonly Dictionary<string, VideoVignetteCanvasEffect> _vignetteEffects = [];
         private readonly HashSet<string> _missingProxyWarnings = new(StringComparer.Ordinal);
 
-        public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings)
+        public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings, bool inkOnly = false)
         {
             _device = device;
             _project = request.Project;
@@ -311,14 +313,17 @@ public static class VideoExporter
                 if (layer.ObjectTracking is { Enabled: true, LostSeconds: double lost })
                     warnings.Add($"Object tracking on '{layer.Name}' stopped at {lost:0.###} s; its drawing is hidden from that point until corrected.");
             }
-            foreach (TimelineClipProject title in _project.VideoTracks
-                .Where(track => track.IsVisible && track.Kind == TimelineTrackKind.Text)
-                .SelectMany(track => track.Clips))
+            if (!inkOnly)
             {
-                if (!InkObjectMotion.IsSourceCurrent(title.ObjectTracking, _project.VideoTracks))
-                    throw new InvalidOperationException($"Object tracking on title '{title.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
-                if (title.ObjectTracking is { Enabled: true, LostSeconds: double lost })
-                    warnings.Add($"Object tracking on title '{title.Text}' stopped at {lost:0.###} s; the title is hidden from that point until corrected.");
+                foreach (TimelineClipProject title in _project.VideoTracks
+                    .Where(track => track.IsVisible && track.Kind == TimelineTrackKind.Text)
+                    .SelectMany(track => track.Clips))
+                {
+                    if (!InkObjectMotion.IsSourceCurrent(title.ObjectTracking, _project.VideoTracks))
+                        throw new InvalidOperationException($"Object tracking on title '{title.Text}' no longer matches its source clip. Clear and recalculate it, or disable Follow object.");
+                    if (title.ObjectTracking is { Enabled: true, LostSeconds: double lost })
+                        warnings.Add($"Object tracking on title '{title.Text}' stopped at {lost:0.###} s; the title is hidden from that point until corrected.");
+                }
             }
             foreach (InkTextOverlay text in _project.Frames.SelectMany(frame => frame.TextOverlays)
                 .Where(text => text.ObjectTracking is not null))
@@ -332,6 +337,24 @@ public static class VideoExporter
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
             _inkScale = (float)(_profile.Height / reference);
             _hasInk = ExportPlanning.HasInk(_project);
+        }
+
+        public async Task SaveInkFrameAsync(int frame, StorageFile outputFile)
+        {
+            double seconds = frame / _profile.FrameRate;
+            using (CanvasDrawingSession session = _target.CreateDrawingSession())
+            {
+                session.Clear(Microsoft.UI.Colors.Transparent);
+                if (_hasInk)
+                {
+                    TimelineCompositor.DrawInkFrame(session, _project,
+                        ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
+                        _profile.Width, _profile.Height, _inkScale, seconds);
+                }
+            }
+
+            using IRandomAccessStream stream = await outputFile.OpenAsync(FileAccessMode.ReadWrite);
+            await _target.SaveAsync(stream, CanvasBitmapFileFormat.Png);
         }
 
         public byte[] Render(int frame)

@@ -30,6 +30,9 @@ public sealed class ExportJobsTests : IDisposable
         Assert.Null(request.Audio);
         Assert.Equal(0.4, EditorProjectSerialiser.Deserialise(request.ProjectJson).Frames[0].Strokes[0][0].X);
         Assert.Equal(ExportJobPhase.Queued, _store.ReadStatus(job.Id).Phase);
+        var pngSequence = new PngSequenceExportSettings(VideoExportProfile.Create(640, 480, 24), 720);
+        ExportJobStatus pngJob = _store.Create(project, Path.Combine(_root, "frames"), null, null, pngSequence);
+        Assert.Equal(pngSequence, _store.ReadRequest(pngJob.Id).PngSequence);
         Assert.Throws<ArgumentException>(() => _store.Create(project, Path.Combine(_root, "bad.wav"), null, null));
         Assert.Throws<ArgumentException>(() => _store.JobDirectory(@"..\outside"));
     }

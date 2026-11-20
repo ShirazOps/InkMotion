@@ -53,6 +53,26 @@ public sealed class VideoExportProfileTests
         Assert.Equal(rate, VideoExportProfile.Create(ExportResolution.P1080, rate).FrameRate);
 
     [Fact]
+    public void Create_AcceptsCustomDimensionsWithoutChangingPresetProfiles()
+    {
+        VideoExportProfile custom = VideoExportProfile.Create(2048, 1536, 60);
+        Assert.Equal(ExportResolution.Custom, custom.Resolution);
+        Assert.Equal(2048, custom.Width);
+        Assert.Equal(1536, custom.Height);
+        Assert.Equal(60, custom.FrameRate);
+        Assert.Equal((1920, 1080), (VideoExportProfile.Create(ExportResolution.P1080, 24).Width,
+            VideoExportProfile.Create(ExportResolution.P1080, 24).Height));
+    }
+
+    [Theory]
+    [InlineData(0, 1080)]
+    [InlineData(8194, 1080)]
+    [InlineData(1919, 1080)]
+    [InlineData(8192, 8192)]
+    public void Create_RejectsInvalidCustomDimensions(int width, int height) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => VideoExportProfile.Create(width, height, 24));
+
+    [Fact]
     public void CapabilityProbeFrameRates_CoverCommonIntegerAndFractionalRates()
     {
         Assert.Equal(

@@ -802,7 +802,23 @@
                             <ComboBoxItem Content="1080p · 1920 × 1080" Tag="P1080" />
                             <ComboBoxItem Content="1440p · 2560 × 1440" Tag="P1440" />
                             <ComboBoxItem Content="4K UHD · 3840 × 2160" Tag="Uhd4K" />
+                            <ComboBoxItem Content="Custom dimensions…" Tag="Custom" />
                         </ComboBox>
+                        <StackPanel x:Name="CustomExportDimensionsPanel" Spacing="8" Visibility="Collapsed">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <NumberBox x:Name="CustomExportWidthBox" Header="Width (pixels)" Minimum="2" Maximum="8192"
+                                           Value="1920" SmallChange="2" SpinButtonPlacementMode="Compact"
+                                           ValueChanged="ExportCustomDimensions_Changed" />
+                                <NumberBox x:Name="CustomExportHeightBox" Grid.Column="1" Header="Height (pixels)" Minimum="2" Maximum="8192"
+                                           Value="1080" SmallChange="2" SpinButtonPlacementMode="Compact"
+                                           ValueChanged="ExportCustomDimensions_Changed" />
+                            </Grid>
+                            <TextBlock Text="Custom dimensions must be even and use no more than 33,554,432 pixels total. These are export settings and do not change the project canvas or saved drawings." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        </StackPanel>
                         <NumberBox x:Name="ExportFrameRateBox" Header="Output frame rate (24–120 fps)" Minimum="24" Maximum="120"
                                    Value="24" SmallChange="1" SpinButtonPlacementMode="Compact" ValueChanged="ExportFrameRate_Changed" />
                         <TextBlock x:Name="ExportProfileReadout" TextWrapping="Wrap" Text="1920 × 1080 · 24 fps" Style="{StaticResource LabelTextStyle}" />
@@ -873,6 +889,8 @@
                             <Button x:Name="ExportVideoButton" Content="Export video…" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="ExportVideo_Click" ToolTipService.ToolTip="Render every visible track, ink layer and the audio mix to an MP4 file" />
                             <Button x:Name="CancelExportButton" Grid.Column="1" Content="Cancel" Visibility="Collapsed" Click="CancelExport_Click" />
                         </Grid>
+                        <Button x:Name="ExportPngSequenceButton" Content="Export transparent PNG sequence…" Click="ExportPngSequence_Click"
+                                ToolTipService.ToolTip="Export visible drawing layers and cel text as numbered transparent PNG frames. Timeline media and titles are excluded." />
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
                         <TextBlock x:Name="ExportStatusText" TextWrapping="Wrap" FontSize="12" Style="{StaticResource LabelTextStyle}" Visibility="Collapsed" />
                         <TextBlock Text="EXPORT JOBS" Style="{StaticResource SectionHeaderTextStyle}" />

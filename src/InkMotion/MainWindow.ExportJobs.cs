@@ -25,7 +25,7 @@ public sealed partial class MainWindow
     }
 
     private async Task SubmitExportJobAsync(EditorProject project, string outputPath,
-        AudioExportSettings? audio, ExportVideoSettings? video)
+        AudioExportSettings? audio, ExportVideoSettings? video, PngSequenceExportSettings? pngSequence = null)
     {
         _submittingExport = true;
         _exportSubmissionError = null;
@@ -33,7 +33,8 @@ public sealed partial class MainWindow
         try
         {
             string executable = Path.Combine(AppContext.BaseDirectory, "InkMotion.exe");
-            ExportJobStatus job = await Task.Run(() => _exportJobStore.Launch(project, outputPath, audio, video, executable));
+            ExportJobStatus job = await Task.Run(() =>
+                _exportJobStore.Launch(project, outputPath, audio, video, executable, pngSequence));
             _selectedExportJobId = job.Id;
             StatusText.Text = job.Phase is ExportJobPhase.Queued or ExportJobPhase.Starting
                 ? "Export added to the queue. Queued exports continue after the editor closes."
