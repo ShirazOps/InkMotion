@@ -6,11 +6,14 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 78;
+    public const int CurrentVersion = 79;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
     public ProjectCanvasSize? CanvasSize { get; set; }
+    /// <summary>Null keeps the legacy SDR Rec.709 pipeline; otherwise the project is colour-managed HDR.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProjectColourSettings? Colour { get; set; }
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
@@ -679,6 +682,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 78)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1114,6 +1121,7 @@ internal static class EditorProjectValidation
         }
 
         project.CanvasSize?.Validate();
+        project.Colour?.Validate();
 
         if (project.Markers is null)
         {

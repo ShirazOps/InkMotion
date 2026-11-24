@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas;
 using Windows.Foundation;
+using Windows.Graphics.DirectX;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
@@ -59,6 +60,8 @@ public static class VideoExporter
         }
         if (request.Codec is not (VideoExportCodec.H264 or VideoExportCodec.Hevc))
             throw new NotSupportedException("AV1 and WMV export require the optional FFmpeg backend.");
+        if (request.Project.Colour is not null)
+            throw new NotSupportedException("HDR projects export through the optional FFmpeg backend; Windows Media Foundation export is SDR only.");
         EditorProject project = request.Project;
         ExportPlanning.ValidateEmbeddedAudio(request.AudioSampleRate, request.AudioBitRate);
         ExportPlanning.ValidateOutputPath(project, request.OutputPath);
@@ -303,6 +306,11 @@ public static class VideoExporter
         private readonly Dictionary<string, VideoSharpenCanvasEffect> _sharpenEffects = [];
         private readonly Dictionary<string, VideoVignetteCanvasEffect> _vignetteEffects = [];
         private readonly HashSet<string> _missingProxyWarnings = new(StringComparer.Ordinal);
+        private readonly ProjectColourSettings? _hdr;
+        private readonly string? _ffmpegPath;
+
+        /// <summary>True when <see cref="Render"/> returns HDR rgb48le frames instead of BGRA.</summary>
+        public bool IsHdr => _hdr is not null;
 
         public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings, bool inkOnly = false)
         {
@@ -345,11 +353,17 @@ public static class VideoExporter
                 new Rect(0, 0, _profile.Width, _profile.Height);
             _canvasWidth = (float)_outputCanvasRect.Width;
             _canvasHeight = (float)_outputCanvasRect.Height;
+            _hdr = inkOnly ? null : _project.Colour;
+            _ffmpegPath = request.FFmpeg?.ExecutablePath;
+            DirectXPixelFormat format = _hdr is null
+                ? DirectXPixelFormat.B8G8R8A8UIntNormalized
+                : DirectXPixelFormat.R16G16B16A16Float;
             _target = new CanvasRenderTarget(device,
-                MathF.Ceiling(_canvasWidth), MathF.Ceiling(_canvasHeight), 96);
+                MathF.Ceiling(_canvasWidth), MathF.Ceiling(_canvasHeight), 96, format, CanvasAlphaMode.Premultiplied);
             if (_project.CanvasSize is not null)
             {
-                _outputTarget = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96);
+                _outputTarget = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96, format,
+                    CanvasAlphaMode.Premultiplied);
             }
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
             _inkScale = (float)(_canvasHeight / reference);
@@ -465,15 +479,18 @@ public static class VideoExporter
 
             if (!_hasInk || !hasBlendModes)
             {
-                return FitOutput(_target, transparent: false).GetPixelBytes();
+                return Encode(FitOutput(_target, transparent: false));
             }
 
             using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
                 _device, _target, (float)_target.Size.Width, (float)_target.Size.Height, _project,
                 ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
                 width, height, _inkScale, seconds);
-            return FitOutput(composite, transparent: false).GetPixelBytes();
+            return Encode(FitOutput(composite, transparent: false));
         }
+
+        private byte[] Encode(CanvasRenderTarget output) =>
+            _hdr is null ? output.GetPixelBytes() : HdrColour.EncodeWorkingFrame(output.GetPixelBytes(), _hdr);
 
         private CanvasRenderTarget FitOutput(CanvasRenderTarget canvas, bool transparent)
         {
@@ -668,7 +685,13 @@ public static class VideoExporter
 
             try
             {
-                return new TimelineVideoFrameSource(path);
+                HdrDecodeOptions? hdr = _hdr is null
+                    ? null
+                    : HdrVideoProbe.GetDecodeOptions(_hdr, _ffmpegPath, path, workingFloat: true);
+                var source = new TimelineVideoFrameSource(path, hdr);
+                if (hdr is not null && clip.RollingShutterProfile is { Count: > 1 })
+                    _warnings.Add($"Rolling-shutter correction is not applied to HDR source {Path.GetFileName(path)}.");
+                return source;
             }
             catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {

@@ -79,6 +79,7 @@ Set **Video Editor > Project settings > Canvas width/height > Apply canvas dimen
 - Optional local FFmpeg adds 16/24-bit FLAC mixes up to 384 kHz and 8 channels, 48 kHz mono/stereo Opus, and Matroska video with AAC, PCM, FLAC or Opus audio.
 - Optional FFmpeg also exports WMA audio (`.wma`, wmav2, 44.1/48 kHz stereo/mono), Windows Media Video (`.wmv`/ASF, wmv2 with WMA audio), and AV1 in MP4 or Matroska. WMV uses software encoding; AV1 uses libaom-av1 software or an explicitly selected NVENC/QSV/AMF AV1 encoder when supported. Use **Check video encoder profiles** to test the selected codec/device/profile before a long job; no codec or hardware fallback is hidden.
 - FFmpeg video offers explicit CPU, NVIDIA NVENC, Intel Quick Sync and AMD AMF encoders with no automatic hardware-to-software substitution. Selected-profile probes report unsupported devices/codecs.
+- **HDR colour workflow** (Canvas → Project colour): projects can use HDR10 (PQ) or HLG with explicit reference-white and peak-brightness settings. HDR projects composite in 16-bit float, decode HDR source video through the optional FFmpeg (converting to the project's working space), and export 10-bit Rec.2020 HEVC or AV1 through FFmpeg with colour tags; PQ exports through libx265 also carry HDR10 mastering-display and MaxCLL metadata. SDR projects are unchanged.
 - Persistent background export jobs with progress, cancellation and retries. Jobs use saved project snapshots and continue independently of the editor.
 
 For optional formats, choose a trusted local `ffmpeg.exe` under **Export > Optional FFmpeg** and check its capabilities. InkMotion does not download, bundle or redistribute FFmpeg; available encoders and licensing depend on your build. Existing Windows exports need no FFmpeg. Saved jobs retain the executable path.
@@ -116,6 +117,8 @@ Media is processed locally, without application analytics or automatic uploads. 
 Windows codecs and hardware determine playback and encoding availability; HEVC needs the HEVC Video Extensions. Encoder probes are local checks, not device certification. Reverse video preview mutes embedded audio; export can reverse it or leave it muted.
 
 Stabilisation and noise reduction need review on real material. Audio effect tails stop at clip boundaries, and metering/limiting is sample-peak rather than true-peak. Recording does not include live input monitoring. FFmpeg video retries reuse completed five-second segments when linked media/settings are unchanged; the current segment and audio/mux stages restart. Windows and audio-only exports restart from the beginning. Failed/cancelled FFmpeg video jobs retain checkpoints locally until a successful retry.
+
+HDR preview is tone-mapped to SDR (8-bit) and blend modes clip there, so judge final highlights on an HDR display after export. HDR export needs FFmpeg with HEVC or AV1; H.264, WMV, Windows (Media Foundation) export, GIF and PNG sequences remain SDR or are refused for HDR projects. Rolling-shutter correction is not applied to HDR sources, object tracking analyses an SDR rendition, and only static HDR10 metadata is written (no dynamic metadata such as HDR10+ or Dolby Vision).
 
 Project files automatically migrate older formats. Export snapshots, linked paths, recordings and proxies are stored locally; keep source files unchanged while jobs run.
 

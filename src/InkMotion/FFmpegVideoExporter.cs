@@ -70,10 +70,13 @@ public static class FFmpegVideoExporter
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
         settings.ValidateCodec(request.Codec);
+        ValidateColour(request);
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-video-measure-{Guid.NewGuid():N}.mp4");
         int count = VideoExportCapabilities.GetPerformanceFrameCount(request.Profile);
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         byte[] frame = VideoExportCapabilities.CreateTestPattern(request.Profile.Width, request.Profile.Height);
+        if (request.Project.Colour is ProjectColourSettings colour)
+            frame = HdrColour.EncodeSdrFrame(frame, colour);
         var clock = Stopwatch.StartNew();
         try
         {
@@ -93,12 +96,14 @@ public static class FFmpegVideoExporter
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
         settings.ValidateCodec(request.Codec);
+        ValidateColour(request);
         FFmpegAudioEncoder.Discover(settings.ExecutablePath, cancellationToken);
         string temporary = Path.Combine(Path.GetTempPath(), $"inkmotion-video-probe-{Guid.NewGuid():N}.mp4");
         try
         {
+            int bytesPerPixel = request.Project.Colour is null ? 4 : 6;
             EncodeSegment(request, temporary,
-                [new byte[checked(request.Profile.Width * request.Profile.Height * 4)]], cancellationToken);
+                [new byte[checked(request.Profile.Width * request.Profile.Height * bytesPerPixel)]], cancellationToken);
             return settings.EncoderName(request.Codec);
         }
         finally
@@ -113,6 +118,7 @@ public static class FFmpegVideoExporter
         FFmpegVideoSettings settings = request.FFmpeg ?? throw new ArgumentException("Choose an FFmpeg encoder.");
         settings.Validate(request.AudioSampleRate);
         settings.ValidateCodec(request.Codec);
+        ValidateColour(request);
         ExportPlanning.ValidateOutputPath(request.Project, request.OutputPath);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -290,23 +296,74 @@ public static class FFmpegVideoExporter
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content.ToString())));
     }
 
-    private static void EncodeSegment(VideoExportRequest request, string path, IEnumerable<byte[]> frames,
-        CancellationToken cancellationToken)
+    /// <summary>HDR output needs a 10-bit codec; H.264 and WMV are refused rather than silently encoded as SDR.</summary>
+    public static void ValidateColour(VideoExportRequest request)
+    {
+        if (request.Project.Colour is ProjectColourSettings colour)
+        {
+            colour.Validate();
+            if (request.Codec is not (VideoExportCodec.Hevc or VideoExportCodec.Av1))
+                throw new ArgumentException($"{colour.DisplayName} projects export as 10-bit HEVC or AV1; choose one of those codecs.");
+        }
+    }
+
+    public static IReadOnlyList<string> BuildSegmentArguments(VideoExportRequest request, string path)
     {
         FFmpegVideoSettings settings = request.FFmpeg!;
+        ProjectColourSettings? colour = request.Project.Colour;
+        string encoder = settings.EncoderName(request.Codec);
         var arguments = new List<string>
         {
             "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "rawvideo",
-            "-pixel_format", "bgra", "-video_size", $"{request.Profile.Width}x{request.Profile.Height}",
+            "-pixel_format", colour is null ? "bgra" : "rgb48le",
+            "-video_size", $"{request.Profile.Width}x{request.Profile.Height}",
             "-framerate", request.Profile.FrameRate.ToString("R", CultureInfo.InvariantCulture),
-            "-i", "pipe:0", "-an", "-c:v", settings.EncoderName(request.Codec), "-pix_fmt", "yuv420p",
+            "-i", "pipe:0", "-an", "-c:v", encoder,
+        };
+        if (colour is null)
+        {
+            arguments.AddRange(["-pix_fmt", "yuv420p"]);
+        }
+        else
+        {
+            // Software encoders take planar 10-bit; hardware encoders take semi-planar P010.
+            string format = settings.Encoder == FFmpegVideoEncoder.Software ? "yuv420p10le" : "p010le";
+            string transfer = colour.Space == ProjectColourSpace.Hlg ? "arib-std-b67" : "smpte2084";
+            arguments.AddRange([
+                // setparams keeps the tags on frames; scale otherwise leaves primaries and transfer unknown.
+                "-vf", $"scale=in_range=pc:out_range=tv:out_color_matrix=bt2020,format={format}," +
+                    $"setparams=color_primaries=bt2020:color_trc={transfer}:colorspace=bt2020nc:range=tv",
+                "-color_primaries", "bt2020", "-color_trc", transfer, "-colorspace", "bt2020nc", "-color_range", "tv",
+            ]);
+            if (encoder == "libx265")
+            {
+                int peak = (int)Math.Round(colour.PeakNits);
+                string x265 = $"repeat-headers=1:colorprim=bt2020:transfer={transfer}:colormatrix=bt2020nc:range=limited";
+                if (colour.Space == ProjectColourSpace.Hdr10Pq)
+                    x265 += $":hdr10=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L({peak * 10000},50):max-cll={peak},0";
+                arguments.AddRange(["-x265-params", x265]);
+            }
+            else if (settings.Encoder == FFmpegVideoEncoder.Nvidia)
+            {
+                arguments.AddRange(["-profile:v", request.Codec == VideoExportCodec.Hevc ? "main10" : "main"]);
+            }
+        }
+        arguments.AddRange([
             "-b:v", ExportPlanning.GetVideoBitRate(request.Profile, request.Codec, request.Quality).ToString(CultureInfo.InvariantCulture),
             "-f", request.Codec == VideoExportCodec.Wmv ? "asf" : "mp4", path,
-        };
+        ]);
         if (request.Codec == VideoExportCodec.Av1 && settings.Encoder == FFmpegVideoEncoder.Software)
             arguments.InsertRange(arguments.Count - 3, ["-cpu-used", "8", "-row-mt", "1", "-threads", "4"]);
         if (settings.Encoder == FFmpegVideoEncoder.Intel)
             arguments.InsertRange(0, ["-init_hw_device", "qsv=inkmotion:hw"]);
+        return arguments;
+    }
+
+    private static void EncodeSegment(VideoExportRequest request, string path, IEnumerable<byte[]> frames,
+        CancellationToken cancellationToken)
+    {
+        FFmpegVideoSettings settings = request.FFmpeg!;
+        IReadOnlyList<string> arguments = BuildSegmentArguments(request, path);
         using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments, redirectInput: true);
         using CancellationTokenRegistration registration = cancellationToken.Register(() => FFmpegAudioEncoder.Terminate(process));
         Task<string> errors = FFmpegAudioEncoder.ReadTailAsync(process.StandardError);

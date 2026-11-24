@@ -29,8 +29,35 @@ public static class InkLayerEffects
         int width = (int)layer.SizeInPixels.Width;
         int height = (int)layer.SizeInPixels.Height;
         byte[] pixels = layer.GetPixelBytes();
-        Pixelate(pixels, width, height, cell);
+        if (layer.Format == Windows.Graphics.DirectX.DirectXPixelFormat.R16G16B16A16Float)
+            PixelateHalf(pixels, width, height, cell);
+        else
+            Pixelate(pixels, width, height, cell);
         layer.SetPixelBytes(pixels);
+    }
+
+    /// <summary>Half-float RGBA variant used by HDR composites, preserving values above 1.</summary>
+    public static void PixelateHalf(byte[] rgbaHalf, int width, int height, int cell)
+    {
+        Span<Half> pixels = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, Half>(rgbaHalf.AsSpan());
+        Span<double> sum = stackalloc double[4];
+        for (int top = 0; top < height; top += cell)
+        {
+            int bottom = Math.Min(height, top + cell);
+            for (int left = 0; left < width; left += cell)
+            {
+                int right = Math.Min(width, left + cell);
+                int count = (bottom - top) * (right - left);
+                sum.Clear();
+                for (int y = top; y < bottom; y++)
+                    for (int index = (y * width + left) * 4, end = (y * width + right) * 4; index < end; index++)
+                        sum[index & 3] += (double)pixels[index];
+                if (sum[3] <= 0) continue;
+                for (int y = top; y < bottom; y++)
+                    for (int index = (y * width + left) * 4, end = (y * width + right) * 4; index < end; index++)
+                        pixels[index] = (Half)(sum[index & 3] / count);
+            }
+        }
     }
 
     public static void Pixelate(byte[] bgra, int width, int height, int cell)
@@ -77,8 +104,7 @@ public static class InkLayerEffects
     {
         float width = (float)layer.Size.Width;
         float height = (float)layer.Size.Height;
-        var result = new CanvasRenderTarget(device, width, height, 96,
-            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
+        var result = new CanvasRenderTarget(device, width, height, 96, layer.Format, CanvasAlphaMode.Premultiplied);
         try
         {
             using var blur = new GaussianBlurEffect
