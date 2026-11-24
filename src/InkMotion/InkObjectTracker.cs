@@ -39,6 +39,8 @@ public static class InkObjectTracker
         project.VideoTracks = [track];
         // Analysis uses its own aspect-adjusted sampling frame, not a letterboxed export.
         project.CanvasSize = null;
+        // Tracking samples 8-bit luminance; HDR export settings do not apply to analysis.
+        project.Colour = null;
         track.Clips = [clip];
         track.IsVisible = true;
         project.VideoMulticamGroups.Clear();

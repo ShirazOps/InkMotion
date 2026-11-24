@@ -50,6 +50,53 @@ public sealed partial class MainWindow
         StatusText.Text = "Project canvas updated. Normalised artwork positions and export presets are unchanged.";
     }
 
+    private void ApplyProjectColour_Click(object sender, RoutedEventArgs e)
+    {
+        string? tag = (ProjectColourSpaceSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        ProjectColourSettings? colour = null;
+        if (tag is not (null or "Sdr"))
+        {
+            double reference = ProjectReferenceWhiteBox.Value;
+            double peak = ProjectPeakNitsBox.Value;
+            colour = new ProjectColourSettings(Enum.Parse<ProjectColourSpace>(tag),
+                double.IsFinite(reference) ? reference : double.NaN, double.IsFinite(peak) ? peak : double.NaN);
+            try { colour.Validate(); }
+            catch (InvalidDataException error) { StatusText.Text = error.Message; return; }
+        }
+
+        if (_projectColour == colour)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _projectColour = colour;
+        MarkEditChanged();
+        FinishActiveEdit();
+        UpdateProjectColourControls();
+        RenderCurrentInk();
+        StatusText.Text = colour is null
+            ? "Project colour set to SDR Rec.709."
+            : $"Project colour set to {colour.DisplayName}. HDR export needs the FFmpeg backend with HEVC or AV1.";
+    }
+
+    private void UpdateProjectColourControls()
+    {
+        ProjectColourSpaceSelector.SelectedIndex = _projectColour?.Space switch
+        {
+            ProjectColourSpace.Hdr10Pq => 1,
+            ProjectColourSpace.Hlg => 2,
+            _ => 0,
+        };
+        ProjectReferenceWhiteBox.Value = _projectColour?.ReferenceWhiteNits ?? 203;
+        ProjectPeakNitsBox.Value = _projectColour?.PeakNits ?? 1000;
+        ProjectColourReadout.Text = _projectColour is { } colour
+            ? $"{colour.DisplayName}: SDR media maps to {colour.ReferenceWhiteNits:0} nits and highlights are kept up to {colour.PeakNits:0} nits in 10-bit HEVC/AV1 export through FFmpeg. PQ/HLG clips decode through FFmpeg; the preview is tone-mapped to SDR."
+            : "SDR Rec.709: the existing 8-bit pipeline. Choose HDR10 PQ or HLG for a float, Rec.2020 colour-managed export.";
+    }
+
     private void UpdateProjectCanvasControls()
     {
         ProjectCanvasWidthBox.Value = _projectCanvasSize?.Width ?? 1920;

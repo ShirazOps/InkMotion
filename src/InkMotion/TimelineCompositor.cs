@@ -375,7 +375,9 @@ public static partial class TimelineCompositor
             return;
         }
 
-        using CanvasRenderTarget layer = CreateTarget(session, MathF.Ceiling(width), MathF.Ceiling(height));
+        // Smudge edits raw BGRA bytes, so this drawing-layer buffer stays 8-bit even inside an HDR composite.
+        using CanvasRenderTarget layer = new(session, MathF.Ceiling(width), MathF.Ceiling(height), 96,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession drawing = layer.CreateDrawingSession())
             drawing.Clear(Microsoft.UI.Colors.Transparent);
         foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
@@ -501,6 +503,16 @@ public static partial class TimelineCompositor
         }
     }
 
+    [ThreadStatic] private static bool t_highPrecision;
+
+    /// <summary>True for half-float images, which hold the HDR working space (values above 1 and below 0).</summary>
+    public static bool IsHighPrecision(ICanvasImage image) =>
+        image is CanvasBitmap { Format: Windows.Graphics.DirectX.DirectXPixelFormat.R16G16B16A16Float };
+
+    /// <summary>
+    /// Composites ink over <paramref name="background"/>. Intermediate targets match a half-float background,
+    /// so HDR highlights survive blend modes, masks and the node graph instead of clipping to SDR.
+    /// </summary>
     public static CanvasRenderTarget CompositeInkFrame(
         ICanvasResourceCreator device,
         ICanvasImage background,
@@ -513,6 +525,33 @@ public static partial class TimelineCompositor
         float sizeScale,
         double? timelineSeconds = null,
         Matrix3x2? contentTransform = null)
+    {
+        ArgumentNullException.ThrowIfNull(background);
+        bool previous = t_highPrecision;
+        t_highPrecision = IsHighPrecision(background);
+        try
+        {
+            return CompositeInkFrameCore(device, background, targetWidth, targetHeight, project, frameIndex,
+                width, height, sizeScale, timelineSeconds, contentTransform);
+        }
+        finally
+        {
+            t_highPrecision = previous;
+        }
+    }
+
+    private static CanvasRenderTarget CompositeInkFrameCore(
+        ICanvasResourceCreator device,
+        ICanvasImage background,
+        float targetWidth,
+        float targetHeight,
+        EditorProject project,
+        int frameIndex,
+        float width,
+        float height,
+        float sizeScale,
+        double? timelineSeconds,
+        Matrix3x2? contentTransform)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(background);
@@ -809,7 +848,9 @@ public static partial class TimelineCompositor
 
     private static CanvasRenderTarget CreateTarget(ICanvasResourceCreator device, float width, float height) =>
         new(device, width, height, 96,
-            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            t_highPrecision
+                ? Windows.Graphics.DirectX.DirectXPixelFormat.R16G16B16A16Float
+                : Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
             CanvasAlphaMode.Premultiplied);
 
     private static BlendEffectMode GetBlendEffectMode(InkLayerBlendMode mode) => mode switch

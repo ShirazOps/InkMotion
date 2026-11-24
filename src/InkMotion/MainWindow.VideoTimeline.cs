@@ -1135,9 +1135,13 @@ public sealed partial class MainWindow
         }
 
         TimelineVideoFrameSource? source = null;
+        // HDR projects decode PQ/HLG clips through FFmpeg and tone-map them for the 8-bit preview.
+        HdrDecodeOptions? hdr = HdrVideoProbe.GetDecodeOptions(_projectColour, _ffmpegCapabilities?.ExecutablePath,
+            path, workingFloat: false);
+        string sourceKey = hdr is null ? path : $"{path}|{hdr.FFmpegPath}|{hdr.Settings}";
         if (_previewVideoFrameSources.TryGetValue(clip.Id, out var cached))
         {
-            if (string.Equals(cached.Path, path, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(cached.Path, sourceKey, StringComparison.OrdinalIgnoreCase))
             {
                 source = cached.Source;
             }
@@ -1152,8 +1156,8 @@ public sealed partial class MainWindow
         {
             if (source is null)
             {
-                source = new TimelineVideoFrameSource(path);
-                _previewVideoFrameSources.Add(clip.Id, (path, source));
+                source = new TimelineVideoFrameSource(path, hdr);
+                _previewVideoFrameSources.Add(clip.Id, (sourceKey, source));
             }
 
             double sourceSeconds = VideoTimelineEditing.GetSourceSeconds(clip, seconds, _frameRate);

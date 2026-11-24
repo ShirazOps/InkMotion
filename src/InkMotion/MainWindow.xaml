@@ -386,6 +386,19 @@
                         <Button Content="Use automatic canvas (legacy)" Click="AutomaticProjectCanvas_Click" />
                         <TextBlock x:Name="ProjectCanvasReadout" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}"
                                    AutomationProperties.LiveSetting="Polite" />
+                        <ComboBox x:Name="ProjectColourSpaceSelector" Header="Colour space" SelectedIndex="0"
+                                  HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="SDR Rec.709 (sRGB)" Tag="Sdr" />
+                            <ComboBoxItem Content="HDR10 PQ (Rec.2020)" Tag="Hdr10Pq" />
+                            <ComboBoxItem Content="HLG (Rec.2020)" Tag="Hlg" />
+                        </ComboBox>
+                        <NumberBox x:Name="ProjectReferenceWhiteBox" Header="Reference white (nits)" Value="203"
+                                   Minimum="80" Maximum="400" SpinButtonPlacementMode="Inline" />
+                        <NumberBox x:Name="ProjectPeakNitsBox" Header="Mastering peak (nits)" Value="1000"
+                                   Minimum="400" Maximum="10000" SpinButtonPlacementMode="Inline" />
+                        <Button Content="Apply colour settings" Click="ApplyProjectColour_Click" />
+                        <TextBlock x:Name="ProjectColourReadout" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}"
+                                   AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Text="Frame rate" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">
                             <ComboBoxItem Content="12 fps" Tag="12" />
