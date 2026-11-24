@@ -17,6 +17,8 @@ public sealed partial class MainWindow
             InkLayerGlowIntensitySlider.Value = CurrentInkLayer.GlowIntensity;
             InkLayerGlowRadiusSlider.IsEnabled = editable;
             InkLayerGlowIntensitySlider.IsEnabled = editable;
+            InkLayerPixelSizeSlider.Value = CurrentInkLayer.PixelSize;
+            InkLayerPixelSizeSlider.IsEnabled = editable;
         }
         finally { _isRestoringProject = restoring; }
     }
@@ -37,6 +39,11 @@ public sealed partial class MainWindow
                 break;
             case "glow-intensity":
                 CurrentInkLayer.GlowIntensity = Math.Clamp(e.NewValue, 0, InkLayerEffects.MaxGlowIntensity);
+                break;
+            case "pixel-size":
+                CurrentInkLayer.PixelSize = e.NewValue < InkLayerEffects.MinPixelSize
+                    ? 0
+                    : Math.Min(Math.Round(e.NewValue), InkLayerEffects.MaxPixelSize);
                 break;
             default:
                 return;
