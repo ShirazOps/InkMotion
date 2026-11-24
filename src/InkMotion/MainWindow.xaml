@@ -1322,7 +1322,10 @@
                             <TextBlock Text="Pen size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
                             <Slider x:Name="InkWidthSlider" Width="150" Minimum="1" Maximum="12" Value="4" StepFrequency="0.5" ValueChanged="InkWidth_Changed" />
                         </StackPanel>
-                        <ComboBox x:Name="InkBrushTextureSelector" Header="Brush texture for new strokes" SelectedIndex="0">
+                        <Button Content="Smudge drawing tool" Click="SelectSmudge_Click" />
+                        <TextBlock Text="Smudge pulls existing pixels only on the active drawing layer, in saved stroke order. It does not sample other layers, cel text or footage. The path is a non-destructive modifier: undo, erase or delete it to remove its effect; original artwork stays editable." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ComboBox x:Name="InkBrushTextureSelector" Header="Brush texture for new strokes" SelectedIndex="0"
+                                  SelectionChanged="InkBrushTexture_SelectionChanged">
                             <ComboBoxItem Content="Round (solid)" />
                             <ComboBoxItem Content="Grain (procedural)" />
                             <ComboBoxItem Content="Calligraphy (angled nib)" />

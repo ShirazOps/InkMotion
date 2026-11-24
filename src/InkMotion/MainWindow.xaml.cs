@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
     private StorageFile? _projectFile;
     private bool _isPlaying;
     private bool _isEraser;
+    private InkBrushTexture? _inkModifierTool;
     private Point? _lastEraserPoint;
     private InkShape? _inkShape;
     private Point _shapeStartPoint;
@@ -1717,6 +1718,7 @@ public sealed partial class MainWindow : Window
     private void SelectPen_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _inkModifierTool = null;
         _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkTextPicker = false;
@@ -1730,6 +1732,7 @@ public sealed partial class MainWindow : Window
     private void SelectEraser_Click(object sender, RoutedEventArgs e)
     {
         FinishActiveEdit();
+        _inkModifierTool = null;
         _isInkBucketFill = false;
         _isInkColourSampler = false;
         _isInkTextPicker = false;
@@ -2053,7 +2056,7 @@ public sealed partial class MainWindow : Window
             Pressure = Math.Clamp(pressure > 0 ? pressure : 0.5, 0, 1),
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
-            BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
+            BrushTexture = _inkModifierTool ?? (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
@@ -2138,15 +2141,10 @@ public sealed partial class MainWindow : Window
                 session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
                 try
                 {
-                    foreach (List<InkPoint> stroke in InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate))
-                    {
-                        if (stroke.Count > 0)
-                        {
-                            Windows.UI.Color strokeColour = TimelineCompositor.WithOpacity(
-                                ToColour(colour ?? stroke[0].BrushColour), layer.Opacity * guide.Opacity);
-                            TimelineCompositor.DrawInkStroke(session, stroke, strokeColour, width, height, 1);
-                        }
-                    }
+                    TimelineCompositor.DrawInkStrokes(session,
+                        InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate),
+                        point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
+                            layer.Opacity * guide.Opacity), width, height, 1);
                 }
                 finally { session.Transform = originalTransform; }
             }
@@ -2219,6 +2217,7 @@ public sealed partial class MainWindow : Window
         }
 
         FinishActiveEdit();
+        _inkModifierTool = null;
         _isEraser = false;
         _inkShape = shape;
         _isInkBucketFill = false;

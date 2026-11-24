@@ -44,6 +44,7 @@ public sealed partial class MainWindow
     {
         PausePlayback();
         FinishActiveEdit();
+        _inkModifierTool = null;
         _isInkBucketFill = false;
         _isInkTextPicker = false;
         _isInkLasso = false;
