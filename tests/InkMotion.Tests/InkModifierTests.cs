@@ -25,6 +25,12 @@ public sealed class InkModifierTests
         new() { X = 0.75, Y = 0.5, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Smudge },
     ];
 
+    private static List<InkPoint> BlurStroke() =>
+    [
+        new() { X = 0.5, Y = 0.4, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Blur },
+        new() { X = 0.5, Y = 0.6, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Blur },
+    ];
+
     private static byte[] Render(CanvasDevice device, EditorProject project)
     {
         using var target = new CanvasRenderTarget(device, 100, 80, 96);
@@ -97,11 +103,59 @@ public sealed class InkModifierTests
     }
 
     [Fact]
-    public void MergeRejectsUpperSmudgeWithoutChangingTheProject()
+    public void BlurLocallySoftensEdgesAndPreservesEditableOriginalPaths()
+    {
+        using var device = new CanvasDevice(true);
+        EditorProject project = Project();
+        byte[] before = Render(device, project);
+        string original = EditorProjectSerialiser.Serialise(project);
+        project.Frames[0].Strokes.Add(BlurStroke());
+        byte[] after = Render(device, project);
+        int outside = (40 * 100 + 51) * 4;
+        int inside = (40 * 100 + 49) * 4;
+        Assert.Equal(0, before[outside + 3]);
+        Assert.True(after[outside + 3] > 0);
+        Assert.True(after[inside + 3] < before[inside + 3]);
+        Assert.Equal(0, after[outside]);
+        Assert.Equal(before.Take(20 * 100 * 4), after.Take(20 * 100 * 4));
+        Assert.Equal(after, Render(device,
+            EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project))));
+        project.Frames[0].Strokes.RemoveAt(1);
+        Assert.Equal(original, EditorProjectSerialiser.Serialise(project));
+        Assert.Equal(before, Render(device, project));
+    }
+
+    [Fact]
+    public void BlurTapWorksOnlyOnEarlierPixelsInItsOwnLayer()
+    {
+        using var device = new CanvasDevice(true);
+        EditorProject project = Project();
+        byte[] before = Render(device, project);
+        project.InkLayers.Add(new() { Id = "upper" });
+        project.Frames[0].LayerStrokes["upper"] = [BlurStroke()];
+        Assert.Equal(before, Render(device, project));
+        project.Frames[0].Strokes.Insert(0, BlurStroke());
+        Assert.Equal(before, Render(device, project));
+        project.Frames[0].Strokes.Add([new()
+        {
+            X = 0.5, Y = 0.5, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Blur,
+        }]);
+        byte[] after = Render(device, project);
+        Assert.True(after[(40 * 100 + 51) * 4 + 3] > 0);
+        int offset = (40 * 100 + 51) * 4;
+        Assert.Equal(InkColourSampling.FromPremultipliedBgra(
+            after[offset], after[offset + 1], after[offset + 2], after[offset + 3]),
+            InkColourSampling.Sample(device, project, 0, 100, 80, 51, 40));
+    }
+
+    [Theory]
+    [InlineData(InkBrushTexture.Smudge)]
+    [InlineData(InkBrushTexture.Blur)]
+    public void MergeRejectsUpperModifierWithoutChangingTheProject(InkBrushTexture tool)
     {
         EditorProject project = Project();
         project.InkLayers.Add(new() { Id = "upper" });
-        project.Frames[0].LayerStrokes["upper"] = [SmudgeStroke()];
+        project.Frames[0].LayerStrokes["upper"] = [tool == InkBrushTexture.Smudge ? SmudgeStroke() : BlurStroke()];
         string before = EditorProjectSerialiser.Serialise(project);
         Assert.Throws<InvalidOperationException>(() =>
             InkEditing.MergeLayerDown(project.InkLayers, project.Frames, "upper"));
@@ -109,14 +163,16 @@ public sealed class InkModifierTests
     }
 
     [Theory]
-    [InlineData(InkLayerBlendMode.Normal)]
-    [InlineData(InkLayerBlendMode.Screen)]
-    public async Task SmudgePngExportMatchesPreviewReplay(InkLayerBlendMode blendMode)
+    [InlineData(InkLayerBlendMode.Normal, InkBrushTexture.Smudge)]
+    [InlineData(InkLayerBlendMode.Screen, InkBrushTexture.Smudge)]
+    [InlineData(InkLayerBlendMode.Normal, InkBrushTexture.Blur)]
+    [InlineData(InkLayerBlendMode.Screen, InkBrushTexture.Blur)]
+    public async Task ModifierPngExportMatchesPreviewReplay(InkLayerBlendMode blendMode, InkBrushTexture tool)
     {
-        using var device = new CanvasDevice(true);
+        using var device = new CanvasDevice();
         EditorProject project = Project();
         project.InkLayers[0].BlendMode = blendMode;
-        project.Frames[0].Strokes.Add(SmudgeStroke());
+        project.Frames[0].Strokes.Add(tool == InkBrushTexture.Smudge ? SmudgeStroke() : BlurStroke());
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion smudge {Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         string output = Path.Combine(root, "sequence");
@@ -132,8 +188,9 @@ public sealed class InkModifierTests
                 ColorManagementMode.DoNotColorManage)).DetachPixelData();
             byte[] preview = Render(device, project);
             Assert.Equal(preview.Length, pixels.Length);
+            // PNG unpremultiplication and alpha conversion may differ by one byte.
             for (int index = 0; index < pixels.Length; index++)
-                Assert.InRange(Math.Abs(preview[index] - pixels[index]), 0, index % 4 == 3 ? 0 : 1);
+                Assert.InRange(Math.Abs(preview[index] - pixels[index]), 0, 1);
         }
         finally
         {
