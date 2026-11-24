@@ -249,7 +249,7 @@
                     <Grid.RenderTransform>
                         <CompositeTransform x:Name="PreviewCanvasTransform" />
                     </Grid.RenderTransform>
-                    <Grid Margin="12">
+                    <Grid x:Name="ProjectCanvasContent" Margin="12" SizeChanged="ProjectCanvasContent_SizeChanged">
                         <MediaPlayerElement x:Name="PreviewPlayer" AreTransportControlsEnabled="False" Stretch="Uniform" />
                         <canvas:CanvasControl
                             x:Name="CompositionSurface"
@@ -370,6 +370,14 @@
                         <TextBlock Text="Markers are project guides, not exported overlays. Clip dragging snaps to them; frame-rate changes preserve their time to the nearest frame." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="PROJECT SETTINGS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <NumberBox x:Name="ProjectCanvasWidthBox" Header="Canvas width (pixels)" Value="1920"
+                                   Minimum="1" Maximum="8192" SpinButtonPlacementMode="Inline" />
+                        <NumberBox x:Name="ProjectCanvasHeightBox" Header="Canvas height (pixels)" Value="1080"
+                                   Minimum="1" Maximum="8192" SpinButtonPlacementMode="Inline" />
+                        <Button Content="Apply canvas dimensions" Click="ApplyProjectCanvas_Click" />
+                        <Button Content="Use automatic canvas (legacy)" Click="AutomaticProjectCanvas_Click" />
+                        <TextBlock x:Name="ProjectCanvasReadout" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}"
+                                   AutomationProperties.LiveSetting="Polite" />
                         <TextBlock Text="Frame rate" Style="{StaticResource LabelTextStyle}" />
                         <ComboBox x:Name="FrameRateSelector" SelectedIndex="1" SelectionChanged="FrameRate_SelectionChanged">
                             <ComboBoxItem Content="12 fps" Tag="12" />

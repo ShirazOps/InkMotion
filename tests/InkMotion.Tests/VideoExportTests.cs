@@ -12,6 +12,43 @@ public sealed class VideoExportTests
     internal static bool HasH264Encoder => H264EncoderProbe.Value;
 
     [Fact]
+    public void Export_FixedCanvasFitsInkInsideUnchangedOutputPreset()
+    {
+        if (!HasH264Encoder)
+        {
+            return;
+        }
+
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-canvas-{Guid.NewGuid():N}.mp4");
+        var project = new EditorProject
+        {
+            CanvasSize = new(1080, 1920),
+            Frames = [new()
+            {
+                Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle,
+                    0, 0, 1, 1, 1, 0xFFFF0000, filled: true)],
+            }],
+        };
+        try
+        {
+            VideoExportProfile profile = VideoExportProfile.Create(ExportResolution.P720, 24);
+            VideoExporter.Export(new(project, profile, VideoExportCodec.H264, output, 720,
+                PreferHardware: false), null, CancellationToken.None);
+            Assert.Equal(new ProjectCanvasSize(1080, 1920), project.CanvasSize);
+            using var video = new MediaFoundationVideoReader(output);
+            Assert.True(video.TryGetFrame(0));
+            (byte _, byte _, byte outside) = GetPixel(video, 200, 360);
+            (byte _, byte _, byte inside) = GetPixel(video, 500, 360);
+            Assert.InRange(outside, (byte)0, (byte)20);
+            Assert.InRange(inside, (byte)220, (byte)255);
+        }
+        finally
+        {
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
     public void EmbeddedAudio_ValidatesBeforeCreatingAnOutputFile()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => ExportPlanning.ValidateEmbeddedAudio(384000, 192000));

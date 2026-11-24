@@ -289,6 +289,10 @@ public static class VideoExporter
         private readonly VideoExportProfile _profile;
         private readonly List<string> _warnings;
         private readonly CanvasRenderTarget _target;
+        private readonly CanvasRenderTarget? _outputTarget;
+        private readonly Rect _outputCanvasRect;
+        private readonly float _canvasWidth;
+        private readonly float _canvasHeight;
         private readonly float _inkScale;
         private readonly bool _hasInk;
         private readonly Dictionary<string, CanvasBitmap?> _images = new(StringComparer.OrdinalIgnoreCase);
@@ -337,9 +341,18 @@ public static class VideoExporter
                 if (text.ObjectTracking is { Enabled: true, LostSeconds: double lost })
                     warnings.Add($"Object tracking on text '{text.Text}' stopped at {lost:0.###} s; the text is hidden from that point until corrected.");
             }
-            _target = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96);
+            _outputCanvasRect = _project.CanvasSize?.Fit(_profile.Width, _profile.Height) ??
+                new Rect(0, 0, _profile.Width, _profile.Height);
+            _canvasWidth = (float)_outputCanvasRect.Width;
+            _canvasHeight = (float)_outputCanvasRect.Height;
+            _target = new CanvasRenderTarget(device,
+                MathF.Ceiling(_canvasWidth), MathF.Ceiling(_canvasHeight), 96);
+            if (_project.CanvasSize is not null)
+            {
+                _outputTarget = new CanvasRenderTarget(device, _profile.Width, _profile.Height, 96);
+            }
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
-            _inkScale = (float)(_profile.Height / reference);
+            _inkScale = (float)(_canvasHeight / reference);
             _hasInk = ExportPlanning.HasInk(_project);
         }
 
@@ -354,7 +367,7 @@ public static class VideoExporter
                 {
                     TimelineCompositor.DrawInkFrame(session, _project,
                         ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
-                        _profile.Width, _profile.Height, _inkScale, seconds);
+                        _canvasWidth, _canvasHeight, _inkScale, seconds);
                 }
             }
 
@@ -362,22 +375,22 @@ public static class VideoExporter
             if (_hasInk && hasBlendModes)
             {
                 using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
-                    _device, _target, _profile.Width, _profile.Height, _project,
+                    _device, _target, (float)_target.Size.Width, (float)_target.Size.Height, _project,
                     ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
-                    _profile.Width, _profile.Height, _inkScale, seconds);
-                await composite.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+                    _canvasWidth, _canvasHeight, _inkScale, seconds);
+                await FitOutput(composite, transparent: true).SaveAsync(stream, CanvasBitmapFileFormat.Png);
             }
             else
             {
-                await _target.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+                await FitOutput(_target, transparent: true).SaveAsync(stream, CanvasBitmapFileFormat.Png);
             }
         }
 
         public byte[] Render(int frame)
         {
             double seconds = frame / _profile.FrameRate;
-            float width = _profile.Width;
-            float height = _profile.Height;
+            float width = _canvasWidth;
+            float height = _canvasHeight;
             bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(_project);
             IReadOnlyList<TimelineClipLocation> layers = VideoTimelineEditing.GetVisibleLayers(
                 _project.VideoTracks,
@@ -452,14 +465,27 @@ public static class VideoExporter
 
             if (!_hasInk || !hasBlendModes)
             {
-                return _target.GetPixelBytes();
+                return FitOutput(_target, transparent: false).GetPixelBytes();
             }
 
             using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
-                _device, _target, width, height, _project,
+                _device, _target, (float)_target.Size.Width, (float)_target.Size.Height, _project,
                 ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
                 width, height, _inkScale, seconds);
-            return composite.GetPixelBytes();
+            return FitOutput(composite, transparent: false).GetPixelBytes();
+        }
+
+        private CanvasRenderTarget FitOutput(CanvasRenderTarget canvas, bool transparent)
+        {
+            if (_outputTarget is null)
+            {
+                return canvas;
+            }
+
+            using CanvasDrawingSession session = _outputTarget.CreateDrawingSession();
+            session.Clear(transparent ? Microsoft.UI.Colors.Transparent : Microsoft.UI.Colors.Black);
+            session.DrawImage(canvas, _outputCanvasRect, new Rect(0, 0, _canvasWidth, _canvasHeight));
+            return _outputTarget;
         }
 
         public void Dispose()
@@ -500,6 +526,7 @@ public static class VideoExporter
             }
 
             _target.Dispose();
+            _outputTarget?.Dispose();
         }
 
         private void DrawVideo(CanvasDrawingSession session, TimelineClipProject clip, double seconds, float width, float height, float opacity)
