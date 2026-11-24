@@ -1021,6 +1021,12 @@ public sealed partial class MainWindow
         {
             args.DrawingSession.DrawImage(_compositionBaseTarget);
         }
+        if (_workspace == "Ink" && !_isPlaying && !IsOriginalPreview &&
+            CurrentInkLayer is { IsHoldout: true, IsVisible: true } matte)
+        {
+            TimelineCompositor.DrawLayerTint(args.DrawingSession, project, matte, frameIndex, width, height, seconds,
+                Color.FromArgb(90, 255, 40, 40));
+        }
         TitleAdornerSurface.Invalidate();
     }
 

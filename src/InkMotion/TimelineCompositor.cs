@@ -26,9 +26,9 @@ public static class TimelineCompositor
     public static Color WithOpacity(Color colour, double opacity) =>
         Color.FromArgb((byte)(colour.A * Math.Clamp(opacity, 0, 1)), colour.R, colour.G, colour.B);
 
-    /// <summary>True when any visible layer needs offscreen rendering (blend modes, layer effects or clipping masks).</summary>
+    /// <summary>True when any visible layer needs offscreen rendering (blend modes, layer effects, clipping masks or occlusion mattes).</summary>
     public static bool RequiresLayerCompositing(EditorProject project) =>
-        project.InkLayers.Any(layer => layer.IsVisible && (layer.ClipToLayerBelow || RequiresOffscreen(layer)));
+        project.InkLayers.Any(layer => layer.IsVisible && (layer.ClipToLayerBelow || layer.IsHoldout || RequiresOffscreen(layer)));
 
     private static bool RequiresOffscreen(InkLayerProject layer) =>
         layer.BlendMode != InkLayerBlendMode.Normal || InkLayerEffects.HasEffects(layer);
@@ -541,7 +541,8 @@ public static class TimelineCompositor
             for (int layerIndex = 0; layerIndex < project.InkLayers.Count; layerIndex++)
             {
                 InkLayerProject layer = project.InkLayers[layerIndex];
-                if (!layer.ClipToLayerBelow)
+                bool clipped = layer.ClipToLayerBelow && !layer.IsHoldout;
+                if (!clipped)
                 {
                     clipBase?.Dispose();
                     clipBase = null;
@@ -550,13 +551,22 @@ public static class TimelineCompositor
                 if (!layer.IsVisible ||
                     !InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
                     !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks) ||
-                    (layer.ClipToLayerBelow && clipBase is null))
+                    (clipped && clipBase is null))
                 {
                     continue;
                 }
 
-                bool isClipBase = !layer.ClipToLayerBelow && HasVisibleClippedLayerAbove(project.InkLayers, layerIndex);
-                if (!layer.ClipToLayerBelow && !isClipBase && !RequiresOffscreen(layer))
+                if (layer.IsHoldout)
+                {
+                    CanvasRenderTarget restored = ApplyHoldout(device, current, background, project, layer, frameIndex,
+                        targetWidth, targetHeight, width, height, sizeScale, seconds, drawingTransform);
+                    current.Dispose();
+                    current = restored;
+                    continue;
+                }
+
+                bool isClipBase = !clipped && HasVisibleClippedLayerAbove(project.InkLayers, layerIndex);
+                if (!clipped && !isClipBase && !RequiresOffscreen(layer))
                 {
                     using CanvasDrawingSession session = current.CreateDrawingSession();
                     session.Transform = drawingTransform;
@@ -586,11 +596,11 @@ public static class TimelineCompositor
                         foreground = glowing;
                     }
 
-                    if (layer.ClipToLayerBelow)
+                    if (clipped)
                     {
-                        CanvasRenderTarget clipped = ApplyClippingMask(device, foreground, clipBase!, targetWidth, targetHeight);
+                        CanvasRenderTarget masked = ApplyClippingMask(device, foreground, clipBase!, targetWidth, targetHeight);
                         foreground.Dispose();
-                        foreground = clipped;
+                        foreground = masked;
                     }
                 }
                 catch
@@ -676,7 +686,7 @@ public static class TimelineCompositor
     /// <summary>True when a visible layer directly above (before the next unclipped layer) clips to this layer.</summary>
     private static bool HasVisibleClippedLayerAbove(IReadOnlyList<InkLayerProject> layers, int index)
     {
-        for (int above = index + 1; above < layers.Count && layers[above].ClipToLayerBelow; above++)
+        for (int above = index + 1; above < layers.Count && layers[above].ClipToLayerBelow && !layers[above].IsHoldout; above++)
         {
             if (layers[above].IsVisible)
             {
@@ -724,6 +734,70 @@ public static class TimelineCompositor
         InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
             DrawInkStrokes(drawing, strokes,
                 point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
+    }
+
+    /// <summary>
+    /// Removes lower ink where the holdout layer is painted and restores the original background there.
+    /// The matte strength follows painted alpha and layer opacity, so soft brushes give soft occlusion edges.
+    /// </summary>
+    private static CanvasRenderTarget ApplyHoldout(
+        ICanvasResourceCreator device,
+        CanvasRenderTarget current,
+        ICanvasImage background,
+        EditorProject project,
+        InkLayerProject layer,
+        int frameIndex,
+        float targetWidth,
+        float targetHeight,
+        float width,
+        float height,
+        float sizeScale,
+        double seconds,
+        Matrix3x2 drawingTransform)
+    {
+        using CanvasRenderTarget matte = CreateTarget(device, targetWidth, targetHeight);
+        using (CanvasDrawingSession session = matte.CreateDrawingSession())
+        {
+            session.Clear(Color.FromArgb(0, 0, 0, 0));
+            session.Transform = drawingTransform;
+            DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+        }
+
+        CanvasRenderTarget restored = CreateTarget(device, targetWidth, targetHeight);
+        try
+        {
+            using CanvasDrawingSession session = restored.CreateDrawingSession();
+            session.Clear(Color.FromArgb(0, 0, 0, 0));
+            using var outside = new CompositeEffect { Mode = CanvasComposite.DestinationOut };
+            outside.Sources.Add(current);
+            outside.Sources.Add(matte);
+            using var inside = new CompositeEffect { Mode = CanvasComposite.DestinationIn };
+            inside.Sources.Add(background);
+            inside.Sources.Add(matte);
+            using var combined = new CompositeEffect { Mode = CanvasComposite.Add };
+            combined.Sources.Add(outside);
+            combined.Sources.Add(inside);
+            session.DrawImage(combined);
+            return restored;
+        }
+        catch
+        {
+            restored.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Draws one layer's current cel in a single tint, used to show an occlusion matte while it is edited.</summary>
+    public static void DrawLayerTint(CanvasDrawingSession session, EditorProject project, InkLayerProject layer,
+        int frameIndex, float width, float height, double seconds, Color tint)
+    {
+        if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+            !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) return;
+        IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+        InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
+            DrawInkStrokes(drawing, strokes,
+                point => Color.FromArgb((byte)(tint.A * (point.BrushColour >> 24) / 255), tint.R, tint.G, tint.B),
+                width, height, 1));
     }
 
     private static CanvasRenderTarget CreateTarget(ICanvasResourceCreator device, float width, float height) =>

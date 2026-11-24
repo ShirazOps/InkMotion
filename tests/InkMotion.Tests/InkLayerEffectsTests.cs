@@ -240,4 +240,69 @@ public sealed class InkLayerEffectsTests
         Assert.False(Assert.Single(legacy.InkLayers).ClipToLayerBelow);
         Assert.Throws<InvalidOperationException>(() => InkEditing.MergeLayerDown(project.InkLayers, project.Frames, "ink-2"));
     }
+
+    private static EditorProject CreateHoldoutProject(double matteOpacity = 1)
+    {
+        EditorProject project = CreateClippingProject(
+            new() { Id = "ink-1" }, new() { Id = "ink-2", IsHoldout = true, Opacity = matteOpacity });
+        project.InkLayers.Add(new() { Id = "ink-3" });
+        project.Frames[0].LayerStrokes["ink-3"] =
+        [
+            [
+                new() { X = 0.4, Y = 0.3, BrushWidth = 6, Pressure = 1, BrushColour = 0xFFFFFFFF },
+                new() { X = 0.6, Y = 0.3, BrushWidth = 6, Pressure = 1, BrushColour = 0xFFFFFFFF },
+            ],
+        ];
+        return project;
+    }
+
+    [Fact]
+    public void HoldoutRevealsBackgroundOverLowerInkOnly()
+    {
+        EditorProject project = CreateHoldoutProject();
+
+        Assert.True(TimelineCompositor.RequiresLayerCompositing(project));
+        Assert.Equal(0xFF00FF00u, Sample(project, 50, 50, 0xFF00FF00));
+        Assert.Equal(0xFF2040E0u, Sample(project, 25, 50, 0xFF00FF00));
+        Assert.Equal(0xFF00FF00u, Sample(project, 50, 20, 0xFF00FF00));
+        Assert.Equal(0xFFFFFFFFu, Sample(project, 50, 30, 0xFF00FF00));
+        Assert.Equal(0u, Sample(project, 50, 50) >> 24);
+    }
+
+    [Fact]
+    public void HoldoutOpacityGivesPartialOcclusion()
+    {
+        uint mixed = Sample(CreateHoldoutProject(0.5), 50, 50, 0xFF00FF00);
+
+        Assert.InRange((int)((mixed >> 8) & 0xFF), 90, 170);
+        Assert.InRange((int)(mixed & 0xFF), 90, 140);
+    }
+
+    [Fact]
+    public void HoldoutIsNeverAClippingBaseOrClippedLayer()
+    {
+        EditorProject project = CreateClippingProject(
+            new() { Id = "ink-1", IsHoldout = true }, new() { Id = "ink-2", ClipToLayerBelow = true });
+
+        Assert.Equal(0u, Sample(project, 50, 50) >> 24);
+        Assert.Equal(0u, Sample(project, 50, 20) >> 24);
+    }
+
+    [Fact]
+    public void HoldoutPersistsDuplicatesDefaultsOffAndBlocksMerging()
+    {
+        EditorProject project = CreateHoldoutProject();
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        EditorProject legacy = EditorProjectSerialiser.Deserialise(
+            """{"Version":75,"InkLayers":[{"Id":"ink-1","Name":"Ink 1"}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+        InkLayerProject copy = InkEditing.DuplicateLayer(project.InkLayers, project.Frames, "ink-2");
+
+        Assert.True(restored.InkLayers[1].IsHoldout);
+        Assert.Equal(EditorProject.CurrentVersion, legacy.Version);
+        Assert.False(Assert.Single(legacy.InkLayers).IsHoldout);
+        Assert.True(copy.IsHoldout);
+        Assert.Throws<InvalidOperationException>(() => InkEditing.MergeLayerDown(project.InkLayers, project.Frames, "ink-2"));
+        Assert.Throws<InvalidOperationException>(() => InkEditing.MergeLayerDown(project.InkLayers, project.Frames, "ink-3"));
+    }
 }
