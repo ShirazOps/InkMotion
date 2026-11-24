@@ -312,9 +312,9 @@ public static class TimelineCompositor
         float height,
         float widthScale)
     {
-        if (stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge)
+        if (stroke.Count > 0 && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur)
         {
-            throw new InvalidOperationException("Smudge requires the preceding drawing-layer pixels; use DrawInkStrokes.");
+            throw new InvalidOperationException("Drawing modifiers require preceding drawing-layer pixels; use DrawInkStrokes.");
         }
 
         if (stroke.Count >= 3 && stroke[0].IsFilled)
@@ -368,7 +368,8 @@ public static class TimelineCompositor
     public static void DrawInkStrokes(CanvasDrawingSession session, IReadOnlyList<List<InkPoint>> strokes,
         Func<InkPoint, Color> colour, float width, float height, float sizeScale)
     {
-        if (!strokes.Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge))
+        if (!strokes.Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture is
+            InkBrushTexture.Smudge or InkBrushTexture.Blur))
         {
             foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
                 DrawInkStroke(session, stroke, colour(stroke[0]), width, height, sizeScale);
@@ -385,6 +386,10 @@ public static class TimelineCompositor
                 byte[] pixels = layer.GetPixelBytes();
                 InkSmudge.Apply(pixels, (int)layer.Size.Width, (int)layer.Size.Height, stroke, width, height, sizeScale);
                 layer.SetPixelBytes(pixels);
+            }
+            else if (stroke[0].BrushTexture == InkBrushTexture.Blur)
+            {
+                InkBlur.Apply(layer, stroke, width, height, sizeScale);
             }
             else
             {

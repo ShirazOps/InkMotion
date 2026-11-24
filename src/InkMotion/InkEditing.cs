@@ -221,9 +221,9 @@ public static class InkEditing
         InkLayerProject source = layers[index];
         InkLayerProject target = layers[index - 1];
         if (frames.SelectMany(frame => ExportPlanning.GetLayerStrokes(frame, source.Id))
-            .Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge))
+            .Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur))
         {
-            throw new InvalidOperationException("Remove smudge modifiers from the upper layer before merging; merging would change which pixels they sample.");
+            throw new InvalidOperationException("Remove drawing modifiers from the upper layer before merging; merging would change which pixels they sample.");
         }
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
