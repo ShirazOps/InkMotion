@@ -265,6 +265,157 @@ public sealed class InkObjectTrackingTests
         finally { File.Delete(path); }
     }
 
+    private static InkObjectTracking DeformableTracking(double[] mesh) => new()
+    {
+        SourceClipId = "video-1", StartSeconds = 0, EndSeconds = 2, ReferenceSeconds = 0, Deformable = true,
+        AnchorX = 0.5, AnchorY = 0.5, BoxWidth = 0.6, BoxHeight = 0.6,
+        Keys =
+        [
+            new(0, 0.5, 0.5, Mesh: InkObjectMotion.ReferenceMesh(0.5, 0.5, 0.6, 0.6)),
+            new(1, 0.5, 0.5, Mesh: mesh),
+        ],
+    };
+
+    private static double[] BentMesh(double drop)
+    {
+        double[] mesh = InkObjectMotion.ReferenceMesh(0.5, 0.5, 0.6, 0.6);
+        for (int row = 0; row < InkObjectMotion.MeshSize; row++)
+        for (int column = 1; column <= 2; column++)
+            mesh[(row * InkObjectMotion.MeshSize + column) * 2 + 1] += drop;
+        return mesh;
+    }
+
+    [Fact]
+    public void DeformableTracking_PersistsValidatesAndInterpolatesMesh()
+    {
+        double[] bent = BentMesh(0.1);
+        var project = new EditorProject();
+        project.InkLayers[0].ObjectTracking = DeformableTracking(bent);
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        InkObjectTracking tracking = reopened.InkLayers[0].ObjectTracking!;
+        Assert.True(tracking.Deformable);
+        Assert.Equal(bent, tracking.Keys[1].Mesh);
+        Assert.True(InkObjectMotion.Clone(tracking).Deformable);
+        Assert.Equal(0.25, InkObjectMotion.Evaluate(tracking, 0.5).Mesh![3], 8);
+
+        InkObjectTracking missing = DeformableTracking(bent);
+        missing.Keys[1] = missing.Keys[1] with { Mesh = null };
+        Assert.False(InkObjectMotion.IsValid(missing));
+        InkObjectTracking rigid = Tracking();
+        rigid.Keys[0] = rigid.Keys[0] with { Mesh = bent };
+        Assert.False(InkObjectMotion.IsValid(rigid));
+        InkObjectTracking both = PlanarTracking(KeystoneCorners);
+        both.Deformable = true;
+        both.Keys = [.. both.Keys.Select(key => key with { Mesh = bent })];
+        Assert.False(InkObjectMotion.IsValid(both));
+        string legacy = EditorProjectSerialiser.Serialise(new EditorProject { InkLayers = [new() { ObjectTracking = Tracking() }] })
+            .Replace($"\"Version\": {EditorProject.CurrentVersion}", "\"Version\": 76");
+        Assert.False(EditorProjectSerialiser.Deserialise(legacy).InkLayers[0].ObjectTracking!.Deformable);
+    }
+
+    private static byte[] RenderInk(CanvasDevice device, EditorProject project, double seconds)
+    {
+        using var target = new CanvasRenderTarget(device, 200, 100, 96);
+        using (CanvasDrawingSession session = target.CreateDrawingSession())
+        {
+            session.Clear(Microsoft.UI.Colors.Transparent);
+            TimelineCompositor.DrawInkFrame(session, project, 0, 200, 100, 1, seconds);
+        }
+        return target.GetPixelBytes();
+    }
+
+    [Fact]
+    public void DeformableRendering_IdentityMeshIsSeamlessAndBentNodesMoveInk()
+    {
+        using var device = new CanvasDevice();
+        var project = new EditorProject();
+        project.InkLayers[0].ObjectTracking = DeformableTracking(InkObjectMotion.ReferenceMesh(0.5, 0.5, 0.6, 0.6));
+        project.Frames[0].Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle, 0.15, 0.15, 0.85, 0.85, 1, 0xFFFF0000, filled: true)];
+        byte[] pixels = RenderInk(device, project, 1);
+        for (int y = 17; y < 83; y++)
+        for (int x = 32; x < 168; x++)
+            Assert.True(pixels[(y * 200 + x) * 4 + 3] == 255, $"Seam or gap at ({x}, {y}).");
+
+        project.InkLayers[0].ObjectTracking = DeformableTracking(BentMesh(0.1));
+        project.Frames[0].Strokes =
+        [[
+            new() { X = 0.1, Y = 0.5, BrushWidth = 6, BrushColour = 0xFFFF0000 },
+            new() { X = 0.9, Y = 0.5, BrushWidth = 6, BrushColour = 0xFFFF0000 },
+        ]];
+        pixels = RenderInk(device, project, 1);
+        byte Alpha(int x, int y) => pixels[(y * 200 + x) * 4 + 3];
+        Assert.True(Alpha(100, 60) > 200, "The bent middle of the line must follow the displaced nodes.");
+        Assert.True(Alpha(100, 50) < 20, "The middle of the line must leave its original position.");
+        Assert.True(Alpha(41, 50) > 200, "The line must stay attached at the unmoved mesh edge.");
+        // Half-way, the bend is half as deep.
+        pixels = RenderInk(device, project, 0.5);
+        Assert.True(Alpha(100, 55) > 200);
+    }
+
+    [Fact]
+    public void Tracker_FollowsSurfaceBendingWithDeformableMesh()
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-deformable-{Guid.NewGuid():N}.mp4");
+        const int width = 384, height = 216, count = 18, textureWidth = 160, textureHeight = 100, left = 112, top = 58;
+        var random = new Random(31);
+        byte[] texture = new byte[textureWidth * textureHeight];
+        random.NextBytes(texture);
+        double Bend(int frame, double u) => 0.7 * frame * Math.Sin(Math.PI * u / textureWidth);
+        try
+        {
+            using (var writer = new MediaFoundationVideoWriter(path, width, height, 24,
+                VideoExportCodec.H264, 4_000_000, 0, 0, false))
+            {
+                for (int frame = 0; frame < count; frame++)
+                {
+                    var pixels = new byte[width * height * 4];
+                    for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++)
+                    {
+                        byte value = 20;
+                        int u = x - left;
+                        if (u is >= 0 and < textureWidth)
+                        {
+                            int v = (int)Math.Floor(y - top - Bend(frame, u + 0.5));
+                            if (v is >= 0 and < textureHeight) value = texture[v * textureWidth + u];
+                        }
+                        int pixel = (y * width + x) * 4;
+                        pixels[pixel] = pixels[pixel + 1] = pixels[pixel + 2] = value;
+                        pixels[pixel + 3] = 255;
+                    }
+                    writer.WriteVideoFrame(pixels, ExportPlanning.GetFrameTime(frame, 24),
+                        ExportPlanning.GetFrameTime(frame + 1, 24) - ExportPlanning.GetFrameTime(frame, 24));
+                }
+                writer.Finish();
+            }
+            var clip = new TimelineClipProject { SourcePath = path, SourceOutSeconds = count / 24d,
+                SourceDurationSeconds = count / 24d };
+            var project = new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip] }] };
+            double centreX = (left + textureWidth / 2d) / width, centreY = (top + textureHeight / 2d) / height;
+            InkTrackingResult result = InkObjectTracker.Analyse(project, clip.Id, 0, count / 24d,
+                new(centreX, centreY, textureWidth / (double)width, textureHeight / (double)height),
+                new(0, centreX, centreY), width / (double)height, null, CancellationToken.None, deformable: true);
+            Assert.Null(result.LostSeconds);
+            Assert.All(result.Keys, key => Assert.NotNull(key.Mesh));
+            double[] first = result.Keys[0].Mesh!, last = result.Keys[^1].Mesh!;
+            for (int node = 0; node < InkObjectMotion.MeshSize * InkObjectMotion.MeshSize; node++)
+            {
+                int column = node % InkObjectMotion.MeshSize;
+                double u = column * textureWidth / (double)(InkObjectMotion.MeshSize - 1);
+                double expected = Bend(count - 1, u);
+                double dx = (last[node * 2] - first[node * 2]) * width;
+                double dy = (last[node * 2 + 1] - first[node * 2 + 1]) * height;
+                Assert.InRange(dx, -3, 3);
+                Assert.InRange(dy, expected - 3, expected + 3);
+            }
+            Assert.Throws<ArgumentException>(() => InkObjectTracker.Analyse(project, clip.Id, 0, count / 24d,
+                new(centreX, centreY, 0.3, 0.3), new(0, centreX, centreY), width / (double)height, null,
+                CancellationToken.None, perspective: true, deformable: true));
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void Tracking_PersistsIndependentlyAndDoesNotPropagateToNewOrDuplicatedLayers()
     {
