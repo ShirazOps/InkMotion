@@ -26,9 +26,9 @@ public static class TimelineCompositor
     public static Color WithOpacity(Color colour, double opacity) =>
         Color.FromArgb((byte)(colour.A * Math.Clamp(opacity, 0, 1)), colour.R, colour.G, colour.B);
 
-    /// <summary>True when any visible layer needs offscreen rendering (blend modes or layer effects).</summary>
+    /// <summary>True when any visible layer needs offscreen rendering (blend modes, layer effects or clipping masks).</summary>
     public static bool RequiresLayerCompositing(EditorProject project) =>
-        project.InkLayers.Any(layer => layer.IsVisible && RequiresOffscreen(layer));
+        project.InkLayers.Any(layer => layer.IsVisible && (layer.ClipToLayerBelow || RequiresOffscreen(layer)));
 
     private static bool RequiresOffscreen(InkLayerProject layer) =>
         layer.BlendMode != InkLayerBlendMode.Normal || InkLayerEffects.HasEffects(layer);
@@ -542,6 +542,7 @@ public static class TimelineCompositor
         Matrix3x2 drawingTransform = contentTransform ?? Matrix3x2.Identity;
         double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
         CanvasRenderTarget current = CreateTarget(device, targetWidth, targetHeight);
+        CanvasRenderTarget? clipBase = null;
         try
         {
             using (CanvasDrawingSession session = current.CreateDrawingSession())
@@ -550,15 +551,25 @@ public static class TimelineCompositor
                 session.DrawImage(background);
             }
 
-            foreach (InkLayerProject layer in project.InkLayers.Where(layer => layer.IsVisible))
+            for (int layerIndex = 0; layerIndex < project.InkLayers.Count; layerIndex++)
             {
-                if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
-                    !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks))
+                InkLayerProject layer = project.InkLayers[layerIndex];
+                if (!layer.ClipToLayerBelow)
+                {
+                    clipBase?.Dispose();
+                    clipBase = null;
+                }
+
+                if (!layer.IsVisible ||
+                    !InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
+                    !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks) ||
+                    (layer.ClipToLayerBelow && clipBase is null))
                 {
                     continue;
                 }
 
-                if (!RequiresOffscreen(layer))
+                bool isClipBase = !layer.ClipToLayerBelow && HasVisibleClippedLayerAbove(project.InkLayers, layerIndex);
+                if (!layer.ClipToLayerBelow && !isClipBase && !RequiresOffscreen(layer))
                 {
                     using CanvasDrawingSession session = current.CreateDrawingSession();
                     session.Transform = drawingTransform;
@@ -587,6 +598,13 @@ public static class TimelineCompositor
                         foreground.Dispose();
                         foreground = glowing;
                     }
+
+                    if (layer.ClipToLayerBelow)
+                    {
+                        CanvasRenderTarget clipped = ApplyClippingMask(device, foreground, clipBase!, targetWidth, targetHeight);
+                        foreground.Dispose();
+                        foreground = clipped;
+                    }
                 }
                 catch
                 {
@@ -594,7 +612,12 @@ public static class TimelineCompositor
                     throw;
                 }
 
-                using (foreground)
+                if (isClipBase)
+                {
+                    clipBase = foreground;
+                }
+
+                try
                 {
                     if (layer.BlendMode == InkLayerBlendMode.Normal)
                     {
@@ -625,7 +648,17 @@ public static class TimelineCompositor
                     current.Dispose();
                     current = next;
                 }
+                finally
+                {
+                    if (!isClipBase)
+                    {
+                        foreground.Dispose();
+                    }
+                }
             }
+
+            clipBase?.Dispose();
+            clipBase = null;
 
             using (CanvasDrawingSession session = current.CreateDrawingSession())
             {
@@ -649,7 +682,45 @@ public static class TimelineCompositor
         }
         catch
         {
+            clipBase?.Dispose();
             current.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>True when a visible layer directly above (before the next unclipped layer) clips to this layer.</summary>
+    private static bool HasVisibleClippedLayerAbove(IReadOnlyList<InkLayerProject> layers, int index)
+    {
+        for (int above = index + 1; above < layers.Count && layers[above].ClipToLayerBelow; above++)
+        {
+            if (layers[above].IsVisible)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static CanvasRenderTarget ApplyClippingMask(
+        ICanvasResourceCreator device,
+        CanvasRenderTarget foreground,
+        CanvasRenderTarget clipBase,
+        float targetWidth,
+        float targetHeight)
+    {
+        CanvasRenderTarget masked = CreateTarget(device, targetWidth, targetHeight);
+        try
+        {
+            using CanvasDrawingSession session = masked.CreateDrawingSession();
+            session.Clear(Color.FromArgb(0, 0, 0, 0));
+            using var effect = new AlphaMaskEffect { Source = foreground, AlphaMask = clipBase };
+            session.DrawImage(effect);
+            return masked;
+        }
+        catch
+        {
+            masked.Dispose();
             throw;
         }
     }

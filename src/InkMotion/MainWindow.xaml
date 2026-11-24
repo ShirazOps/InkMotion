@@ -1283,6 +1283,8 @@
                             <ComboBoxItem Content="Overlay" Tag="Overlay" />
                         </ComboBox>
                         <TextBlock Text="Blend modes composite this layer with the image below it, including lower ink layers and timeline video. Normal preserves standard alpha blending." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <ToggleButton x:Name="InkLayerClipButton" Content="Clip to layer below" Click="InkLayerClip_Click" AutomationProperties.Name="Clip to layer below" />
+                        <TextBlock Text="A clipped layer only shows where the nearest unclipped layer beneath it has drawn pixels (after its effects). If that layer is hidden or off-screen, the clipped layer is hidden too. Stack several clipped layers on one base." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="LAYER EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="Glow radius" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />

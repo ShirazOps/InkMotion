@@ -225,6 +225,11 @@ public static class InkEditing
         {
             throw new InvalidOperationException("Remove drawing modifiers from the upper layer before merging; merging would change which pixels they sample.");
         }
+        if (source.ClipToLayerBelow || target.ClipToLayerBelow ||
+            (index + 1 < layers.Count && layers[index + 1].ClipToLayerBelow))
+        {
+            throw new InvalidOperationException("Release clipping masks on both layers and on any layer clipped to the upper layer before merging.");
+        }
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
             !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity ||
@@ -316,6 +321,7 @@ public static class InkEditing
         GlowIntensity = layer.GlowIntensity,
         GlowColour = layer.GlowColour,
         PixelSize = layer.PixelSize,
+        ClipToLayerBelow = layer.ClipToLayerBelow,
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 

@@ -164,4 +164,80 @@ public sealed class InkLayerEffectsTests
         Assert.Equal(0, Assert.Single(legacy.InkLayers).PixelSize);
         Assert.Equal(4, legacy.InkLayers[0].GlowRadius);
     }
+
+    private static EditorProject CreateClippingProject(InkLayerProject baseLayer, InkLayerProject clipped)
+    {
+        EditorProject project = CreateProject(baseLayer);
+        project.InkLayers.Add(clipped);
+        project.Frames[0].LayerStrokes[clipped.Id] =
+        [
+            [
+                new() { X = 0.5, Y = 0.1, BrushWidth = 20, Pressure = 1, BrushColour = 0xFFFF0000 },
+                new() { X = 0.5, Y = 0.9, BrushWidth = 20, Pressure = 1, BrushColour = 0xFFFF0000 },
+            ],
+        ];
+        return project;
+    }
+
+    [Fact]
+    public void ClippedLayerShowsOnlyInsideTheBaseLayersPixels()
+    {
+        EditorProject unclipped = CreateClippingProject(new() { Id = "ink-1" }, new() { Id = "ink-2" });
+        EditorProject clipped = CreateClippingProject(new() { Id = "ink-1" }, new() { Id = "ink-2", ClipToLayerBelow = true });
+
+        Assert.Equal(0xFFFF0000u, Sample(unclipped, 50, 20));
+        Assert.True(TimelineCompositor.RequiresLayerCompositing(clipped));
+        Assert.Equal(0xFFFF0000u, Sample(clipped, 50, 50));
+        Assert.Equal(0u, Sample(clipped, 50, 20) >> 24);
+        Assert.Equal(0xFF2040E0u, Sample(clipped, 25, 50));
+    }
+
+    [Fact]
+    public void ClippedLayerIsHiddenWithoutAVisibleBase()
+    {
+        EditorProject hiddenBase = CreateClippingProject(
+            new() { Id = "ink-1", IsVisible = false }, new() { Id = "ink-2", ClipToLayerBelow = true });
+        var bottom = new InkLayerProject { Id = "ink-1", ClipToLayerBelow = true };
+        EditorProject bottomClipped = CreateProject(bottom);
+
+        Assert.Equal(0u, Sample(hiddenBase, 50, 50) >> 24);
+        Assert.Equal(0u, Sample(bottomClipped, 50, 50) >> 24);
+    }
+
+    [Fact]
+    public void ClippingMaskUsesBaseEffectsAndStacksOverOneBase()
+    {
+        EditorProject project = CreateClippingProject(
+            new() { Id = "ink-1", GlowRadius = 30, GlowIntensity = 3 }, new() { Id = "ink-2", ClipToLayerBelow = true });
+        project.InkLayers.Add(new() { Id = "ink-3", ClipToLayerBelow = true });
+        project.Frames[0].LayerStrokes["ink-3"] =
+        [
+            [
+                new() { X = 0.7, Y = 0.5, BrushWidth = 6, Pressure = 1, BrushColour = 0xFF00FF00 },
+                new() { X = 0.7, Y = 0.9, BrushWidth = 6, Pressure = 1, BrushColour = 0xFF00FF00 },
+            ],
+        ];
+
+        uint glowArea = Sample(project, 50, 60);
+        uint secondClip = Sample(project, 70, 50);
+        uint secondOutside = Sample(project, 70, 85);
+
+        Assert.True(((glowArea >> 16) & 0xFF) > ((glowArea >> 8) & 0xFF), $"Clip should reveal red within the glow, got {glowArea:X8}.");
+        Assert.Equal(0xFF00FF00u, secondClip);
+        Assert.True((secondOutside >> 24) < 128, $"Glow fringe only partially reveals the clipped stroke, got {secondOutside:X8}.");
+    }
+
+    [Fact]
+    public void ClippingPersistsDefaultsOffAndBlocksMerging()
+    {
+        EditorProject project = CreateClippingProject(new() { Id = "ink-1" }, new() { Id = "ink-2", ClipToLayerBelow = true });
+
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        EditorProject legacy = EditorProjectSerialiser.Deserialise(
+            """{"Version":73,"InkLayers":[{"Id":"ink-1","Name":"Ink 1","PixelSize":4}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.True(restored.InkLayers[1].ClipToLayerBelow);
+        Assert.False(Assert.Single(legacy.InkLayers).ClipToLayerBelow);
+        Assert.Throws<InvalidOperationException>(() => InkEditing.MergeLayerDown(project.InkLayers, project.Frames, "ink-2"));
+    }
 }
