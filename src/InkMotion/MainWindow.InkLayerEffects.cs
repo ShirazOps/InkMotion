@@ -19,8 +19,37 @@ public sealed partial class MainWindow
             InkLayerGlowIntensitySlider.IsEnabled = editable;
             InkLayerPixelSizeSlider.Value = CurrentInkLayer.PixelSize;
             InkLayerPixelSizeSlider.IsEnabled = editable;
+            int index = _inkLayers.IndexOf(CurrentInkLayer);
+            InkLayerClipButton.IsChecked = CurrentInkLayer.ClipToLayerBelow;
+            InkLayerClipButton.IsEnabled = index > 0 || CurrentInkLayer.ClipToLayerBelow;
         }
         finally { _isRestoringProject = restoring; }
+    }
+
+    private void InkLayerClip_Click(object sender, RoutedEventArgs e)
+    {
+        bool clip = InkLayerClipButton.IsChecked == true;
+        if (_isRestoringProject || _isInitialising || CurrentInkLayer.ClipToLayerBelow == clip)
+        {
+            return;
+        }
+
+        if (clip && _inkLayers.IndexOf(CurrentInkLayer) <= 0)
+        {
+            InkLayerClipButton.IsChecked = false;
+            StatusText.Text = "The bottom layer has no layer beneath it to clip to.";
+            return;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        CurrentInkLayer.ClipToLayerBelow = clip;
+        MarkEditChanged();
+        CommitEdit();
+        RenderCurrentInk();
+        StatusText.Text = clip
+            ? $"{CurrentInkLayer.Name} is clipped to the layer below."
+            : $"{CurrentInkLayer.Name} clipping mask released.";
     }
 
     private void InkLayerEffect_Changed(object sender, RangeBaseValueChangedEventArgs e)

@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 73;
+    public const int CurrentVersion = 74;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -51,6 +51,8 @@ public sealed class InkLayerProject
     public uint GlowColour { get; set; } = 0xFFFFFFFF;
     /// <summary>Pixel-block size in preview pixels before output scaling; zero disables pixelation.</summary>
     public double PixelSize { get; set; }
+    /// <summary>Shows this layer only where the nearest unclipped layer beneath it has drawn pixels.</summary>
+    public bool ClipToLayerBelow { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 
@@ -646,6 +648,10 @@ public static class EditorProjectSerialiser
             project.Version = EditorProject.CurrentVersion;
         }
         if (project.Version == 72)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 73)
         {
             project.Version = EditorProject.CurrentVersion;
         }
