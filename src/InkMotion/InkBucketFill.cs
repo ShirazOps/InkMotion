@@ -25,14 +25,8 @@ public static class InkBucketFill
         using (CanvasDrawingSession session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
-            foreach (List<InkPoint> stroke in strokes)
-            {
-                if (stroke.Count > 0)
-                {
-                    TimelineCompositor.DrawInkStroke(session, stroke,
-                        TimelineCompositor.ToColour(stroke[0].BrushColour), width, height, (float)scale);
-                }
-            }
+            TimelineCompositor.DrawInkStrokes(session, strokes,
+                point => TimelineCompositor.ToColour(point.BrushColour), width, height, (float)scale);
         }
 
         byte[] pixels = target.GetPixelBytes();

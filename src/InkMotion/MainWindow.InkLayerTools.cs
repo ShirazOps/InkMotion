@@ -148,6 +148,7 @@ public sealed partial class MainWindow
 
         InkBrushPreset preset = InkBrushPresets.All.First(preset => preset.Name == name);
         FinishActiveEdit();
+        _inkModifierTool = null;
         _brushWidth = preset.Width;
         _brushColour = preset.ApplyColour(_brushColour);
         InkBrushTextureSelector.SelectedIndex = (int)preset.Texture;

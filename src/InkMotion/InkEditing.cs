@@ -220,6 +220,11 @@ public static class InkEditing
 
         InkLayerProject source = layers[index];
         InkLayerProject target = layers[index - 1];
+        if (frames.SelectMany(frame => ExportPlanning.GetLayerStrokes(frame, source.Id))
+            .Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge))
+        {
+            throw new InvalidOperationException("Remove smudge modifiers from the upper layer before merging; merging would change which pixels they sample.");
+        }
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
             !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity ||

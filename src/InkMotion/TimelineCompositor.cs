@@ -312,6 +312,11 @@ public static class TimelineCompositor
         float height,
         float widthScale)
     {
+        if (stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge)
+        {
+            throw new InvalidOperationException("Smudge requires the preceding drawing-layer pixels; use DrawInkStrokes.");
+        }
+
         if (stroke.Count >= 3 && stroke[0].IsFilled)
         {
             using var path = new CanvasPathBuilder(session);
@@ -358,6 +363,36 @@ public static class TimelineCompositor
                 colour,
                 (float)(((GetInkWidth(previous) * widthScale) + brush) / 2));
         }
+    }
+
+    public static void DrawInkStrokes(CanvasDrawingSession session, IReadOnlyList<List<InkPoint>> strokes,
+        Func<InkPoint, Color> colour, float width, float height, float sizeScale)
+    {
+        if (!strokes.Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture == InkBrushTexture.Smudge))
+        {
+            foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
+                DrawInkStroke(session, stroke, colour(stroke[0]), width, height, sizeScale);
+            return;
+        }
+
+        using CanvasRenderTarget layer = CreateTarget(session, MathF.Ceiling(width), MathF.Ceiling(height));
+        using (CanvasDrawingSession drawing = layer.CreateDrawingSession())
+            drawing.Clear(Microsoft.UI.Colors.Transparent);
+        foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
+        {
+            if (stroke[0].BrushTexture == InkBrushTexture.Smudge)
+            {
+                byte[] pixels = layer.GetPixelBytes();
+                InkSmudge.Apply(pixels, (int)layer.Size.Width, (int)layer.Size.Height, stroke, width, height, sizeScale);
+                layer.SetPixelBytes(pixels);
+            }
+            else
+            {
+                using CanvasDrawingSession drawing = layer.CreateDrawingSession();
+                DrawInkStroke(drawing, stroke, colour(stroke[0]), width, height, sizeScale);
+            }
+        }
+        session.DrawImage(layer);
     }
 
     public static void DrawInkText(
@@ -452,14 +487,8 @@ public static class TimelineCompositor
             session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
             try
             {
-                foreach (List<InkPoint> stroke in strokes)
-                {
-                    if (stroke.Count > 0)
-                    {
-                        Color colour = WithOpacity(ToColour(stroke[0].BrushColour), layer.Opacity);
-                        DrawInkStroke(session, stroke, colour, width, height, sizeScale);
-                    }
-                }
+                DrawInkStrokes(session, strokes,
+                    point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale);
             }
             finally { session.Transform = originalTransform; }
         }
@@ -601,14 +630,8 @@ public static class TimelineCompositor
         session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
         try
         {
-            foreach (List<InkPoint> stroke in strokes)
-            {
-                if (stroke.Count > 0)
-                {
-                    Color colour = WithOpacity(ToColour(stroke[0].BrushColour), layer.Opacity);
-                    DrawInkStroke(session, stroke, colour, width, height, sizeScale);
-                }
-            }
+            DrawInkStrokes(session, strokes,
+                point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale);
         }
         finally { session.Transform = originalTransform; }
     }
