@@ -79,6 +79,8 @@ public sealed partial class MainWindow
         InkTrackingBoxButton.IsEnabled = editable;
         InkTrackObjectButton.IsEnabled = editable;
         InkTrackingEndBox.IsEnabled = editable;
+        InkPlanarTrackingCheckBox.IsEnabled = editable && tracking is null;
+        if (tracking is not null) InkPlanarTrackingCheckBox.IsChecked = tracking.Perspective;
         InkFollowObjectToggle.IsEnabled = editable && tracking is not null;
         InkFollowObjectToggle.IsChecked = tracking?.Enabled == true;
         ClearInkTrackingButton.IsEnabled = editable && tracking is not null;
@@ -98,7 +100,8 @@ public sealed partial class MainWindow
                     2 => "Off for this title clip. Select an object box and track.",
                     _ => "Off for this layer. Draw first, select an object box, then track.",
                 } :
-            $"{(tracking.Enabled ? "Following" : "Disabled")} · {tracking.StartSeconds:0.###}–{tracking.EndSeconds:0.###} s · " +
+            $"{(tracking.Enabled ? "Following" : "Disabled")} · {(tracking.Perspective ? "planar corner pin" : "rigid")} · " +
+            $"{tracking.StartSeconds:0.###}–{tracking.EndSeconds:0.###} s · " +
             $"{tracking.Keys.Count} motion keys" +
             (tracking.LostSeconds is double lost ? $" · STOP at {lost:0.###} s: correct the box here or at a later visible frame and resume; motion across the gap is interpolated." : "");
     }
@@ -108,6 +111,11 @@ public sealed partial class MainWindow
         if (_inkTrackingCancellation is not null || _selectInkTrackingBox) return;
         UpdateInkTrackingControls();
     }
+
+    private void InkPlanarTracking_Click(object sender, RoutedEventArgs e) =>
+        StatusText.Text = InkPlanarTrackingCheckBox.IsChecked == true
+            ? "Planar mode: select a box on a flat, textured surface. The artwork's box corners will be pinned to it."
+            : "Rigid mode: position, rotation and size follow the selected object.";
 
     private void SelectInkTrackingBox_Click(object sender, RoutedEventArgs e)
     {
@@ -305,6 +313,7 @@ public sealed partial class MainWindow
             SourceSignature = JsonSerializer.Serialize(visible.Clip),
             CanvasAspectRatio = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight),
             ReferenceSeconds = start, AnchorX = box.X, AnchorY = box.Y, BoxWidth = box.Width, BoxHeight = box.Height,
+            Perspective = InkPlanarTrackingCheckBox.IsChecked == true,
         } : InkObjectMotion.Clone(original);
         double? priorLostSeconds = resume ? original!.LostSeconds : null;
         bool interpolatesCorrectionGap = priorLostSeconds is double priorLost &&
@@ -325,7 +334,7 @@ public sealed partial class MainWindow
         {
             double aspect = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight);
             InkTrackingResult result = await Task.Run(() => InkObjectTracker.Analyse(snapshot, tracking.SourceClipId,
-                start, end, box, initial, aspect, progress, cancellation.Token, original));
+                start, end, box, initial, aspect, progress, cancellation.Token, original, tracking.Perspective));
             bool targetStillCurrent = targetIndex switch
             {
                 1 => textFrame is not null && text is not null && _frames.Contains(textFrame) &&

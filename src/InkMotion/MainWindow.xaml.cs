@@ -2139,16 +2139,11 @@ public sealed partial class MainWindow : Window
                     continue;
                 }
 
-                Matrix3x2 originalTransform = session.Transform;
-                session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
-                try
-                {
-                    TimelineCompositor.DrawInkStrokes(session,
+                InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
+                    TimelineCompositor.DrawInkStrokes(drawing,
                         InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate),
                         point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
-                            layer.Opacity * guide.Opacity), width, height, 1);
-                }
-                finally { session.Transform = originalTransform; }
+                            layer.Opacity * guide.Opacity), width, height, 1));
             }
 
             if (OnionTextToggle?.IsChecked != false)
@@ -2161,10 +2156,8 @@ public sealed partial class MainWindow : Window
                         continue;
                     }
 
-                    Matrix3x2 originalTransform = session.Transform;
-                    session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
-                    try { TimelineCompositor.DrawInkText(session, overlay, guide.Opacity, width, height, 1); }
-                    finally { session.Transform = originalTransform; }
+                    InkObjectMotion.Draw(session, overlay.ObjectTracking, seconds, width, height, drawing =>
+                        TimelineCompositor.DrawInkText(drawing, overlay, guide.Opacity, width, height, 1));
                 }
             }
         }

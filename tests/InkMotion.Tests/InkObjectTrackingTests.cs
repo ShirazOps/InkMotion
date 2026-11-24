@@ -79,6 +79,192 @@ public sealed class InkObjectTrackingTests
         Assert.False(InkObjectTracker.TryFitSimilarity(pairs.Take(2).ToArray(), out _, out _, out _));
     }
 
+    private static readonly Vector2[] PlanarSource = [new(20, 20), new(120, 20), new(120, 80), new(20, 80)];
+    private static readonly Vector2[] PlanarTarget = [new(30, 25), new(110, 40), new(105, 70), new(25, 90)];
+
+    private static InkObjectTracking PlanarTracking(double[] corners) => new()
+    {
+        SourceClipId = "video-1", StartSeconds = 0, EndSeconds = 2, ReferenceSeconds = 0, Perspective = true,
+        AnchorX = 0.35, AnchorY = 0.5, BoxWidth = 0.5, BoxHeight = 0.6,
+        Keys = [new(0, 0.35, 0.5, Corners: [0.1, 0.2, 0.6, 0.2, 0.6, 0.8, 0.1, 0.8]), new(1, 0.5, 0.5, Corners: corners)],
+    };
+
+    private static readonly double[] KeystoneCorners = [0.45, 0.35, 0.9, 0.1, 0.9, 0.9, 0.45, 0.65];
+
+    [Fact]
+    public void HomographyFit_RecoversPerspectiveMapAndRejectsOutliers()
+    {
+        Assert.True(InkHomography.TryFit(PlanarSource.Zip(PlanarTarget).ToArray(), out InkHomography exact));
+        var random = new Random(3);
+        var pairs = new List<(Vector2 From, Vector2 To)>();
+        for (int i = 0; i < 40; i++)
+        {
+            Vector2 point = new(20 + random.NextSingle() * 100, 20 + random.NextSingle() * 60);
+            pairs.Add((point, exact.Apply(point)));
+        }
+        for (int i = 0; i < 8; i++)
+            pairs.Add((new(20 + i * 10, 50), new(random.NextSingle() * 200, random.NextSingle() * 200)));
+        Assert.True(InkObjectTracker.TryFitHomography(pairs, out InkHomography fitted));
+        for (int i = 0; i < 4; i++)
+            Assert.InRange(Vector2.Distance(fitted.Apply(PlanarSource[i]), PlanarTarget[i]), 0, 0.05f);
+        Assert.False(InkObjectTracker.TryFitHomography(pairs.Take(3).ToArray(), out _));
+        Assert.True(InkHomography.IsConvexQuad(PlanarTarget));
+        Assert.False(InkHomography.IsConvexQuad([PlanarTarget[0], PlanarTarget[2], PlanarTarget[1], PlanarTarget[3]]));
+    }
+
+    [Fact]
+    public void PlanarProjection_PinsReferenceBoxCornersToTrackedCorners()
+    {
+        InkObjectTracking tracking = PlanarTracking(KeystoneCorners);
+        Assert.Null(InkObjectMotion.Projection(Tracking(), 1, 200, 100));
+        Matrix4x4 projection = InkObjectMotion.Projection(tracking, 1, 200, 100)!.Value;
+        Vector2[] reference = [new(20, 20), new(120, 20), new(120, 80), new(20, 80)];
+        for (int i = 0; i < 4; i++)
+        {
+            Vector4 mapped = Vector4.Transform(new Vector4(reference[i], 0, 1), projection);
+            Assert.InRange(mapped.X / mapped.W, KeystoneCorners[i * 2] * 200 - 0.01, KeystoneCorners[i * 2] * 200 + 0.01);
+            Assert.InRange(mapped.Y / mapped.W, KeystoneCorners[i * 2 + 1] * 100 - 0.01, KeystoneCorners[i * 2 + 1] * 100 + 0.01);
+        }
+        InkObjectPose halfway = InkObjectMotion.Evaluate(tracking, 0.5);
+        Assert.Equal(0.275, halfway.Corners![0], 8);
+        tracking.Keys[1] = tracking.Keys[1] with { Corners = [0.45, 0.35, 0.9, 0.9, 0.9, 0.1, 0.45, 0.65] };
+        Assert.Null(InkObjectMotion.Projection(tracking, 1, 200, 100));
+    }
+
+    [Fact]
+    public void PlanarTracking_PersistsAndRejectsMissingOrUnexpectedCorners()
+    {
+        var project = new EditorProject();
+        project.InkLayers[0].ObjectTracking = PlanarTracking(KeystoneCorners);
+        EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        InkObjectTracking tracking = reopened.InkLayers[0].ObjectTracking!;
+        Assert.True(tracking.Perspective);
+        Assert.Equal(KeystoneCorners, tracking.Keys[1].Corners);
+        InkObjectTracking clone = InkObjectMotion.Clone(tracking);
+        Assert.True(clone.Perspective);
+        tracking.Keys[1] = tracking.Keys[1] with { Corners = null };
+        Assert.False(InkObjectMotion.IsValid(tracking));
+        InkObjectTracking rigid = Tracking();
+        rigid.Keys[0] = rigid.Keys[0] with { Corners = KeystoneCorners };
+        Assert.False(InkObjectMotion.IsValid(rigid));
+        string legacy = EditorProjectSerialiser.Serialise(new EditorProject { InkLayers = [new() { ObjectTracking = Tracking() }] })
+            .Replace($"\"Version\": {EditorProject.CurrentVersion}", "\"Version\": 74");
+        Assert.False(EditorProjectSerialiser.Deserialise(legacy).InkLayers[0].ObjectTracking!.Perspective);
+    }
+
+    [Fact]
+    public void PlanarRendering_WarpsInkIntoTrackedQuadWithPerspectiveDivide()
+    {
+        using var device = new CanvasDevice();
+        var project = new EditorProject();
+        project.InkLayers[0].ObjectTracking = PlanarTracking(KeystoneCorners);
+        // Ink at the reference box's top-right and centre.
+        project.Frames[0].Strokes =
+        [
+            [new() { X = 0.58, Y = 0.24, BrushWidth = 6, BrushColour = 0xFFFF0000 }],
+            [new() { X = 0.35, Y = 0.5, BrushWidth = 6, BrushColour = 0xFFFF0000 }],
+        ];
+        Matrix4x4 projection = InkObjectMotion.Projection(project.InkLayers[0].ObjectTracking, 1, 200, 100)!.Value;
+        Vector2 Project(Vector2 point)
+        {
+            Vector4 mapped = Vector4.Transform(new Vector4(point, 0, 1), projection);
+            return new(mapped.X / mapped.W, mapped.Y / mapped.W);
+        }
+        uint Sample(Vector2 point) => InkColourSampling.Sample(device, project, 0, 200, 100, point.X, point.Y, 1);
+        Vector2 corner = Project(new(116, 24)), centre = Project(new(70, 50));
+        Assert.Equal(0xFFFF0000, Sample(corner));
+        Assert.Equal(0xFFFF0000, Sample(centre));
+        // Without the homogeneous divide the centre would land at the affine average of the corners.
+        Assert.True(Vector2.Distance(centre, new(135, 50)) > 6);
+        Assert.Equal(0u, Sample(new(135, 50)));
+        Assert.Equal(0u, Sample(new(70, 50)));
+    }
+
+    [Fact]
+    public void PlanarRendering_PreservesModifierStrokesInsideWarpedLayer()
+    {
+        using var device = new CanvasDevice();
+        var project = new EditorProject();
+        double[] box = [0.05, 0.1, 0.95, 0.1, 0.95, 0.9, 0.05, 0.9];
+        project.InkLayers[0].ObjectTracking = new()
+        {
+            SourceClipId = "video-1", StartSeconds = 0, EndSeconds = 2, Perspective = true,
+            AnchorX = 0.5, AnchorY = 0.5, BoxWidth = 0.9, BoxHeight = 0.8,
+            Keys = [new(0, 0.5, 0.5, Corners: box), new(1, 0.5, 0.5, Corners: box)],
+        };
+        project.Frames[0].Strokes =
+        [
+            InkStrokeEditing.CreateShape(InkShape.Rectangle, 0.1, 0.2, 0.5, 0.8, 1, 0xFFFF0000, filled: true),
+            [
+                new() { X = 0.45, Y = 0.5, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Smudge },
+                new() { X = 0.75, Y = 0.5, BrushWidth = 12, Pressure = 1, BrushTexture = InkBrushTexture.Smudge },
+            ],
+        ];
+        uint smudged = InkColourSampling.Sample(device, project, 0, 100, 80, 54, 40, 0.5);
+        Assert.True(smudged >> 24 > 0, "Smudged colour must survive the recorded planar warp.");
+        Assert.True(((smudged >> 16) & 0xFF) > 0);
+    }
+
+    [Fact]
+    public void Tracker_PinsCornersOfSurfaceTurningInPerspective()
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-planar-{Guid.NewGuid():N}.mp4");
+        const int width = 384, height = 216, count = 18, textureWidth = 120, textureHeight = 100;
+        var random = new Random(29);
+        byte[] texture = new byte[textureWidth * textureHeight];
+        random.NextBytes(texture);
+        Vector2[] textureCorners = [new(0, 0), new(textureWidth, 0), new(textureWidth, textureHeight), new(0, textureHeight)];
+        Vector2[] Corners(int frame) =>
+        [
+            new(132, 58), new(252 - frame * 1.5f, 58 + frame * 1.2f),
+            new(252 - frame * 1.5f, 158 - frame * 1.2f), new(132, 158),
+        ];
+        try
+        {
+            using (var writer = new MediaFoundationVideoWriter(path, width, height, 24,
+                VideoExportCodec.H264, 4_000_000, 0, 0, false))
+            {
+                for (int frame = 0; frame < count; frame++)
+                {
+                    Assert.True(InkHomography.TryFit(Corners(frame).Zip(textureCorners).ToArray(), out InkHomography inverse));
+                    var pixels = new byte[width * height * 4];
+                    for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++)
+                    {
+                        byte value = 20;
+                        if (inverse.TryApply(x, y, out double u, out double v) &&
+                            u >= 0 && u < textureWidth && v >= 0 && v < textureHeight)
+                            value = texture[(int)v * textureWidth + (int)u];
+                        int pixel = (y * width + x) * 4;
+                        pixels[pixel] = pixels[pixel + 1] = pixels[pixel + 2] = value;
+                        pixels[pixel + 3] = 255;
+                    }
+                    writer.WriteVideoFrame(pixels, ExportPlanning.GetFrameTime(frame, 24),
+                        ExportPlanning.GetFrameTime(frame + 1, 24) - ExportPlanning.GetFrameTime(frame, 24));
+                }
+                writer.Finish();
+            }
+            var clip = new TimelineClipProject { SourcePath = path, SourceOutSeconds = count / 24d,
+                SourceDurationSeconds = count / 24d };
+            var project = new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Video, Clips = [clip] }] };
+            InkTrackingResult result = InkObjectTracker.Analyse(project, clip.Id, 0, count / 24d,
+                new(192d / width, 108d / height, textureWidth / (double)width, textureHeight / (double)height),
+                new(0, 192d / width, 108d / height), width / (double)height, null, CancellationToken.None,
+                perspective: true);
+            Assert.Null(result.LostSeconds);
+            Assert.All(result.Keys, key => Assert.NotNull(key.Corners));
+            double[] last = result.Keys[^1].Corners!;
+            Vector2[] expected = Corners(count - 1);
+            for (int i = 0; i < 4; i++)
+            {
+                Assert.InRange(last[i * 2] * width, expected[i].X - 4, expected[i].X + 4);
+                Assert.InRange(last[i * 2 + 1] * height, expected[i].Y - 4, expected[i].Y + 4);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void Tracking_PersistsIndependentlyAndDoesNotPropagateToNewOrDuplicatedLayers()
     {

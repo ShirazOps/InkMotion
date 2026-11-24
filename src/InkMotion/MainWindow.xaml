@@ -1257,6 +1257,10 @@
                         <Button x:Name="InkTrackingBoxButton" Content="Select object box in viewer" Click="SelectInkTrackingBox_Click" />
                         <NumberBox x:Name="InkTrackingEndBox" Header="Track until timeline time (seconds; 0 = video clip end)"
                                    Value="0" Minimum="0" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <CheckBox x:Name="InkPlanarTrackingCheckBox" Content="Planar surface (corner pin in perspective)"
+                                  Click="InkPlanarTracking_Click" />
+                        <TextBlock Text="Planar mode follows a flat textured surface, such as a sign, screen or wall, as it turns in perspective, and pins the artwork's box corners to it. Use rigid mode for objects that only move, rotate or scale. The mode is fixed once tracked; clear tracking to change it."
+                                   TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button x:Name="InkTrackObjectButton" Content="Track / resume from playhead" Click="TrackInkObject_Click" />
                             <Button x:Name="CancelInkTrackingButton" Content="Cancel" IsEnabled="False" Click="CancelInkTracking_Click" />
