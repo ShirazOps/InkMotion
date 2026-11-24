@@ -40,6 +40,7 @@ Set **Video Editor > Project settings > Canvas width/height > Apply canvas dimen
 - Embedded video-audio volume and balance automation, timeline curves and matching export processing.
 - Selected-track and live preview master peak/RMS meters; complete-export-mix analysis with peak/RMS and integrated LUFS. Source spectrum and spectrogram analysis.
 - Record a selected Windows audio input to WAV and place the take on the timeline. Audio/video clip linking and source relinking are also supported.
+- **Sound effects** library (Audio toolbar): ten original effects – whoosh, swoosh down, pop, click, blip, riser, impact, chime, zap and sparkle – synthesised deterministically on this device and added at the playhead on a new audio track. No third-party recordings are bundled or downloaded. Files are cached in `%LOCALAPPDATA%\InkMotion\SoundEffects` and regenerated automatically if a project references a missing one.
 
 ### Beginner guide
 

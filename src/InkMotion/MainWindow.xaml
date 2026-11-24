@@ -145,6 +145,14 @@
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button Content="Add audio clip…" Click="OpenAudio_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add audio track" Click="AddAudioTrack_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer>
+                        <DropDownButton Content="Sound effects" AutomationProperties.Name="Add a built-in sound effect"
+                                        ToolTipService.ToolTip="Add an original sound effect generated on this device at the playhead, on a new audio track">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="Bottom" Opening="SoundEffectsFlyout_Opening" />
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
+                    </AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><Button Content="Trim start" Click="TrimAudioStart_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioStartButton}" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Trim end" Click="TrimAudioEnd_Click" IsEnabled="{Binding IsEnabled, ElementName=TrimAudioEndButton}" /></AppBarElementContainer>
