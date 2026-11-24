@@ -233,19 +233,13 @@ public static class TimelineCompositor
             return;
         }
 
-        Matrix3x2 original = session.Transform;
-        try
+        InkObjectMotion.Draw(session, clip.ObjectTracking, seconds, width, height, drawing =>
         {
-            Matrix3x2 previous = InkObjectMotion.Transform(clip.ObjectTracking, seconds, width, height) * original;
-            session.Transform = Matrix3x2.CreateRotation(
+            drawing.Transform = Matrix3x2.CreateRotation(
                 (float)(transform.RotationDegrees * Math.PI / 180),
-                new Vector2((float)(transform.X * width), (float)(transform.Y * height))) * previous;
-            DrawTitleText(session, clip, width, height, opacity, fontSize, transform);
-        }
-        finally
-        {
-            session.Transform = original;
-        }
+                new Vector2((float)(transform.X * width), (float)(transform.Y * height))) * drawing.Transform;
+            DrawTitleText(drawing, clip, width, height, opacity, fontSize, transform);
+        });
     }
 
     private static void DrawTitleText(
@@ -492,24 +486,17 @@ public static class TimelineCompositor
             if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
                 !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) continue;
             IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
-            var originalTransform = session.Transform;
-            session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
-            try
-            {
-                DrawInkStrokes(session, strokes,
-                    point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale);
-            }
-            finally { session.Transform = originalTransform; }
+            InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
+                DrawInkStrokes(drawing, strokes,
+                    point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
         }
 
         foreach (InkTextOverlay overlay in project.Frames[frameIndex].TextOverlays)
         {
             if (!InkObjectMotion.IsVisible(overlay.ObjectTracking, seconds) ||
                 !InkObjectMotion.IsSourceCurrent(overlay.ObjectTracking, project.VideoTracks)) continue;
-            var originalTransform = session.Transform;
-            session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
-            try { DrawInkText(session, overlay, 1, width, height, sizeScale); }
-            finally { session.Transform = originalTransform; }
+            InkObjectMotion.Draw(session, overlay.ObjectTracking, seconds, width, height, drawing =>
+                DrawInkText(drawing, overlay, 1, width, height, sizeScale));
         }
     }
 
@@ -671,10 +658,8 @@ public static class TimelineCompositor
                         continue;
                     }
 
-                    Matrix3x2 originalTransform = session.Transform;
-                    session.Transform = InkObjectMotion.Transform(overlay.ObjectTracking, seconds, width, height) * originalTransform;
-                    try { DrawInkText(session, overlay, 1, width, height, sizeScale); }
-                    finally { session.Transform = originalTransform; }
+                    InkObjectMotion.Draw(session, overlay.ObjectTracking, seconds, width, height, drawing =>
+                        DrawInkText(drawing, overlay, 1, width, height, sizeScale));
                 }
             }
 
@@ -736,14 +721,9 @@ public static class TimelineCompositor
         double seconds)
     {
         IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
-        Matrix3x2 originalTransform = session.Transform;
-        session.Transform = InkObjectMotion.Transform(layer.ObjectTracking, seconds, width, height) * originalTransform;
-        try
-        {
-            DrawInkStrokes(session, strokes,
-                point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale);
-        }
-        finally { session.Transform = originalTransform; }
+        InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
+            DrawInkStrokes(drawing, strokes,
+                point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
     }
 
     private static CanvasRenderTarget CreateTarget(ICanvasResourceCreator device, float width, float height) =>
