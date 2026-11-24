@@ -1257,9 +1257,13 @@
                         <Button x:Name="InkTrackingBoxButton" Content="Select object box in viewer" Click="SelectInkTrackingBox_Click" />
                         <NumberBox x:Name="InkTrackingEndBox" Header="Track until timeline time (seconds; 0 = video clip end)"
                                    Value="0" Minimum="0" SmallChange="1" SpinButtonPlacementMode="Compact" />
-                        <CheckBox x:Name="InkPlanarTrackingCheckBox" Content="Planar surface (corner pin in perspective)"
-                                  Click="InkPlanarTracking_Click" />
-                        <TextBlock Text="Planar mode follows a flat textured surface, such as a sign, screen or wall, as it turns in perspective, and pins the artwork's box corners to it. Use rigid mode for objects that only move, rotate or scale. The mode is fixed once tracked; clear tracking to change it."
+                        <ComboBox x:Name="InkTrackingModeSelector" Header="Tracking mode" SelectedIndex="0"
+                                  SelectionChanged="InkTrackingMode_Changed" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Rigid (move, rotate, scale)" />
+                            <ComboBoxItem Content="Planar surface (corner pin in perspective)" />
+                            <ComboBoxItem Content="Deformable mesh (bending surface)" />
+                        </ComboBox>
+                        <TextBlock Text="Rigid mode follows objects that only move, rotate or scale. Planar mode follows a flat textured surface, such as a sign, screen or wall, as it turns in perspective, and pins the artwork's box corners to it. Deformable mode follows a smoothly bending textured surface, such as fabric, paper or a flag, with a 4 × 4 mesh over the box; it is not body or limb tracking and loses the surface at folds, occlusion or plain areas. The mode is fixed once tracked; clear tracking to change it."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button x:Name="InkTrackObjectButton" Content="Track / resume from playhead" Click="TrackInkObject_Click" />
