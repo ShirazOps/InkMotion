@@ -42,6 +42,8 @@ public static class InkObjectTracker
         track.Clips = [clip];
         track.IsVisible = true;
         project.VideoMulticamGroups.Clear();
+        // The analysed picture must not include node-graph colour changes or drawing.
+        project.CompositeGraph = null;
         foreach (InkLayerProject layer in project.InkLayers) layer.IsVisible = false;
         foreach (EditorFrame frame in project.Frames) frame.TextOverlays.Clear();
         using var source = new TimelineVideoFrameSource(VideoProxy.GetRenderPath(clip));

@@ -12,7 +12,7 @@ namespace InkMotion;
 /// Drawing shared by the live preview and the exporter, so titles, images and ink render identically at any
 /// output size. Positions are normalised to the frame; sizes are scaled from their authored reference.
 /// </summary>
-public static class TimelineCompositor
+public static partial class TimelineCompositor
 {
     /// <summary>Title font sizes are authored against a 1080-pixel-high frame.</summary>
     public const double TitleReferenceHeight = 1080;
@@ -26,8 +26,9 @@ public static class TimelineCompositor
     public static Color WithOpacity(Color colour, double opacity) =>
         Color.FromArgb((byte)(colour.A * Math.Clamp(opacity, 0, 1)), colour.R, colour.G, colour.B);
 
-    /// <summary>True when any visible layer needs offscreen rendering (blend modes, layer effects, clipping masks or occlusion mattes).</summary>
+    /// <summary>True when an enabled node graph or any visible layer needs offscreen rendering (blend modes, layer effects, clipping masks or occlusion mattes).</summary>
     public static bool RequiresLayerCompositing(EditorProject project) =>
+        project.CompositeGraph is { Enabled: true } ||
         project.InkLayers.Any(layer => layer.IsVisible && (layer.ClipToLayerBelow || layer.IsHoldout || RequiresOffscreen(layer)));
 
     private static bool RequiresOffscreen(InkLayerProject layer) =>
@@ -528,6 +529,12 @@ public static class TimelineCompositor
 
         Matrix3x2 drawingTransform = contentTransform ?? Matrix3x2.Identity;
         double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
+        if (project.CompositeGraph is { Enabled: true } graph)
+        {
+            return CompositeGraphFrame(device, background, targetWidth, targetHeight, project, graph, frameIndex,
+                width, height, sizeScale, seconds, drawingTransform);
+        }
+
         CanvasRenderTarget current = CreateTarget(device, targetWidth, targetHeight);
         CanvasRenderTarget? clipBase = null;
         try

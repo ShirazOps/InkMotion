@@ -994,6 +994,7 @@ public sealed partial class MainWindow
             FrameRate = _frameRate,
             VideoTracks = _videoTracks,
             InkLayers = _inkLayers,
+            CompositeGraph = _compositeGraph,
             Frames = _frames,
         };
         int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
