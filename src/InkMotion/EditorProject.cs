@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 75;
+    public const int CurrentVersion = 76;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -53,6 +53,11 @@ public sealed class InkLayerProject
     public double PixelSize { get; set; }
     /// <summary>Shows this layer only where the nearest unclipped layer beneath it has drawn pixels.</summary>
     public bool ClipToLayerBelow { get; set; }
+    /// <summary>
+    /// Occlusion matte: this layer is never shown. Where it is painted, every ink layer beneath it is removed and the
+    /// original picture underneath shows through, so lower artwork passes behind a foreground object.
+    /// </summary>
+    public bool IsHoldout { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 
@@ -656,6 +661,10 @@ public static class EditorProjectSerialiser
             project.Version = EditorProject.CurrentVersion;
         }
         if (project.Version == 74)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 75)
         {
             project.Version = EditorProject.CurrentVersion;
         }

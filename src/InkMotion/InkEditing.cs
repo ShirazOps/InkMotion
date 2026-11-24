@@ -230,6 +230,10 @@ public static class InkEditing
         {
             throw new InvalidOperationException("Release clipping masks on both layers and on any layer clipped to the upper layer before merging.");
         }
+        if (source.IsHoldout || target.IsHoldout)
+        {
+            throw new InvalidOperationException("Occlusion matte layers cannot be merged; turn off Occlusion matte first.");
+        }
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
             !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity ||
@@ -322,6 +326,7 @@ public static class InkEditing
         GlowColour = layer.GlowColour,
         PixelSize = layer.PixelSize,
         ClipToLayerBelow = layer.ClipToLayerBelow,
+        IsHoldout = layer.IsHoldout,
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 
