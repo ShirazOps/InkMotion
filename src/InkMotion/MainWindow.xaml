@@ -1325,8 +1325,11 @@
                         <ComboBox x:Name="InkBrushTextureSelector" Header="Brush texture for new strokes" SelectedIndex="0">
                             <ComboBoxItem Content="Round (solid)" />
                             <ComboBoxItem Content="Grain (procedural)" />
+                            <ComboBoxItem Content="Calligraphy (angled nib)" />
+                            <ComboBoxItem Content="Airbrush (soft radial falloff)" />
+                            <ComboBoxItem Content="Dry bristle (separate strands)" />
                         </ComboBox>
-                        <TextBlock Text="Grain pencil/chalk use deterministic pressure-sensitive stippling, not imported brush images. Texture is saved with strokes and shared by preview, colour sampling and export. Existing strokes keep their texture; editing a path can regenerate its grain pattern." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Brush behaviour is saved per stroke: solid round, procedural grain, a fixed 45-degree calligraphy nib, soft radial airbrush stamps or dry-bristle strands. All respond to pressure and share preview, colour sampling and export rendering. Airbrush density builds with stroke travel, not time held still. Existing strokes keep their brush; editing a grain path can regenerate its stippling." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <CheckBox x:Name="InkSolidFillCheckBox" Content="Solid fill for new rectangles / ellipses" />
                         <Button Content="Bucket fill on canvas..." Click="SelectInkBucketFill_Click" />
                         <NumberBox x:Name="InkFillXBox" Header="Bucket X (% of canvas)" Minimum="0" Maximum="100" Value="50" SpinButtonPlacementMode="Compact" />

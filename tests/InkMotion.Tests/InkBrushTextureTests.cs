@@ -38,19 +38,48 @@ public sealed class InkBrushTextureTests
     }
 
     [Fact]
-    public void TextureSurvivesCloningSaveLoadStabilisationAndPartialErasing()
+    public void NewBrushBehavioursRenderDistinctDeterministicPressureSensitiveMarks()
     {
-        List<InkPoint> stroke = Stroke(InkBrushTexture.Grain);
+        using var device = new CanvasDevice(true);
+        InkBrushTexture[] textures =
+            [InkBrushTexture.Round, InkBrushTexture.Grain, InkBrushTexture.Calligraphy,
+             InkBrushTexture.Airbrush, InkBrushTexture.DryBristle];
+        byte[][] rendered = textures.Select(texture => Render(device, Stroke(texture))).ToArray();
+        for (int index = 0; index < textures.Length; index++)
+        {
+            byte[] pixels = rendered[index];
+            Assert.Equal(pixels, Render(device, Stroke(textures[index])));
+            Assert.Contains(pixels.Where((_, offset) => offset % 4 == 3), value => value > 0);
+            Assert.All(rendered.Take(index), earlier => Assert.False(pixels.SequenceEqual(earlier)));
+            List<InkPoint> lightStroke = Stroke(textures[index]);
+            List<InkPoint> heavyStroke = Stroke(textures[index]);
+            lightStroke.ForEach(point => point.Pressure = 0.1);
+            heavyStroke.ForEach(point => point.Pressure = 1);
+            Assert.True(Render(device, heavyStroke).Where((_, offset) => offset % 4 == 3).Sum(value => (long)value) >
+                Render(device, lightStroke).Where((_, offset) => offset % 4 == 3).Sum(value => (long)value));
+        }
+    }
+
+    [Theory]
+    [InlineData(InkBrushTexture.Grain)]
+    [InlineData(InkBrushTexture.Calligraphy)]
+    [InlineData(InkBrushTexture.Airbrush)]
+    [InlineData(InkBrushTexture.DryBristle)]
+    public void TextureSurvivesCloningSaveLoadStabilisationAndPartialErasing(InkBrushTexture texture)
+    {
+        List<InkPoint> stroke = Stroke(texture);
         var project = new EditorProject { Frames = [new() { Strokes = [stroke] }] };
         List<InkPoint> cloned = InkEditing.Clone(project.Frames[0]).Strokes[0];
-        Assert.All(cloned, point => Assert.Equal(InkBrushTexture.Grain, point.BrushTexture));
+        Assert.All(cloned, point => Assert.Equal(texture, point.BrushTexture));
         EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
-        Assert.All(restored.Frames[0].Strokes[0], point => Assert.Equal(InkBrushTexture.Grain, point.BrushTexture));
+        Assert.All(restored.Frames[0].Strokes[0], point => Assert.Equal(texture, point.BrushTexture));
+        using var device = new CanvasDevice(true);
+        Assert.Equal(Render(device, stroke), Render(device, restored.Frames[0].Strokes[0]));
         InkPoint stabilised = InkStrokeEditing.Stabilise(stroke[1], stroke[0], 0.5);
-        Assert.Equal(InkBrushTexture.Grain, stabilised.BrushTexture);
+        Assert.Equal(texture, stabilised.BrushTexture);
         Assert.True(InkStrokeEditing.Erase(project.Frames[0].Strokes, 64, 64, 128, 128, 5, false));
         Assert.All(project.Frames[0].Strokes.SelectMany(piece => piece),
-            point => Assert.Equal(InkBrushTexture.Grain, point.BrushTexture));
+            point => Assert.Equal(texture, point.BrushTexture));
         Assert.Equal(2, project.Frames[0].Strokes.Count);
     }
 
@@ -86,13 +115,17 @@ public sealed class InkBrushTextureTests
         Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Serialise(project));
     }
 
-    [Fact]
-    public void TexturedColourSamplingMatchesTheRenderedFrame()
+    [Theory]
+    [InlineData(InkBrushTexture.Grain)]
+    [InlineData(InkBrushTexture.Calligraphy)]
+    [InlineData(InkBrushTexture.Airbrush)]
+    [InlineData(InkBrushTexture.DryBristle)]
+    public void TexturedColourSamplingMatchesTheRenderedFrame(InkBrushTexture texture)
     {
         using var device = new CanvasDevice(true);
         var project = new EditorProject
         {
-            Frames = [new() { Strokes = [Stroke(InkBrushTexture.Grain)] }],
+            Frames = [new() { Strokes = [Stroke(texture)] }],
         };
         byte[] rendered = Render(device, project.Frames[0].Strokes[0]);
         project.Frames[0].Strokes[0].ForEach(point => point.BrushColour = 0xFFFFFFFF);

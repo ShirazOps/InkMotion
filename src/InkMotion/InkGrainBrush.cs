@@ -9,36 +9,8 @@ internal static class InkGrainBrush
     public static void Draw(CanvasDrawingSession session, IReadOnlyList<InkPoint> stroke,
     Color colour, float width, float height, float widthScale)
     {
-    if (!float.IsFinite(widthScale) || widthScale <= 0 ||
-        !float.IsFinite(width) || width <= 0 || !float.IsFinite(height) || height <= 0)
-    {
-        throw new ArgumentOutOfRangeException(nameof(widthScale), "Textured ink requires positive finite canvas dimensions and brush scale.");
-    }
-
-        double spacing = Math.Max(0.25, stroke[0].BrushWidth * 0.2) * widthScale;
-        double distanceToNext = spacing;
         uint stamp = 0;
-        DrawStamp(stroke[0]);
-        for (int index = 1; index < stroke.Count; index++)
-        {
-            InkPoint a = stroke[index - 1];
-            InkPoint b = stroke[index];
-            double dx = (b.X - a.X) * width;
-            double dy = (b.Y - a.Y) * height;
-            double length = Math.Sqrt(dx * dx + dy * dy);
-            if (length <= 1e-10)
-            {
-                continue;
-            }
-
-            while (distanceToNext <= length)
-            {
-                DrawStamp(InkStrokeEditing.Interpolate(a, b, distanceToNext / length));
-                distanceToNext += spacing;
-            }
-
-            distanceToNext -= length;
-        }
+        InkBrushStamping.Draw(stroke, width, height, widthScale, 0.2, DrawStamp);
 
         void DrawStamp(InkPoint point)
         {

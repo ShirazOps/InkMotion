@@ -135,8 +135,7 @@ public sealed class InkEditingTests
     [Fact]
     public void BrushPresets_StayWithinToolsRangesAndPreserveHueWhileReplacingAlpha()
     {
-        Assert.Equal(6, InkBrushPresets.All.Count);
-        Assert.Equal(6, InkBrushPresets.All.Select(preset => preset.Name).Distinct().Count());
+        Assert.Equal(InkBrushPresets.All.Count, InkBrushPresets.All.Select(preset => preset.Name).Distinct().Count());
         foreach (InkBrushPreset preset in InkBrushPresets.All)
         {
             Assert.InRange(preset.Width, 1, 12);

@@ -17,5 +17,8 @@ public static class InkBrushPresets
         new InkBrushPreset("Translucent highlighter", 12, 0.3, 0.1),
         new InkBrushPreset("Grain pencil", 4, 0.8, 0.15, InkBrushTexture.Grain),
         new InkBrushPreset("Grain chalk", 12, 0.6, 0.1, InkBrushTexture.Grain),
+        new InkBrushPreset("Calligraphy nib", 10, 1, 0.2, InkBrushTexture.Calligraphy),
+        new InkBrushPreset("Soft airbrush", 12, 1, 0.1, InkBrushTexture.Airbrush),
+        new InkBrushPreset("Dry bristle", 12, 0.8, 0.1, InkBrushTexture.DryBristle),
     });
 }
