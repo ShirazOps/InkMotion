@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 68;
+    public const int CurrentVersion = 69;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -309,6 +309,9 @@ public enum InkBrushTexture
 {
     Round,
     Grain,
+    Calligraphy,
+    Airbrush,
+    DryBristle,
 }
 
 public sealed class InkPoint
@@ -615,6 +618,10 @@ public static class EditorProjectSerialiser
             project.Version = EditorProject.CurrentVersion;
         }
         if (project.Version == 67)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 68)
         {
             project.Version = EditorProject.CurrentVersion;
         }

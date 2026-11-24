@@ -333,6 +333,13 @@ public static class TimelineCompositor
             return;
         }
 
+        if (stroke.Count > 0 && stroke[0].BrushTexture is
+            InkBrushTexture.Calligraphy or InkBrushTexture.Airbrush or InkBrushTexture.DryBristle)
+        {
+            InkProceduralBrush.Draw(session, stroke, colour, width, height, widthScale);
+            return;
+        }
+
         for (int i = 0; i < stroke.Count; i++)
         {
             InkPoint point = stroke[i];
