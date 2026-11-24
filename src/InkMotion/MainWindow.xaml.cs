@@ -1433,6 +1433,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
+            SoundEffectLibrary.TryRestore(project.AudioPath);
             if (!File.Exists(project.AudioPath))
             {
                 runtime.LoadError = "source audio is missing";
