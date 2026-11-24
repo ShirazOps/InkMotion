@@ -14,6 +14,8 @@ The red playhead tracks playback across the shared time ruler in every workspace
 
 Open and save `.inkmotion` projects with **Ctrl+O** and **Ctrl+S**. Media and LUT files remain externally linked, so keep them available. The project media bin identifies missing sources and can search folders for unique filename matches before relinking.
 
+Set **Video Editor > Project settings > Canvas width/height > Apply canvas dimensions** to save a custom project canvas and aspect ratio (1–8,192 whole pixels per side, up to 33.5 megapixels). The viewer fits that canvas, pointer positions remain relative to it, and Ink rulers use project pixels. Resizing retains normalised artwork positions rather than cropping or resampling existing drawings. Export resolution remains independent: a fixed canvas fits inside the output, with black unused space in video and transparent unused space in PNG/GIF drawing exports. Existing projects and new projects start with **automatic canvas (legacy)** framing; this setting can also restore the previous viewport/output behaviour. Canvas changes support undo/redo.
+
 ## Features
 
 ### Video and titles

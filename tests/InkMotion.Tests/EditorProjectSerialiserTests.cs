@@ -5,6 +5,61 @@ namespace InkMotion.Tests;
 public sealed class EditorProjectSerialiserTests
 {
     [Fact]
+    public void CustomCanvas_RoundTripsWithoutChangingArtwork()
+    {
+        var project = new EditorProject
+        {
+            CanvasSize = new(1080, 1920),
+            Frames = [new() { Strokes = [[new() { X = 0.2, Y = 0.8 }]] }],
+        };
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.Equal(project.CanvasSize, restored.CanvasSize);
+        Assert.Equal(0.2, restored.Frames[0].Strokes[0][0].X);
+        Assert.Equal(0.8, restored.Frames[0].Strokes[0][0].Y);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(65)]
+    [InlineData(66)]
+    [InlineData(67)]
+    public void OlderProjects_PreserveAutomaticCanvasFraming(int version)
+    {
+        EditorProject restored = EditorProjectSerialiser.Deserialise($$"""{"Version":{{version}}}""");
+        Assert.Equal(EditorProject.CurrentVersion, restored.Version);
+        Assert.Null(restored.CanvasSize);
+    }
+
+    [Theory]
+    [InlineData(0, 1080)]
+    [InlineData(1080, -1)]
+    [InlineData(8193, 1080)]
+    [InlineData(8192, 8192)]
+    public void InvalidCanvas_IsRejectedOnSaveAndOpen(int width, int height)
+    {
+        Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Serialise(
+            new EditorProject { CanvasSize = new(width, height) }));
+        Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Deserialise(
+            $$$"""{"Version":68,"CanvasSize":{"Width":{{{width}}},"Height":{{{height}}}}}"""));
+    }
+
+    [Theory]
+    [InlineData(1080, 1920, 1000, 500, 359.375, 0, 281.25, 500)]
+    [InlineData(1000, 1000, 800, 600, 100, 0, 600, 600)]
+    [InlineData(1920, 1080, 600, 600, 0, 131.25, 600, 337.5)]
+    public void FixedCanvas_FitsViewerAndOutputWithoutChangingAspectRatio(
+        int width, int height, double availableWidth, double availableHeight,
+        double x, double y, double fittedWidth, double fittedHeight)
+    {
+        var size = new ProjectCanvasSize(width, height);
+        Windows.Foundation.Rect fit = size.Fit(availableWidth, availableHeight);
+        Assert.Equal(x, fit.X, 8);
+        Assert.Equal(y, fit.Y, 8);
+        Assert.Equal(fittedWidth, fit.Width, 8);
+        Assert.Equal(fittedHeight, fit.Height, 8);
+    }
+
+    [Fact]
     public void SupportedVideoExtensions_IncludeWmvAviAndAv1Containers()
     {
         Assert.Contains(".wmv", VideoFileTypes.SupportedExtensions);

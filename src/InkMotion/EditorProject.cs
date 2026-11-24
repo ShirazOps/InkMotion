@@ -6,9 +6,11 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 67;
+    public const int CurrentVersion = 68;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
+    /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
+    public ProjectCanvasSize? CanvasSize { get; set; }
     /// <summary>Single source video used by project versions 1-8; migrated to <see cref="VideoTracks"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VideoPath { get; set; }
@@ -612,6 +614,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 67)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1045,6 +1051,8 @@ internal static class EditorProjectValidation
         {
             throw new InvalidDataException("The project frame rate must be 12, 24, 30, or 60 fps.");
         }
+
+        project.CanvasSize?.Validate();
 
         if (project.Markers is null)
         {

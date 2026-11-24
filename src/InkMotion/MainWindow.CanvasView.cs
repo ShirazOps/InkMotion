@@ -12,6 +12,81 @@ public sealed partial class MainWindow
     private int _inkGridDivisions = 8;
     private List<InkPoint>? _activeSymmetricStroke;
 
+    private void ApplyProjectCanvas_Click(object sender, RoutedEventArgs e)
+    {
+        double width = ProjectCanvasWidthBox.Value;
+        double height = ProjectCanvasHeightBox.Value;
+        if (!double.IsFinite(width) || !double.IsFinite(height) ||
+            width != Math.Truncate(width) || height != Math.Truncate(height) ||
+            width is < 1 or > 8192 || height is < 1 or > 8192)
+        {
+            StatusText.Text = "Use whole canvas dimensions from 1 to 8,192 pixels.";
+            return;
+        }
+
+        var size = new ProjectCanvasSize((int)width, (int)height);
+        try { size.Validate(); }
+        catch (InvalidDataException error) { StatusText.Text = error.Message; return; }
+        SetProjectCanvas(size);
+    }
+
+    private void AutomaticProjectCanvas_Click(object sender, RoutedEventArgs e) => SetProjectCanvas(null);
+
+    private void SetProjectCanvas(ProjectCanvasSize? size)
+    {
+        if (_projectCanvasSize == size)
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        _projectCanvasSize = size;
+        MarkEditChanged();
+        FinishActiveEdit();
+        UpdateProjectCanvasControls();
+        RenderCurrentInk();
+        StatusText.Text = "Project canvas updated. Normalised artwork positions and export presets are unchanged.";
+    }
+
+    private void UpdateProjectCanvasControls()
+    {
+        ProjectCanvasWidthBox.Value = _projectCanvasSize?.Width ?? 1920;
+        ProjectCanvasHeightBox.Value = _projectCanvasSize?.Height ?? 1080;
+        ProjectCanvasReadout.Text = _projectCanvasSize is { } size
+            ? $"Saved canvas: {size.Width:N0} x {size.Height:N0} pixels. Export fits this aspect ratio; unused output space is black in video and transparent in drawing exports."
+            : "Automatic canvas: legacy viewer and output framing. Apply dimensions to save a fixed project aspect ratio, independently of export resolution.";
+        UpdateProjectCanvasLayout();
+        UpdateInkRulerReadout();
+    }
+
+    private void UpdateProjectCanvasLayout()
+    {
+        if (_projectCanvasSize is { } size && PreviewViewport.ActualWidth > 24 && PreviewViewport.ActualHeight > 24)
+        {
+            Rect fit = size.Fit(PreviewViewport.ActualWidth - 24, PreviewViewport.ActualHeight - 24);
+            PreviewStage.Width = fit.Width + 24;
+            PreviewStage.Height = fit.Height + 24;
+            PreviewStage.HorizontalAlignment = HorizontalAlignment.Center;
+            PreviewStage.VerticalAlignment = VerticalAlignment.Center;
+        }
+        else
+        {
+            PreviewStage.Width = double.NaN;
+            PreviewStage.Height = double.NaN;
+            PreviewStage.HorizontalAlignment = HorizontalAlignment.Stretch;
+            PreviewStage.VerticalAlignment = VerticalAlignment.Stretch;
+        }
+
+        UpdateProjectCanvasClip();
+    }
+
+    private void ProjectCanvasContent_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateProjectCanvasClip();
+
+    private void UpdateProjectCanvasClip() => ProjectCanvasContent.Clip = _projectCanvasSize is null ? null :
+        new RectangleGeometry { Rect = new Rect(0, 0, ProjectCanvasContent.ActualWidth, ProjectCanvasContent.ActualHeight) };
+
     private void InkGuides_Click(object sender, RoutedEventArgs e)
     {
         CompositionSurface.Invalidate();
@@ -61,17 +136,34 @@ public sealed partial class MainWindow
 
     private void UpdateInkRulerReadout()
     {
-        if (InkRulerReadout is not null && TryGetExportProfile(24, out VideoExportProfile profile))
+        if (InkRulerReadout is not null && TryGetInkRulerDimensions(out int width, out int height))
         {
-            InkRulerReadout.Text = $"Ruler calibration: {profile.Width:N0} x {profile.Height:N0} output pixels. Change resolution on Export.";
+            InkRulerReadout.Text = _projectCanvasSize is not null
+                ? $"Ruler calibration: {width:N0} x {height:N0} project pixels."
+                : $"Ruler calibration: {width:N0} x {height:N0} output pixels. Change resolution on Export.";
         }
+    }
+
+    private bool TryGetInkRulerDimensions(out int width, out int height)
+    {
+        if (_projectCanvasSize is { } size)
+        {
+            width = size.Width;
+            height = size.Height;
+            return true;
+        }
+
+        bool valid = TryGetExportProfile(24, out VideoExportProfile profile);
+        width = valid ? profile.Width : 0;
+        height = valid ? profile.Height : 0;
+        return valid;
     }
 
     private void DrawInkRulers(CanvasDrawingSession session, float width, float height)
     {
         if (_workspace != "Ink" || _isPlaying || IsOriginalPreview ||
             InkRulersToggle?.IsChecked != true || width <= 0 || height <= 0 ||
-            !TryGetExportProfile(24, out VideoExportProfile profile))
+            !TryGetInkRulerDimensions(out int pixelWidth, out int pixelHeight))
         {
             return;
         }
@@ -83,7 +175,7 @@ public sealed partial class MainWindow
         Windows.UI.Color colour = ToColour(0xFFDDE5EC);
         session.FillRectangle(0, 0, width, band, ToColour(0xDD15202B));
         session.FillRectangle(0, 0, band * 2, height, ToColour(0xDD15202B));
-        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(width, profile.Width, zoom))
+        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(width, pixelWidth, zoom))
         {
             float x = (float)tick.Position * width;
             float length = (tick.IsMajor ? 7 : 3) * unit;
@@ -95,7 +187,7 @@ public sealed partial class MainWindow
             }
         }
 
-        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(height, profile.Height, zoom))
+        foreach (InkRulerTick tick in InkGuideLayout.CreateRuler(height, pixelHeight, zoom))
         {
             float y = (float)tick.Position * height;
             float length = (tick.IsMajor ? 7 : 3) * unit;
@@ -111,6 +203,7 @@ public sealed partial class MainWindow
     private void PreviewViewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         PreviewViewport.Clip = new RectangleGeometry { Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
+        UpdateProjectCanvasLayout();
         UpdateInkCanvasView();
     }
 

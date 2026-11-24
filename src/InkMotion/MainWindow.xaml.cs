@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window
     private int _playheadFramePosition;
     private int _selectedAudioTrackIndex = -1;
     private double _frameRate = FramesPerSecond;
+    private ProjectCanvasSize? _projectCanvasSize;
     private string _activeInkLayerId = BaseInkLayerId;
     private uint _brushColour = 0xFFFFA500;
     private double _brushWidth = 4;
@@ -85,6 +86,7 @@ public sealed partial class MainWindow : Window
         InitialiseEditorLayout();
         InitialiseFFmpegPreference();
         InitialiseQuickStartGuide();
+        UpdateProjectCanvasControls();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -2401,6 +2403,7 @@ public sealed partial class MainWindow : Window
         var snapshot = new EditorProject
         {
             FrameRate = _frameRate,
+            CanvasSize = _projectCanvasSize,
             VideoTracks = videoTracks,
             VideoMulticamGroups = _videoMulticamGroups.Select(VideoMulticamEditing.Clone).ToList(),
             Markers = _timelineMarkers.Select(TimelineMarkers.Clone).ToList(),
@@ -2448,6 +2451,8 @@ public sealed partial class MainWindow : Window
         _activeInkLayerId = project.ActiveInkLayerId;
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
+        _projectCanvasSize = project.CanvasSize;
+        UpdateProjectCanvasControls();
         RestoreVideoTracks(project.VideoTracks);
         _videoMulticamGroups.Clear();
         _videoMulticamGroups.AddRange(project.VideoMulticamGroups.Select(VideoMulticamEditing.Clone));

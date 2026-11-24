@@ -7,6 +7,53 @@ namespace InkMotion.Tests;
 
 public sealed class PngSequenceExportTests
 {
+    [Theory]
+    [InlineData(false, InkLayerBlendMode.Normal)]
+    [InlineData(true, InkLayerBlendMode.Normal)]
+    [InlineData(true, InkLayerBlendMode.Screen)]
+    public async Task Export_FixedCanvasPreservesAspectAndTransparentOutputPadding(
+        bool fixedCanvas, InkLayerBlendMode blendMode)
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion canvas {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        var project = new EditorProject
+        {
+            CanvasSize = fixedCanvas ? new(31, 31) : null,
+            InkLayers = [new() { BlendMode = blendMode }],
+            Frames = [new()
+            {
+                Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle,
+                    0, 0, 1, 1, 1, 0xFFFFFFFF, filled: true)],
+            }],
+        };
+        try
+        {
+            await PngSequenceExporter.ExportAsync(
+                project, new(VideoExportProfile.Create(96, 48, 24), 48), output, null, CancellationToken.None);
+            StorageFile frame = await StorageFile.GetFileFromPathAsync(Path.Combine(output, "frame_000001.png"));
+            using IRandomAccessStream stream = await frame.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+            Assert.Equal(96u, decoder.PixelWidth);
+            Assert.Equal(48u, decoder.PixelHeight);
+            byte[] pixels = (await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, new BitmapTransform(),
+                ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage)).DetachPixelData();
+            byte Alpha(int x, int y) => pixels[((y * 96) + x) * 4 + 3];
+            Assert.Equal(fixedCanvas ? 0 : 255, Alpha(12, 24));
+            Assert.Equal(255, Alpha(30, 24));
+            Assert.Equal(255, Alpha(65, 24));
+            Assert.Equal(fixedCanvas ? 0 : 255, Alpha(84, 24));
+        }
+        finally
+        {
+            foreach (string file in Directory.Exists(output) ? Directory.GetFiles(output) : [])
+                File.Delete(file);
+            if (Directory.Exists(output)) Directory.Delete(output);
+            Directory.Delete(root);
+        }
+    }
+
     [Fact]
     public async Task Export_DoesNotOverwriteAnExistingDestination()
     {

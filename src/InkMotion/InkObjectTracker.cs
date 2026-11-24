@@ -34,6 +34,8 @@ public static class InkObjectTracker
         // Analyse the selected clip's displayed picture, including its crop, transform and effects,
         // but never the drawing being attached or other video tracks.
         project.VideoTracks = [track];
+        // Analysis uses its own aspect-adjusted sampling frame, not a letterboxed export.
+        project.CanvasSize = null;
         track.Clips = [clip];
         track.IsVisible = true;
         project.VideoMulticamGroups.Clear();
