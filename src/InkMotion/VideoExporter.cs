@@ -359,7 +359,7 @@ public static class VideoExporter
         public async Task SaveInkFrameAsync(int frame, StorageFile outputFile)
         {
             double seconds = frame / _profile.FrameRate;
-            bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(_project);
+            bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(_project);
             using (CanvasDrawingSession session = _target.CreateDrawingSession())
             {
                 session.Clear(Microsoft.UI.Colors.Transparent);
@@ -391,7 +391,7 @@ public static class VideoExporter
             double seconds = frame / _profile.FrameRate;
             float width = _canvasWidth;
             float height = _canvasHeight;
-            bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(_project);
+            bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(_project);
             IReadOnlyList<TimelineClipLocation> layers = VideoTimelineEditing.GetVisibleLayers(
                 _project.VideoTracks,
                 seconds,

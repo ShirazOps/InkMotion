@@ -165,6 +165,7 @@ public sealed partial class MainWindow : Window
             .OfType<ComboBoxItem>()
             .FirstOrDefault(item => item.Tag?.ToString() == CurrentInkLayer.BlendMode.ToString());
         InkLayerBlendModeSelector.IsEnabled = CurrentInkLayer.IsVisible && !CurrentInkLayer.IsLocked;
+        UpdateInkLayerEffectControls();
         UpdateInkTrackingControls();
     }
 
