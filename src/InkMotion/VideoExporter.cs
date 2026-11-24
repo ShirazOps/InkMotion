@@ -353,7 +353,7 @@ public static class VideoExporter
             }
             double reference = request.InkReferenceHeight > 0 ? request.InkReferenceHeight : 720;
             _inkScale = (float)(_canvasHeight / reference);
-            _hasInk = ExportPlanning.HasInk(_project);
+            _hasInk = ExportPlanning.HasInk(_project) || _project.CompositeGraph is { Enabled: true };
         }
 
         public async Task SaveInkFrameAsync(int frame, StorageFile outputFile)

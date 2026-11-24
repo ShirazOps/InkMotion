@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 77;
+    public const int CurrentVersion = 78;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -24,6 +24,9 @@ public sealed class EditorProject
     public AudioChannelLayout AudioMixLayout { get; set; } = AudioChannelLayout.Stereo;
     public List<InkLayerProject> InkLayers { get; set; } = [new()];
     public string ActiveInkLayerId { get; set; } = "ink-1";
+    /// <summary>Optional node graph that replaces the layer stack while enabled; null in older projects.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InkCompositeGraph? CompositeGraph { get; set; }
     public int SelectedFrameIndex { get; set; }
     public List<EditorFrame> Frames { get; set; } = [new()];
 }
@@ -672,6 +675,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 77)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1206,6 +1213,11 @@ internal static class EditorProjectValidation
             !project.InkLayers.Any(layer => layer.Id == "ink-1"))
         {
             throw new InvalidDataException("Ink layers must have unique ids, names, valid opacity, and an active layer.");
+        }
+
+        if (InkCompositeGraphs.Validate(project.CompositeGraph) is string graphError)
+        {
+            throw new InvalidDataException(graphError);
         }
 
         if (project.Frames is null || project.Frames.Count == 0)

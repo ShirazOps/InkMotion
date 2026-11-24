@@ -145,6 +145,7 @@ public sealed partial class MainWindow : Window
         InkLayerSelector.ItemsSource = _inkLayers;
         InkLayerSelector.SelectedItem = _inkLayers.FirstOrDefault(layer => layer.Id == _activeInkLayerId);
         UpdateInkLayerControls();
+        _compositeGraphWindow?.Reload();
         _isRestoringProject = false;
     }
 
@@ -2408,6 +2409,7 @@ public sealed partial class MainWindow : Window
             AudioMixLayout = _audioMixLayout,
             InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
             ActiveInkLayerId = _activeInkLayerId,
+            CompositeGraph = _compositeGraph is null ? null : InkCompositeGraphs.Clone(_compositeGraph),
             SelectedFrameIndex = _selectedFrameIndex,
             Frames = _frames.Select(CloneFrame).ToList(),
         };
@@ -2443,6 +2445,7 @@ public sealed partial class MainWindow : Window
         _inkLayers.Clear();
         _inkLayers.AddRange(project.InkLayers.Select(CloneInkLayer));
         _activeInkLayerId = project.ActiveInkLayerId;
+        _compositeGraph = project.CompositeGraph is null ? null : InkCompositeGraphs.Clone(project.CompositeGraph);
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
         _projectCanvasSize = project.CanvasSize;
@@ -2456,6 +2459,7 @@ public sealed partial class MainWindow : Window
         RestoreAudioTrackModels(project.AudioTracks);
         UpdateAudioMixLayoutSelector();
         RefreshInkLayers();
+        RefreshCompositeGraphEditor();
         _isRestoringProject = false;
         _activePointerId = null;
         _activeStroke = null;
