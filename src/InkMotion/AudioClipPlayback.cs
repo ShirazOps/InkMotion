@@ -107,10 +107,11 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
     private readonly AudioEffectsSampleProvider _effects;
-    private readonly ChannelMixingSampleProvider _monitorMix;
-    private readonly AudioMeterSampleProvider _meter;
+    private ChannelMixingSampleProvider _monitorMix;
+    private AudioMeterSampleProvider _meter;
     private readonly AudioPreviewBus _previewBus;
-    private readonly AudioPreviewInput _previewInput;
+    private AudioPreviewInput _previewInput;
+    private AudioPreviewSubmix? _submix;
     private bool _disposed;
     private bool _soloSuppressed;
     private AudioClipGainSettings _gainSettings;
@@ -122,7 +123,8 @@ public sealed class AudioClipPlayer : IDisposable
         AudioTrackProject project,
         AudioChannelLayout mixLayout,
         AudioPreviewBus previewBus,
-        Func<double, double>? gainEnvelope = null)
+        Func<double, double>? gainEnvelope = null,
+        AudioPreviewSubmix? submix = null)
     {
         ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
@@ -145,10 +147,10 @@ public sealed class AudioClipPlayer : IDisposable
             _stretch.SetParameters(_tempoRatio, _pitchSemitones);
             _effects = new AudioEffectsSampleProvider(_stretch, GetCompatibleEffects(project.Effects));
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
-            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateMonitorMatrix(ChannelCount, mixLayout,
-                project.Balance, project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
+            _submix = submix;
+            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
             _meter = new AudioMeterSampleProvider(_monitorMix);
-            _previewInput = _previewBus.AddInput(_meter);
+            _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         }
         catch
         {
@@ -198,9 +200,35 @@ public sealed class AudioClipPlayer : IDisposable
         }
         _effects.Update(GetCompatibleEffects(project.Effects));
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
-        _monitorMix.UpdateMatrix(CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
-            project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees));
+        _monitorMix.UpdateMatrix(CreateRouteMatrix(project, mixLayout));
     }
+
+    /// <summary>
+    /// Feeds this player to <paramref name="submix"/>, or straight to the stereo master when null. Unrouted players are folded
+    /// to stereo here; routed players stay in the submix layout so bus effects see the same channels as the export mix.
+    /// </summary>
+    public void SetRoute(AudioPreviewSubmix? submix, AudioTrackProject project, AudioChannelLayout mixLayout)
+    {
+        if (_disposed || ReferenceEquals(_submix, submix))
+        {
+            return;
+        }
+
+        bool enabled = _previewInput.IsEnabled;
+        _previewInput.Dispose();
+        _submix = submix;
+        _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
+        _meter = new AudioMeterSampleProvider(_monitorMix);
+        _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
+        _previewInput.SetEnabled(enabled);
+    }
+
+    private float[,] CreateRouteMatrix(AudioTrackProject project, AudioChannelLayout mixLayout) =>
+        _submix is AudioPreviewSubmix submix
+            ? AudioMixControls.CreateMatrix(ChannelCount, submix.Layout, project.Balance,
+                project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees)
+            : CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
+                project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees);
 
     public void UpdateGainEnvelope(Func<double, double>? gainEnvelope) =>
         _clip.UpdateGainEnvelope(gainEnvelope);

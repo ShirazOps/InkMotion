@@ -1036,6 +1036,25 @@
                         <ToggleSwitch x:Name="AudioSpatialPanToggle" Header="Spatial azimuth pan (mono sources)" OnContent="Enabled" OffContent="Disabled" Toggled="AudioSpatialPan_Toggled" IsEnabled="False" />
                         <NumberBox x:Name="AudioSpatialPanAzimuthBox" Header="Azimuth (-180° to +180°)" Minimum="-180" Maximum="180" Value="0" SmallChange="15" SpinButtonPlacementMode="Compact" ValueChanged="AudioSpatialPanAzimuth_ValueChanged" IsEnabled="False" />
                         <TextBlock Text="Positions a mono clip around the horizontal speaker layout with equal-power panning. Stereo balance is bypassed while spatial pan is enabled; height and LFE channels are not pan targets. Preview folds to stereo, while export uses the selected mix layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Border Style="{StaticResource DividerStyle}" />
+                        <TextBlock Text="SUBMIX BUSES" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Add bus" Click="AddAudioBus_Click" />
+                            <Button x:Name="RemoveAudioBusButton" Content="Remove bus" Click="RemoveAudioBus_Click" IsEnabled="False" />
+                        </StackPanel>
+                        <ComboBox x:Name="AudioBusSelector" Header="Bus" SelectionChanged="AudioBusSelector_SelectionChanged" HorizontalAlignment="Stretch" IsEnabled="False" />
+                        <UserControl x:Name="AudioBusControls" IsEnabled="False">
+                            <StackPanel Spacing="8">
+                                <TextBox x:Name="AudioBusNameBox" Header="Bus name" MaxLength="64" LostFocus="AudioBusName_LostFocus" />
+                                <NumberBox x:Name="AudioBusGainBox" Header="Bus gain (dB, -60 to +12)" Minimum="-60" Maximum="12" Value="0" SmallChange="0.5" LargeChange="6" SpinButtonPlacementMode="Compact" ValueChanged="AudioBusGain_ValueChanged" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <ToggleButton x:Name="AudioBusMuteButton" Content="Mute bus" Click="AudioBusMute_Click" />
+                                    <ToggleButton x:Name="AudioBusSoloButton" Content="Solo bus" Click="AudioBusSolo_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </UserControl>
+                        <ComboBox x:Name="AudioClipBusSelector" Header="Selected audio clip output" SelectionChanged="AudioClipBus_SelectionChanged" HorizontalAlignment="Stretch" IsEnabled="False" />
+                        <TextBlock Text="A bus sums the clips and video tracks routed to it in the project channel layout, runs its own effect chain and gain, then feeds the master. Route a video track's embedded audio from its track properties. Bus mute silences its sources; while any bus is soloed, only sources on soloed buses are heard. Edit bus effects by choosing the bus as the effects target below; spectral noise reduction is clip-only. Buses are single-level, with no sends or stem export. The MediaPlayer fallback used when a video source cannot be decoded for routed preview plays without bus effects or gain." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="LIVE PREVIEW MASTER" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ProgressBar x:Name="MasterAudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Live preview master peak level" />
                         <TextBlock x:Name="MasterAudioMeterText" Text="Preview master: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
@@ -1134,6 +1153,7 @@
                         </StackPanel>
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="NON-DESTRUCTIVE EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="AudioEffectsTargetSelector" Header="Effects target" SelectionChanged="AudioEffectsTarget_SelectionChanged" HorizontalAlignment="Stretch" IsEnabled="False" />
                         <UserControl x:Name="AudioEffectsControls" IsEnabled="False">
                             <StackPanel Spacing="8">
                                 <ToggleButton x:Name="AudioEffectsEnabled" Content="Enable audio processing chain" Click="AudioEffectsChanged" />

@@ -7,13 +7,16 @@ namespace InkMotion;
 /// <summary>
 /// Offline mix of every audible source in a project, rendered at the requested rate in the project's channel layout.
 /// Audio tracks keep their trim, gain, fades, tempo, pitch, speaker balance and mono spatial pan. Solo isolates marked audio
-/// tracks; otherwise video clips contribute their sound with clip volume and fades applied.
+/// tracks; otherwise video clips contribute their sound with clip volume and fades applied. Sources routed to a submix bus are
+/// summed in the project layout, processed by the bus effects and gain, and then mixed into the master.
 /// </summary>
 public sealed class ExportAudioMixer : IDisposable
 {
     private readonly List<IDisposable> _readers = [];
     private readonly List<string> _warnings = [];
     private readonly MixingSampleProvider _mixer;
+    private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<AudioBusProject> _buses;
     private readonly double _frameRate;
     private readonly bool _reportVideoReadFailures;
 
@@ -29,6 +32,7 @@ public sealed class ExportAudioMixer : IDisposable
         SampleRate = sampleRate;
         _frameRate = project.FrameRate;
         _reportVideoReadFailures = reportVideoReadFailures;
+        _buses = project.AudioBuses ?? [];
         Layout = project.AudioMixLayout;
         Channels = AudioChannelLayouts.Get(Layout).ChannelCount;
         _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, Channels))
@@ -41,16 +45,17 @@ public sealed class ExportAudioMixer : IDisposable
             bool hasSolo = project.AudioTracks.Any(track => track.Solo);
             foreach (AudioTrackProject track in project.AudioTracks)
             {
-                AddAudioTrack(track, suppressed: hasSolo && !track.Solo);
+                AddAudioTrack(track, suppressed: (hasSolo && !track.Solo) || !AudioBuses.IsAudible(_buses, track.BusId));
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
-                !hasSolo && track.Kind == TimelineTrackKind.Video && !track.IsMuted))
+                !hasSolo && track.Kind == TimelineTrackKind.Video && !track.IsMuted &&
+                AudioBuses.IsAudible(_buses, track.AudioBusId)))
             {
                 foreach (TimelineClipProject clip in track.Clips)
                 {
                     VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
-                    AddVideoClipAudio(clip, transition);
+                    AddVideoClipAudio(clip, transition, track.AudioBusId);
                 }
             }
         }
@@ -140,10 +145,10 @@ public sealed class ExportAudioMixer : IDisposable
 
         var effects = new AudioEffectsSampleProvider(stretch, effectsSettings);
         AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration,
-            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees);
+            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, track.BusId);
     }
 
-    private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition)
+    private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition, string? busId)
     {
         if (string.IsNullOrWhiteSpace(clip.SourcePath) || clip.Volume <= 0 ||
             (clip.IsReversed && !clip.ReverseEmbeddedAudio))
@@ -215,16 +220,16 @@ public sealed class ExportAudioMixer : IDisposable
                 Layout,
                 elapsed => VideoClipBalanceKeyframes.GetValue(
                     clip, (clipElapsedAtSourceStart + elapsed) * _frameRate));
-            AddSource(envelope, Math.Max(0, timelineStart), duration);
+            AddSource(envelope, Math.Max(0, timelineStart), duration, busId: busId);
         }
         else
         {
-            AddSource(envelope, Math.Max(0, timelineStart), duration, clip.EmbeddedAudioBalance);
+            AddSource(envelope, Math.Max(0, timelineStart), duration, clip.EmbeddedAudioBalance, busId: busId);
         }
     }
 
     private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,
-        double balance = 0, bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0)
+        double balance = 0, bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0, string? busId = null)
     {
         ISampleProvider mixed = new ChannelMixingSampleProvider(
             source,
@@ -236,13 +241,32 @@ public sealed class ExportAudioMixer : IDisposable
         }
 
         double start = Math.Max(0, startSeconds);
-        _mixer.AddMixerInput(new OffsetSampleProvider(mixed)
+        GetBusMixer(busId).AddMixerInput(new OffsetSampleProvider(mixed)
         {
             DelayBy = TimeSpan.FromSeconds(start),
             Take = TimeSpan.FromSeconds(durationSeconds),
         });
         SourceCount++;
         DurationSeconds = Math.Max(DurationSeconds, start + durationSeconds);
+    }
+
+    private MixingSampleProvider GetBusMixer(string? busId)
+    {
+        if (AudioBuses.Find(_buses, busId) is not AudioBusProject bus)
+        {
+            return _mixer;
+        }
+
+        if (!_busMixers.TryGetValue(bus.Id, out MixingSampleProvider? busMixer))
+        {
+            // ReadFully keeps the bus running after its sources end so delay and reverb tails decay naturally.
+            busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
+            var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
+            _mixer.AddMixerInput(new VolumeSampleProvider(effects) { Volume = AudioBuses.GetLinearGain(bus) });
+            _busMixers.Add(bus.Id, busMixer);
+        }
+
+        return busMixer;
     }
 
     private static bool IsReadFailure(Exception ex) =>

@@ -639,7 +639,7 @@ public sealed partial class MainWindow
             _previewMediaPlayer.Volume = VideoClipVolumeKeyframes.GetVolumeAtTime(
                 mainClip, seconds, _frameRate);
             _previewMediaPlayer.IsMuted = mainClip.IsReversed || outgoingRouted || incomingRouted ||
-                active.Track.IsMuted || HasSoloAudio;
+                active.Track.IsMuted || HasSoloAudio || !AudioBuses.IsAudible(_audioBuses, active.Track.AudioBusId);
             return;
         }
 
@@ -709,7 +709,8 @@ public sealed partial class MainWindow
             ? 1
             : VideoClipVolumeKeyframes.GetVolumeAtTime(clip, seconds, _frameRate);
         _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
-            (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio));
+            (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio ||
+                !AudioBuses.IsAudible(_audioBuses, active.Track.AudioBusId)));
         _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
         PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
         double tolerance = forceSeek || !_isPlaying
@@ -750,7 +751,7 @@ public sealed partial class MainWindow
             return false;
         }
 
-        AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio);
+        AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio, _audioBuses);
         Func<double, double>? gainEnvelope = null;
         VideoAudioEnvelopeKey? envelopeKey = null;
         if (!IsOriginalPreview)
@@ -828,6 +829,7 @@ public sealed partial class MainWindow
         }
 
         bool routeAvailable = _audioPreviewBus.IsPlaying;
+        player.SetRoute(GetPreviewSubmix(project.BusId), project, _audioMixLayout);
         if (state.Settings is null || !VideoAudioSettingsEqual(state.Settings, project))
         {
             player.Update(project, _audioMixLayout);
@@ -871,7 +873,8 @@ public sealed partial class MainWindow
         left.FadeInSeconds == right.FadeInSeconds &&
         left.FadeOutSeconds == right.FadeOutSeconds &&
         left.TempoPercent == right.TempoPercent &&
-        left.Muted == right.Muted;
+        left.Muted == right.Muted &&
+        string.Equals(left.BusId, right.BusId, StringComparison.Ordinal);
 
     private void ClearVideoAudioPlayer()
     {

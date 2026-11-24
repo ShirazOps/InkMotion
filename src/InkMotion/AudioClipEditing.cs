@@ -222,6 +222,7 @@ public static class AudioClipEditing
         Balance = track.Balance,
         SpatialPanEnabled = track.SpatialPanEnabled,
         SpatialPanAzimuthDegrees = track.SpatialPanAzimuthDegrees,
+        BusId = track.BusId,
         Effects = track.Effects with { },
         SourceInSeconds = track.SourceInSeconds,
         SourceOutSeconds = track.SourceOutSeconds,

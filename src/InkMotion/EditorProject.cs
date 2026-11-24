@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 79;
+    public const int CurrentVersion = 80;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -25,6 +25,8 @@ public sealed class EditorProject
     public bool AudioMuted { get; set; }
     public List<AudioTrackProject> AudioTracks { get; set; } = [];
     public AudioChannelLayout AudioMixLayout { get; set; } = AudioChannelLayout.Stereo;
+    /// <summary>Submix buses; tracks routed to none of them feed the master mix directly.</summary>
+    public List<AudioBusProject> AudioBuses { get; set; } = [];
     public List<InkLayerProject> InkLayers { get; set; } = [new()];
     public string ActiveInkLayerId { get; set; } = "ink-1";
     /// <summary>Optional node graph that replaces the layer stack while enabled; null in older projects.</summary>
@@ -78,6 +80,9 @@ public sealed class AudioTrackProject
     public double Balance { get; set; }
     public bool SpatialPanEnabled { get; set; }
     public double SpatialPanAzimuthDegrees { get; set; }
+    /// <summary>Submix bus id, or null to feed the master mix directly.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BusId { get; set; }
     public AudioEffectSettings Effects { get; set; } = new();
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
@@ -686,6 +691,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 79)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1160,6 +1169,11 @@ internal static class EditorProjectValidation
         if (!AudioChannelLayouts.IsDefined(project.AudioMixLayout))
         {
             throw new InvalidDataException("The audio mix layout is not supported.");
+        }
+
+        if (AudioBuses.Validate(project) is string busError)
+        {
+            throw new InvalidDataException(busError);
         }
 
         if (project.VideoPath is not null)
