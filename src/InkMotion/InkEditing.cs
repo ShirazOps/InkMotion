@@ -315,6 +315,7 @@ public static class InkEditing
         GlowRadius = layer.GlowRadius,
         GlowIntensity = layer.GlowIntensity,
         GlowColour = layer.GlowColour,
+        PixelSize = layer.PixelSize,
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 

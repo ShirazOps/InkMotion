@@ -576,6 +576,11 @@ public static class TimelineCompositor
                         DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
                     }
 
+                    if (InkLayerEffects.HasPixelation(layer))
+                    {
+                        InkLayerEffects.ApplyPixelation(foreground, layer, sizeScale);
+                    }
+
                     if (InkLayerEffects.HasGlow(layer))
                     {
                         CanvasRenderTarget glowing = InkLayerEffects.ApplyGlow(device, foreground, layer, sizeScale);

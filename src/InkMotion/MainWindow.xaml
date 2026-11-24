@@ -1294,6 +1294,11 @@
                         </StackPanel>
                         <Button Content="Use brush colour for glow" Click="InkLayerGlowColour_Click" />
                         <TextBlock Text="Glow adds a blurred halo in the chosen colour behind everything drawn on this layer, in preview and export. A radius of 0 turns it off; strokes stay editable." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Pixel size" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
+                            <Slider x:Name="InkLayerPixelSizeSlider" Width="150" Minimum="0" Maximum="64" Value="0" StepFrequency="1" Tag="pixel-size" ValueChanged="InkLayerEffect_Changed" LostFocus="InkLayerOpacity_LostFocus" AutomationProperties.Name="Layer pixel size" />
+                        </StackPanel>
+                        <TextBlock Text="Pixel effect renders this layer as square colour blocks (2-64 preview pixels, scaled with the output) before glow and blending. Below 2 turns it off; strokes stay editable." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkBrushPresetSelector" Header="Round brush preset" PlaceholderText="Apply a preset" HorizontalAlignment="Stretch" SelectionChanged="InkBrushPreset_SelectionChanged" />
                         <TextBlock Text="Presets set width, opacity and stabilisation, retaining hue. All use the same pressure-sensitive round brush; the highlighter has translucent overlapping dabs, not a separate blend mode." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

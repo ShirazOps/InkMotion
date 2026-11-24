@@ -104,4 +104,64 @@ public sealed class InkLayerEffectsTests
 
         Assert.Throws<InvalidOperationException>(() => InkEditing.MergeLayerDown(layers, [new()], "ink-2"));
     }
+
+    [Fact]
+    public void PixelateAveragesPremultipliedCellsAnchoredToOrigin()
+    {
+        // 3x2 image, cell 2: left cell has one opaque white pixel of four, right edge cell is 1x2.
+        byte[] bgra =
+        [
+            255, 255, 255, 255, 0, 0, 0, 0, 10, 20, 30, 40,
+            0, 0, 0, 0, 0, 0, 0, 0, 30, 40, 50, 60,
+        ];
+
+        InkLayerEffects.Pixelate(bgra, 3, 2, 2);
+
+        Assert.Equal(new byte[] { 64, 64, 64, 64 }, bgra[0..4]);
+        Assert.Equal(new byte[] { 64, 64, 64, 64 }, bgra[16..20]);
+        Assert.Equal(new byte[] { 20, 30, 40, 50 }, bgra[8..12]);
+        Assert.Equal(new byte[] { 20, 30, 40, 50 }, bgra[20..24]);
+    }
+
+    [Fact]
+    public void PixelLayerRendersHardEdgedBlocksInComposite()
+    {
+        var layer = new InkLayerProject { Id = "ink-1", PixelSize = 20 };
+        EditorProject project = CreateProject(layer, 0xFFFFFFFF);
+
+        uint first = Sample(project, 41, 41);
+        uint second = Sample(project, 58, 58);
+        uint outside = Sample(project, 50, 61);
+
+        Assert.True(TimelineCompositor.RequiresLayerCompositing(project));
+        Assert.Equal(first, second);
+        Assert.InRange((int)(first >> 24), 40, 220);
+        Assert.Equal(0u, outside >> 24);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(65)]
+    [InlineData(double.PositiveInfinity)]
+    public void RejectsInvalidPixelSizes(double size)
+    {
+        EditorProject project = CreateProject(new() { Id = "ink-1", PixelSize = size });
+
+        Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Serialise(project));
+    }
+
+    [Fact]
+    public void PixelSizePersistsAndDefaultsOffForOlderProjects()
+    {
+        EditorProject project = CreateProject(new() { Id = "ink-1", PixelSize = 16 });
+
+        InkLayerProject restored = Assert.Single(
+            EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project)).InkLayers);
+        EditorProject legacy = EditorProjectSerialiser.Deserialise(
+            """{"Version":72,"InkLayers":[{"Id":"ink-1","Name":"Ink 1","GlowRadius":4}],"Frames":[{"Number":1,"Strokes":[]}],"SelectedFrameIndex":0}""");
+
+        Assert.Equal(16, restored.PixelSize);
+        Assert.Equal(0, Assert.Single(legacy.InkLayers).PixelSize);
+        Assert.Equal(4, legacy.InkLayers[0].GlowRadius);
+    }
 }
