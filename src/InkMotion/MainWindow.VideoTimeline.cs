@@ -997,7 +997,7 @@ public sealed partial class MainWindow
             Frames = _frames,
         };
         int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
-        bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(project);
+        bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(project);
         using (CanvasDrawingSession session = _compositionBaseTarget.CreateDrawingSession())
         {
             session.Clear(Color.FromArgb(0, 0, 0, 0));

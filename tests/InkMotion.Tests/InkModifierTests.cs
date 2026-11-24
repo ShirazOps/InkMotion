@@ -37,10 +37,10 @@ public sealed class InkModifierTests
         using (CanvasDrawingSession session = target.CreateDrawingSession())
         {
             session.Clear(Microsoft.UI.Colors.Transparent);
-            if (!TimelineCompositor.HasNonNormalBlendModes(project))
+            if (!TimelineCompositor.RequiresLayerCompositing(project))
                 TimelineCompositor.DrawInkFrame(session, project, 0, 100, 80, 1);
         }
-        if (TimelineCompositor.HasNonNormalBlendModes(project))
+        if (TimelineCompositor.RequiresLayerCompositing(project))
         {
             using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
                 device, target, 100, 80, project, 0, 100, 80, 1);

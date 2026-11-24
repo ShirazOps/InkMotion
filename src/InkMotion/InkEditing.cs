@@ -228,9 +228,10 @@ public static class InkEditing
         if (source.IsLocked || target.IsLocked || !source.IsVisible || !target.IsVisible ||
             source.ObjectTracking is not null || target.ObjectTracking is not null ||
             !double.IsFinite(source.Opacity) || source.Opacity != target.Opacity ||
-            source.BlendMode != InkLayerBlendMode.Normal || target.BlendMode != InkLayerBlendMode.Normal)
+            source.BlendMode != InkLayerBlendMode.Normal || target.BlendMode != InkLayerBlendMode.Normal ||
+            InkLayerEffects.HasEffects(source) || InkLayerEffects.HasEffects(target))
         {
-            throw new InvalidOperationException("Unlock and show both adjacent layers, give them matching opacity, set both to Normal blend mode, and clear object tracking before merging.");
+            throw new InvalidOperationException("Unlock and show both adjacent layers, give them matching opacity, set both to Normal blend mode, turn off layer effects and clear object tracking before merging.");
         }
 
         var drawings = new List<List<List<InkPoint>>>(frames.Count);
@@ -311,6 +312,9 @@ public static class InkEditing
         IsLocked = layer.IsLocked,
         Opacity = layer.Opacity,
         BlendMode = layer.BlendMode,
+        GlowRadius = layer.GlowRadius,
+        GlowIntensity = layer.GlowIntensity,
+        GlowColour = layer.GlowColour,
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 

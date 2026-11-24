@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 71;
+    public const int CurrentVersion = 72;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -45,6 +45,10 @@ public sealed class InkLayerProject
     public bool IsLocked { get; set; }
     public double Opacity { get; set; } = 1;
     public InkLayerBlendMode BlendMode { get; set; }
+    /// <summary>Glow spread in preview pixels before output scaling; zero disables the glow.</summary>
+    public double GlowRadius { get; set; }
+    public double GlowIntensity { get; set; } = 1;
+    public uint GlowColour { get; set; } = 0xFFFFFFFF;
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 
@@ -635,6 +639,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 71)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1162,6 +1170,7 @@ internal static class EditorProjectValidation
                 !double.IsFinite(layer.Opacity) ||
                 layer.Opacity is < 0 or > 1 ||
                 !Enum.IsDefined(layer.BlendMode) ||
+                !InkLayerEffects.IsValid(layer) ||
                 (layer.ObjectTracking is not null && !InkObjectMotion.IsValid(layer.ObjectTracking))) ||
             project.InkLayers.Select(layer => layer.Id).Distinct(StringComparer.Ordinal).Count() != project.InkLayers.Count ||
             !project.InkLayers.Any(layer => layer.Id == project.ActiveInkLayerId) ||

@@ -17,7 +17,7 @@ public static class InkColourSampling
         (int pixelX, int pixelY) = GetPixel(x, y, width, height);
         using var pixel = new CanvasRenderTarget(device, 1, 1, 96,
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
-        bool hasBlendModes = TimelineCompositor.HasNonNormalBlendModes(project);
+        bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(project);
         using (CanvasDrawingSession session = pixel.CreateDrawingSession())
         {
             session.Clear(TimelineCompositor.ToColour(background));

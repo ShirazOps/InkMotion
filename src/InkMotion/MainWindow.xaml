@@ -1283,6 +1283,17 @@
                             <ComboBoxItem Content="Overlay" Tag="Overlay" />
                         </ComboBox>
                         <TextBlock Text="Blend modes composite this layer with the image below it, including lower ink layers and timeline video. Normal preserves standard alpha blending." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="LAYER EFFECTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Glow radius" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
+                            <Slider x:Name="InkLayerGlowRadiusSlider" Width="150" Minimum="0" Maximum="120" Value="0" StepFrequency="1" Tag="glow-radius" ValueChanged="InkLayerEffect_Changed" LostFocus="InkLayerOpacity_LostFocus" AutomationProperties.Name="Layer glow radius" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="Glow strength" VerticalAlignment="Center" Style="{StaticResource LabelTextStyle}" />
+                            <Slider x:Name="InkLayerGlowIntensitySlider" Width="150" Minimum="0" Maximum="3" Value="1" StepFrequency="0.1" Tag="glow-intensity" ValueChanged="InkLayerEffect_Changed" LostFocus="InkLayerOpacity_LostFocus" AutomationProperties.Name="Layer glow strength" />
+                        </StackPanel>
+                        <Button Content="Use brush colour for glow" Click="InkLayerGlowColour_Click" />
+                        <TextBlock Text="Glow adds a blurred halo in the chosen colour behind everything drawn on this layer, in preview and export. A radius of 0 turns it off; strokes stay editable." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="BRUSH" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="InkBrushPresetSelector" Header="Round brush preset" PlaceholderText="Apply a preset" HorizontalAlignment="Stretch" SelectionChanged="InkBrushPreset_SelectionChanged" />
                         <TextBlock Text="Presets set width, opacity and stabilisation, retaining hue. All use the same pressure-sensitive round brush; the highlighter has translucent overlapping dabs, not a separate blend mode." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

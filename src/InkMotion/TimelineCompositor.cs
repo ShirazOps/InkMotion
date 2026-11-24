@@ -26,8 +26,12 @@ public static class TimelineCompositor
     public static Color WithOpacity(Color colour, double opacity) =>
         Color.FromArgb((byte)(colour.A * Math.Clamp(opacity, 0, 1)), colour.R, colour.G, colour.B);
 
-    public static bool HasNonNormalBlendModes(EditorProject project) =>
-        project.InkLayers.Any(layer => layer.IsVisible && layer.BlendMode != InkLayerBlendMode.Normal);
+    /// <summary>True when any visible layer needs offscreen rendering (blend modes or layer effects).</summary>
+    public static bool RequiresLayerCompositing(EditorProject project) =>
+        project.InkLayers.Any(layer => layer.IsVisible && RequiresOffscreen(layer));
+
+    private static bool RequiresOffscreen(InkLayerProject layer) =>
+        layer.BlendMode != InkLayerBlendMode.Normal || InkLayerEffects.HasEffects(layer);
 
     public static double GetInkWidth(InkPoint point) =>
         point.BrushWidth * (0.25 + (1.5 * point.Pressure));
@@ -477,9 +481,9 @@ public static class TimelineCompositor
         float sizeScale,
         double? timelineSeconds = null)
     {
-        if (project.InkLayers.Any(layer => layer.IsVisible && layer.BlendMode != InkLayerBlendMode.Normal))
+        if (RequiresLayerCompositing(project))
         {
-            throw new InvalidOperationException("Blend-mode layers require a background image; use CompositeInkFrame.");
+            throw new InvalidOperationException("Blend-mode and effect layers require a background image; use CompositeInkFrame.");
         }
 
         double seconds = timelineSeconds ?? InkTimeline.GetStartFramePosition(project.Frames, frameIndex) / project.FrameRate;
@@ -554,7 +558,7 @@ public static class TimelineCompositor
                     continue;
                 }
 
-                if (layer.BlendMode == InkLayerBlendMode.Normal)
+                if (!RequiresOffscreen(layer))
                 {
                     using CanvasDrawingSession session = current.CreateDrawingSession();
                     session.Transform = drawingTransform;
@@ -562,35 +566,60 @@ public static class TimelineCompositor
                     continue;
                 }
 
-                using var foreground = CreateTarget(device, targetWidth, targetHeight);
-                using (CanvasDrawingSession session = foreground.CreateDrawingSession())
-                {
-                    session.Clear(Color.FromArgb(0, 0, 0, 0));
-                    session.Transform = drawingTransform;
-                    DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
-                }
-
-                CanvasRenderTarget next = CreateTarget(device, targetWidth, targetHeight);
+                CanvasRenderTarget foreground = CreateTarget(device, targetWidth, targetHeight);
                 try
                 {
-                    using CanvasDrawingSession session = next.CreateDrawingSession();
-                    session.Clear(Color.FromArgb(0, 0, 0, 0));
-                    using var effect = new BlendEffect
+                    using (CanvasDrawingSession session = foreground.CreateDrawingSession())
                     {
-                        Background = current,
-                        Foreground = foreground,
-                        Mode = GetBlendEffectMode(layer.BlendMode),
-                    };
-                    session.DrawImage(effect);
+                        session.Clear(Color.FromArgb(0, 0, 0, 0));
+                        session.Transform = drawingTransform;
+                        DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+                    }
+
+                    if (InkLayerEffects.HasGlow(layer))
+                    {
+                        CanvasRenderTarget glowing = InkLayerEffects.ApplyGlow(device, foreground, layer, sizeScale);
+                        foreground.Dispose();
+                        foreground = glowing;
+                    }
                 }
                 catch
                 {
-                    next.Dispose();
+                    foreground.Dispose();
                     throw;
                 }
 
-                current.Dispose();
-                current = next;
+                using (foreground)
+                {
+                    if (layer.BlendMode == InkLayerBlendMode.Normal)
+                    {
+                        using CanvasDrawingSession session = current.CreateDrawingSession();
+                        session.DrawImage(foreground);
+                        continue;
+                    }
+
+                    CanvasRenderTarget next = CreateTarget(device, targetWidth, targetHeight);
+                    try
+                    {
+                        using CanvasDrawingSession session = next.CreateDrawingSession();
+                        session.Clear(Color.FromArgb(0, 0, 0, 0));
+                        using var effect = new BlendEffect
+                        {
+                            Background = current,
+                            Foreground = foreground,
+                            Mode = GetBlendEffectMode(layer.BlendMode),
+                        };
+                        session.DrawImage(effect);
+                    }
+                    catch
+                    {
+                        next.Dispose();
+                        throw;
+                    }
+
+                    current.Dispose();
+                    current = next;
+                }
             }
 
             using (CanvasDrawingSession session = current.CreateDrawingSession())
