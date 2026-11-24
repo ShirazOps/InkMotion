@@ -36,7 +36,7 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
             throw new ArgumentException("Preview bus inputs must be stereo.", nameof(source));
         }
 
-        var input = new AudioPreviewInput(this, source, WaveFormat);
+        var input = new AudioPreviewInput(RemoveInput, source, WaveFormat);
         lock (_sync)
         {
             _mixer.AddMixerInput(input);
@@ -47,6 +47,16 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
     }
 
     public int Read(float[] buffer, int offset, int count) => _meter.Read(buffer, offset, count);
+
+    /// <summary>
+    /// Creates a submix that sums inputs in <paramref name="layout"/>, applies bus effects and gain, folds the result to
+    /// stereo and feeds it to the master, so bus processing in preview matches the export mix before the stereo fold-down.
+    /// </summary>
+    public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return new AudioPreviewSubmix(this, layout, effects, gainDecibels);
+    }
 
     public AudioMeterReading TakeMasterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
 
@@ -144,15 +154,15 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
 public sealed class AudioPreviewInput : ISampleProvider, IDisposable
 {
     private readonly ISampleProvider _source;
-    private readonly AudioPreviewBus _bus;
+    private readonly Action<AudioPreviewInput> _remove;
     private readonly object _sync = new();
     private ISampleProvider _resampled;
     private int _enabled;
     private bool _detached;
 
-    internal AudioPreviewInput(AudioPreviewBus bus, ISampleProvider source, WaveFormat waveFormat)
+    internal AudioPreviewInput(Action<AudioPreviewInput> remove, ISampleProvider source, WaveFormat waveFormat)
     {
-        _bus = bus;
+        _remove = remove;
         _source = source;
         _resampled = CreateResampler(source, waveFormat.SampleRate);
         WaveFormat = waveFormat;
@@ -205,7 +215,7 @@ public sealed class AudioPreviewInput : ISampleProvider, IDisposable
         }
     }
 
-    public void Dispose() => _bus.RemoveInput(this);
+    public void Dispose() => _remove(this);
 
     internal void Disable()
     {
@@ -228,4 +238,95 @@ public sealed class AudioPreviewInput : ISampleProvider, IDisposable
         source.WaveFormat.SampleRate == sampleRate
             ? source
             : new WdlResamplingSampleProvider(source, sampleRate);
+}
+
+public sealed class AudioPreviewSubmix : IDisposable
+{
+    private readonly MixingSampleProvider _mixer;
+    private readonly AudioEffectsSampleProvider _effects;
+    private readonly VolumeSampleProvider _gain;
+    private readonly AudioPreviewInput _masterInput;
+    private readonly List<AudioPreviewInput> _inputs = [];
+    private readonly object _sync = new();
+    private bool _disposed;
+
+    internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    {
+        Layout = layout;
+        WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioPreviewBus.SampleRate, AudioChannelLayouts.Get(layout).ChannelCount);
+        _mixer = new MixingSampleProvider(WaveFormat) { ReadFully = true };
+        _effects = new AudioEffectsSampleProvider(_mixer, effects);
+        _gain = new VolumeSampleProvider(_effects);
+        SetGain(gainDecibels);
+        var fold = new ChannelMixingSampleProvider(_gain, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
+        _masterInput = bus.AddInput(fold);
+        _masterInput.SetEnabled(true);
+    }
+
+    public AudioChannelLayout Layout { get; }
+
+    public WaveFormat WaveFormat { get; }
+
+    public AudioPreviewInput AddInput(ISampleProvider source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (source.WaveFormat.Channels != WaveFormat.Channels)
+        {
+            throw new ArgumentException("Submix inputs must use the submix channel layout.", nameof(source));
+        }
+
+        var input = new AudioPreviewInput(RemoveInput, source, WaveFormat);
+        lock (_sync)
+        {
+            _mixer.AddMixerInput(input);
+            _inputs.Add(input);
+        }
+
+        return input;
+    }
+
+    public void Update(AudioEffectSettings effects, double gainDecibels)
+    {
+        _effects.Update(effects);
+        SetGain(gainDecibels);
+    }
+
+    /// <summary>Clears delay and reverb state, for example after seeking.</summary>
+    public void Reset() => _effects.Reset();
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _masterInput.Dispose();
+        lock (_sync)
+        {
+            foreach (AudioPreviewInput input in _inputs.ToArray())
+            {
+                _mixer.RemoveMixerInput(input);
+                input.Detach();
+            }
+
+            _inputs.Clear();
+        }
+    }
+
+    private void SetGain(double gainDecibels) => _gain.Volume = (float)Math.Pow(10, gainDecibels / 20);
+
+    private void RemoveInput(AudioPreviewInput input)
+    {
+        lock (_sync)
+        {
+            if (_inputs.Remove(input))
+            {
+                _mixer.RemoveMixerInput(input);
+                input.Detach();
+            }
+        }
+    }
 }

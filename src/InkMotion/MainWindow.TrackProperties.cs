@@ -110,12 +110,17 @@ public sealed partial class MainWindow
         var locked = new CheckBox { Content = "Locked", IsChecked = track.IsLocked };
         var muted = new CheckBox { Content = "Mute embedded audio", IsChecked = track.IsMuted,
             Visibility = track.Kind == TimelineTrackKind.Video ? Visibility.Visible : Visibility.Collapsed };
+        var output = new ComboBox { Header = "Embedded audio output", HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = track.Kind == TimelineTrackKind.Video ? Visibility.Visible : Visibility.Collapsed };
+        PopulateBusOutputSelector(output, "Master (direct)");
+        output.SelectedItem = FindBusItem(output, track.AudioBusId ?? string.Empty) ?? output.Items[0];
         var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
         panel.Children.Add(name);
         panel.Children.Add(new TextBlock { Text = $"{VideoTimelineEditing.KindLabel(track.Kind)} · {track.Clips.Count} clip(s)" });
         panel.Children.Add(visible);
         panel.Children.Add(locked);
         panel.Children.Add(muted);
+        panel.Children.Add(output);
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot, Title = $"{VideoTimelineEditing.KindLabel(track.Kind)} track properties",
@@ -130,14 +135,19 @@ public sealed partial class MainWindow
             {
                 string newName = name.Text.Trim();
                 bool newMuted = track.Kind == TimelineTrackKind.Video && muted.IsChecked == true;
+                string? newBusId = track.Kind == TimelineTrackKind.Video
+                    ? AudioBuses.Find(_audioBuses, (output.SelectedItem as ComboBoxItem)?.Tag as string)?.Id
+                    : null;
                 if (track.Name != newName || track.IsVisible != (visible.IsChecked == true) ||
-                    track.IsLocked != (locked.IsChecked == true) || track.IsMuted != newMuted)
+                    track.IsLocked != (locked.IsChecked == true) || track.IsMuted != newMuted ||
+                    track.AudioBusId != newBusId)
                 {
                     BeginEdit();
                     track.Name = newName;
                     track.IsVisible = visible.IsChecked == true;
                     track.IsLocked = locked.IsChecked == true;
                     track.IsMuted = newMuted;
+                    track.AudioBusId = newBusId;
                     MarkEditChanged();
                     CommitEdit();
                     RefreshVideoTimeline();

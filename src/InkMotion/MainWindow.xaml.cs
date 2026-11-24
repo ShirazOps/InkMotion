@@ -683,6 +683,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateSelectedAudioTrack()
     {
+        UpdateAudioBusControls();
         UpdateAudioSourceRangeInspector();
         UpdateAudioVideoLinkControls();
         bool hasSelection = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
@@ -1068,6 +1069,7 @@ public sealed partial class MainWindow : Window
             track.Player?.Update(track.Project, _audioMixLayout);
         }
 
+        SyncPreviewSubmixes();
         UpdateAudioMixLayoutSelector();
         UpdateSelectedAudioTrack();
         StatusText.Text = $"Project mix layout set to {AudioChannelLayouts.Get(layout).DisplayName}. Monitoring folds it down to stereo.";
@@ -1491,7 +1493,8 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            track.Player = new AudioClipPlayer(path, track.Project, _audioMixLayout, _audioPreviewBus);
+            track.Player = new AudioClipPlayer(
+                path, track.Project, _audioMixLayout, _audioPreviewBus, submix: GetPreviewSubmix(track.Project.BusId));
         }
         catch (Exception ex) when (
             IsFileAccessException(ex) ||
@@ -2339,7 +2342,7 @@ public sealed partial class MainWindow : Window
                 continue;
             }
 
-            player.SetSoloSuppressed(hasSolo && !track.Project.Solo);
+            player.SetSoloSuppressed((hasSolo && !track.Project.Solo) || !AudioBuses.IsAudible(_audioBuses, track.Project.BusId));
             if (IsOriginalPreview)
             {
                 player.Pause();
@@ -2410,6 +2413,7 @@ public sealed partial class MainWindow : Window
             AudioMuted = firstLoadedTrack?.Muted ?? false,
             AudioTracks = tracks,
             AudioMixLayout = _audioMixLayout,
+            AudioBuses = _audioBuses.Select(AudioBuses.Clone).ToList(),
             InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
             ActiveInkLayerId = _activeInkLayerId,
             CompositeGraph = _compositeGraph is null ? null : InkCompositeGraphs.Clone(_compositeGraph),
@@ -2461,7 +2465,10 @@ public sealed partial class MainWindow : Window
         _timelineMarkers.Clear();
         _timelineMarkers.AddRange(project.Markers.Select(TimelineMarkers.Clone));
         _audioMixLayout = project.AudioMixLayout;
+        _audioBuses.Clear();
+        _audioBuses.AddRange(project.AudioBuses.Select(AudioBuses.Clone));
         RestoreAudioTrackModels(project.AudioTracks);
+        SyncPreviewSubmixes();
         UpdateAudioMixLayoutSelector();
         RefreshInkLayers();
         RefreshCompositeGraphEditor();
@@ -2822,6 +2829,7 @@ public sealed partial class MainWindow : Window
         DisposeAudioTracks();
         DisposeVideoTimeline();
         _audioPreviewBus.PlaybackStopped -= AudioPreviewBus_PlaybackStopped;
+        DisposePreviewSubmixes();
         _audioPreviewBus.Dispose();
     }
 

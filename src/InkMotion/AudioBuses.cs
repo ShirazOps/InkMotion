@@ -1,0 +1,123 @@
+namespace InkMotion;
+
+/// <summary>
+/// A submix bus: audio tracks and video tracks routed to it are summed in the project channel layout, processed by the
+/// bus effect chain and gain, and then fed to the master mix. Unrouted sources feed the master directly.
+/// </summary>
+public sealed class AudioBusProject
+{
+    public string Id { get; set; } = AudioBuses.NewId();
+    public string Name { get; set; } = "Bus 1";
+    public double GainDecibels { get; set; }
+    public bool Muted { get; set; }
+    public bool Solo { get; set; }
+    public AudioEffectSettings Effects { get; set; } = new();
+}
+
+public static class AudioBuses
+{
+    public const double MinimumGainDecibels = -60;
+    public const double MaximumGainDecibels = 12;
+
+    public static string NewId() => $"bus-{Guid.NewGuid():N}"[..16];
+
+    public static AudioBusProject? Find(IReadOnlyList<AudioBusProject>? buses, string? busId) =>
+        busId is null || buses is null ? null : buses.FirstOrDefault(bus => string.Equals(bus.Id, busId, StringComparison.Ordinal));
+
+    public static bool AnySolo(IReadOnlyList<AudioBusProject>? buses) => buses?.Any(bus => bus.Solo) == true;
+
+    /// <summary>
+    /// Whether a source routed to <paramref name="busId"/> (null for the master) can be heard: a muted bus is silent and,
+    /// while any bus is soloed, only sources routed to a soloed bus are heard.
+    /// </summary>
+    public static bool IsAudible(IReadOnlyList<AudioBusProject>? buses, string? busId)
+    {
+        AudioBusProject? bus = Find(buses, busId);
+        if (bus?.Muted == true)
+        {
+            return false;
+        }
+
+        return !AnySolo(buses) || bus?.Solo == true;
+    }
+
+    public static AudioBusProject Clone(AudioBusProject bus)
+    {
+        ArgumentNullException.ThrowIfNull(bus);
+        return new AudioBusProject
+        {
+            Id = bus.Id,
+            Name = bus.Name,
+            GainDecibels = bus.GainDecibels,
+            Muted = bus.Muted,
+            Solo = bus.Solo,
+            Effects = bus.Effects,
+        };
+    }
+
+    /// <summary>Returns "Bus N" using the lowest number not already taken.</summary>
+    public static string CreateName(IReadOnlyCollection<AudioBusProject> buses)
+    {
+        ArgumentNullException.ThrowIfNull(buses);
+        int number = buses.Count + 1;
+        while (buses.Any(bus => string.Equals(bus.Name, $"Bus {number}", StringComparison.OrdinalIgnoreCase)))
+        {
+            number++;
+        }
+
+        return $"Bus {number}";
+    }
+
+    public static float GetLinearGain(AudioBusProject bus) => (float)Math.Pow(10, bus.GainDecibels / 20);
+
+    /// <summary>Spectral noise reduction needs a per-source profile, so it is not available on buses.</summary>
+    public static bool HasValidSettings(AudioBusProject? bus) =>
+        bus is not null &&
+        !string.IsNullOrWhiteSpace(bus.Id) &&
+        !string.IsNullOrWhiteSpace(bus.Name) &&
+        double.IsFinite(bus.GainDecibels) &&
+        bus.GainDecibels is >= MinimumGainDecibels and <= MaximumGainDecibels &&
+        bus.Effects is not null &&
+        bus.Effects.IsValid &&
+        !bus.Effects.NoiseReductionEnabled;
+
+    public static string? Validate(EditorProject project)
+    {
+        if (project.AudioBuses is null || project.AudioBuses.Any(bus => !HasValidSettings(bus)))
+        {
+            return "Audio buses must have an id, a name, gain between -60 and +12 dB and valid effects without noise reduction.";
+        }
+
+        var ids = project.AudioBuses.Select(bus => bus.Id).ToHashSet(StringComparer.Ordinal);
+        if (ids.Count != project.AudioBuses.Count)
+        {
+            return "Audio bus ids must be unique.";
+        }
+
+        bool dangling =
+            project.AudioTracks.Any(track => track.BusId is not null && !ids.Contains(track.BusId)) ||
+            (project.VideoTracks ?? []).Any(track => track.AudioBusId is not null &&
+                (track.Kind != TimelineTrackKind.Video || !ids.Contains(track.AudioBusId)));
+        return dangling ? "Audio and video tracks must be routed to an existing audio bus or the master." : null;
+    }
+
+    /// <summary>Routes every source using <paramref name="busId"/> back to the master, for example before deleting it.</summary>
+    public static void ClearRoutes(EditorProject project, string busId)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ClearRoutes(project.AudioTracks, project.VideoTracks ?? [], busId);
+    }
+
+    public static void ClearRoutes(IEnumerable<AudioTrackProject> audioTracks, IEnumerable<TimelineTrackProject> videoTracks, string busId)
+    {
+        foreach (AudioTrackProject track in audioTracks.Where(track => track.BusId == busId))
+        {
+            track.BusId = null;
+        }
+
+        foreach (TimelineTrackProject track in videoTracks.Where(track => track.AudioBusId == busId))
+        {
+            track.AudioBusId = null;
+        }
+    }
+}

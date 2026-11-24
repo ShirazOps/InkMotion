@@ -9,8 +9,14 @@ public sealed partial class MainWindow
 
     private void UpdateAudioEffectsInspector(AudioTrackProject? track)
     {
-        AudioEffectsControls.IsEnabled = track is not null;
-        AudioEffectSettings settings = track?.Effects ?? new();
+        AudioBusProject? effectsBus = AudioBuses.Find(_audioBuses, _audioEffectsBusId);
+        if (effectsBus is not null)
+        {
+            track = null;
+        }
+
+        AudioEffectsControls.IsEnabled = track is not null || effectsBus is not null;
+        AudioEffectSettings settings = effectsBus?.Effects ?? track?.Effects ?? new();
         AudioNoiseProfile? profile = settings.NoiseProfile;
         AudioClipPlayer? player = TryGetSelectedAudioClip(out AudioTrackRuntime? selectedTrack) &&
             ReferenceEquals(selectedTrack.Project, track) ? selectedTrack.Player : null;
@@ -29,6 +35,8 @@ public sealed partial class MainWindow
 
         AudioNoiseProfileText.Text = profile switch
         {
+            _ when effectsBus is not null =>
+                $"Editing effects for {effectsBus.Name}. Spectral noise reduction needs a per-source profile, so it is only available on clips.",
             null => player is null
                 ? "Load an audio source, then capture a noise-only range of at least 512 sample frames."
                 : $"Source: {player.SourceSampleRate:N0} Hz · {player.ChannelCount} channel(s) · " +
@@ -129,7 +137,9 @@ public sealed partial class MainWindow
 
     private void ApplyAudioEffects()
     {
-        if (_isInitialising || _isRestoringProject || !TryGetSelectedAudioClip(out AudioTrackRuntime? track))
+        AudioBusProject? effectsBus = AudioBuses.Find(_audioBuses, _audioEffectsBusId);
+        AudioTrackRuntime? track = null;
+        if (_isInitialising || _isRestoringProject || (effectsBus is null && !TryGetSelectedAudioClip(out track)))
         {
             return;
         }
@@ -151,9 +161,9 @@ public sealed partial class MainWindow
             GateAttackMilliseconds = AudioGateAttackBox.Value,
             GateReleaseMilliseconds = AudioGateReleaseBox.Value,
             GateHoldMilliseconds = AudioGateHoldBox.Value,
-            NoiseReductionEnabled = AudioNoiseReductionEnabled.IsChecked == true,
-            NoiseReductionStrengthDecibels = AudioNoiseReductionStrengthBox.Value,
-            NoiseProfile = track.Project.Effects.NoiseProfile,
+            NoiseReductionEnabled = effectsBus is null && AudioNoiseReductionEnabled.IsChecked == true,
+            NoiseReductionStrengthDecibels = effectsBus?.Effects.NoiseReductionStrengthDecibels ?? AudioNoiseReductionStrengthBox.Value,
+            NoiseProfile = track?.Project.Effects.NoiseProfile,
             LimiterEnabled = AudioLimiterEnabled.IsChecked == true,
             LimiterCeilingDecibels = AudioLimiterCeilingBox.Value,
             LimiterReleaseMilliseconds = AudioLimiterReleaseBox.Value,
@@ -171,6 +181,28 @@ public sealed partial class MainWindow
         {
             StatusText.Text = "Use valid effect values and capture a matching noise-only profile before enabling spectral noise reduction.";
             UpdateSelectedAudioTrack();
+            return;
+        }
+
+        if (effectsBus is not null)
+        {
+            if (settings != effectsBus.Effects)
+            {
+                ApplyAudioBusEdit(() =>
+                {
+                    effectsBus.Effects = settings;
+                    return true;
+                }, settings.Enabled
+                    ? $"{effectsBus.Name} processing chain enabled for preview and export."
+                    : $"{effectsBus.Name} effects bypassed; settings retained.",
+                    "Could not update bus effects.");
+            }
+
+            return;
+        }
+
+        if (track is null)
+        {
             return;
         }
 
@@ -197,7 +229,23 @@ public sealed partial class MainWindow
             "Could not update audio effects.");
     }
 
-    private void ResetAudioEffects_Click(object sender, RoutedEventArgs e) =>
+    private void ResetAudioEffects_Click(object sender, RoutedEventArgs e)
+    {
+        if (AudioBuses.Find(_audioBuses, _audioEffectsBusId) is AudioBusProject bus)
+        {
+            ApplyAudioBusEdit(() =>
+            {
+                if (bus.Effects == new AudioEffectSettings())
+                {
+                    return false;
+                }
+
+                bus.Effects = new();
+                return true;
+            }, $"{bus.Name} effects reset and bypassed.", $"{bus.Name} effects are already at their defaults.");
+            return;
+        }
+
         ApplyAudioClipEdit(selected =>
         {
             if (selected.Project.Effects == new AudioEffectSettings())
@@ -208,4 +256,5 @@ public sealed partial class MainWindow
             selected.Project.Effects = new();
             return true;
         }, "Audio effects reset and bypassed.", "Audio effects are already at their defaults.");
+    }
 }

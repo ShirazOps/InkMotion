@@ -147,6 +147,9 @@ public sealed class TimelineTrackProject
     public bool IsVisible { get; set; } = true;
     public bool IsLocked { get; set; }
     public bool IsMuted { get; set; }
+    /// <summary>Submix bus for this video track's embedded audio, or null for the master mix.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AudioBusId { get; set; }
     public List<TimelineClipProject> Clips { get; set; } = [];
 }
 
@@ -290,12 +293,14 @@ public static class VideoTimelineEditing
     public static AudioTrackProject CreatePreviewAudioProject(
         TimelineClipLocation active,
         bool originalPreview,
-        bool hasSoloAudio)
+        bool hasSoloAudio,
+        IReadOnlyList<AudioBusProject>? buses = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         TimelineClipProject clip = active.Clip;
         bool muted = clip.IsReversed ||
-            (!originalPreview && (active.Track.IsMuted || hasSoloAudio || clip.Volume <= 0));
+            (!originalPreview && (active.Track.IsMuted || hasSoloAudio || clip.Volume <= 0 ||
+                !AudioBuses.IsAudible(buses, active.Track.AudioBusId)));
         return new AudioTrackProject
         {
             AudioPath = clip.SourcePath,
@@ -307,6 +312,7 @@ public static class VideoTimelineEditing
             FadeOutSeconds = originalPreview ? 0 : clip.FadeOutSeconds,
             TempoPercent = clip.PlaybackSpeed * 100,
             Muted = muted,
+            BusId = originalPreview ? null : AudioBuses.Find(buses, active.Track.AudioBusId)?.Id,
         };
     }
 
@@ -982,6 +988,7 @@ public static class VideoTimelineEditing
         IsVisible = track.IsVisible,
         IsLocked = track.IsLocked,
         IsMuted = track.IsMuted,
+        AudioBusId = track.AudioBusId,
         Clips = track.Clips.Select(Clone).ToList(),
     };
 
