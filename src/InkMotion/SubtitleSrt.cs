@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 
 namespace InkMotion;
 
+public sealed record SubtitleCueText(double StartSeconds, double EndSeconds, string Text);
+
 public static class SubtitleSrt
 {
     private static readonly Regex TimingLine = new(
@@ -16,10 +18,18 @@ public static class SubtitleSrt
     {
         ArgumentNullException.ThrowIfNull(content);
         ValidateFrameRate(frameRate);
-        List<Cue> cues = Parse(content);
+        return CreateTracks(Parse(content).Select(cue => new SubtitleCueText(cue.StartSeconds, cue.EndSeconds, cue.Text)),
+            frameRate);
+    }
+
+    /// <summary>Places timed cues on subtitle tracks with the standard subtitle styling, adding tracks for overlaps.</summary>
+    public static IReadOnlyList<TimelineTrackProject> CreateTracks(IEnumerable<SubtitleCueText> cues, double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(cues);
+        ValidateFrameRate(frameRate);
         var tracks = new List<TimelineTrackProject>();
 
-        foreach (Cue cue in cues.OrderBy(cue => cue.StartSeconds).ThenBy(cue => cue.EndSeconds))
+        foreach (SubtitleCueText cue in cues.OrderBy(cue => cue.StartSeconds).ThenBy(cue => cue.EndSeconds))
         {
             int startFrame = ToFrameNumber(cue.StartSeconds, frameRate);
             if (startFrame >= int.MaxValue - 1)

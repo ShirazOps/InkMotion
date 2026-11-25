@@ -2820,6 +2820,7 @@ public sealed partial class MainWindow : Window
         ClearSampleWaveform();
         _audioMasterClosed = true;
         ClearAudioMasterAnalysis();
+        CancelSpeechSubtitles();
         SaveEditorLayout();
         _exportJobsClosed = true;
         _exportJobsTimer?.Stop();

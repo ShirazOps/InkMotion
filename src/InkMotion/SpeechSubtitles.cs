@@ -1,0 +1,342 @@
+using System.Globalization;
+using System.Speech.AudioFormat;
+using System.Speech.Recognition;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
+
+namespace InkMotion;
+
+/// <summary>A recognised word with its position on the project timeline.</summary>
+public sealed record SpeechWord(double StartSeconds, double EndSeconds, string Text);
+
+public sealed record SpeechCueOptions
+{
+    public int MaximumLineCharacters { get; init; } = 42;
+    public int MaximumLines { get; init; } = 2;
+    public double MaximumCueSeconds { get; init; } = 6;
+    public double MinimumCueSeconds { get; init; } = 1;
+    public double PauseSeconds { get; init; } = 0.8;
+}
+
+public sealed record SpeechRecogniserInfo(string CultureName, string DisplayName);
+
+/// <summary>
+/// Offline speech-to-subtitle generation: renders the audible timeline mix, recognises it with the Windows desktop
+/// speech recogniser on this device and groups the recognised words into readable subtitle cues.
+/// </summary>
+public static class SpeechSubtitles
+{
+    public const int RecognitionSampleRate = 16000;
+
+    public static IReadOnlyList<SubtitleCueText> BuildCues(IReadOnlyList<SpeechWord> words, SpeechCueOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(words);
+        options ??= new SpeechCueOptions();
+        if (options.MaximumLineCharacters < 8 || options.MaximumLines < 1 || !(options.MaximumCueSeconds > 0) ||
+            !(options.MinimumCueSeconds >= 0) || !(options.PauseSeconds > 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options));
+        }
+
+        int maximumCharacters = options.MaximumLineCharacters * options.MaximumLines;
+        var groups = new List<List<SpeechWord>>();
+        List<SpeechWord>? current = null;
+        int currentLength = 0;
+        foreach (SpeechWord word in words
+                     .Where(word => !string.IsNullOrWhiteSpace(word.Text) && double.IsFinite(word.StartSeconds) &&
+                         double.IsFinite(word.EndSeconds) && word.StartSeconds >= 0)
+                     .OrderBy(word => word.StartSeconds))
+        {
+            string text = word.Text.Trim();
+            bool startNew = current is null ||
+                word.StartSeconds - current[^1].EndSeconds > options.PauseSeconds ||
+                currentLength + 1 + text.Length > maximumCharacters ||
+                word.EndSeconds - current[0].StartSeconds > options.MaximumCueSeconds ||
+                EndsSentence(current[^1].Text);
+            if (startNew)
+            {
+                current = [];
+                groups.Add(current);
+                currentLength = -1;
+            }
+
+            current!.Add(word with { Text = text });
+            currentLength += 1 + text.Length;
+        }
+
+        var cues = new List<SubtitleCueText>(groups.Count);
+        for (int index = 0; index < groups.Count; index++)
+        {
+            List<SpeechWord> group = groups[index];
+            double start = group[0].StartSeconds;
+            double end = Math.Max(group.Max(word => word.EndSeconds), start + options.MinimumCueSeconds);
+            if (index + 1 < groups.Count)
+            {
+                end = Math.Min(end, groups[index + 1][0].StartSeconds);
+            }
+
+            end = Math.Max(end, start + 0.001);
+            cues.Add(new SubtitleCueText(start, end,
+                WrapLines(string.Join(' ', group.Select(word => word.Text)), options.MaximumLineCharacters)));
+        }
+
+        return cues;
+    }
+
+    /// <summary>Splits text that exceeds one line at the space nearest its middle.</summary>
+    public static string WrapLines(string text, int maximumLineCharacters)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (text.Length <= maximumLineCharacters)
+        {
+            return text;
+        }
+
+        int middle = text.Length / 2;
+        int best = -1;
+        for (int index = 0; index < text.Length; index++)
+        {
+            if (text[index] == ' ' && (best < 0 || Math.Abs(index - middle) < Math.Abs(best - middle)))
+            {
+                best = index;
+            }
+        }
+
+        return best < 0 ? text : text[..best] + "\n" + text[(best + 1)..];
+    }
+
+    private static bool EndsSentence(string text) => text.EndsWith('.') || text.EndsWith('?') || text.EndsWith('!');
+
+    /// <summary>
+    /// Renders the audible export mix (respecting mute, solo and buses) as 16 kHz 16-bit mono PCM, peak-normalised for
+    /// recognition. Returns the rendered duration in seconds.
+    /// </summary>
+    public static double RenderRecognitionMix(EditorProject project, string outputPath,
+        CancellationToken cancellationToken, IProgress<double>? progress = null)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        EditorProjectValidation.Validate(project);
+        string floatPath = outputPath + ".float.wav";
+        try
+        {
+            float peak = 0;
+            long frames = 0;
+            using (var mixer = new ExportAudioMixer(project))
+            {
+                if (mixer.SourceCount == 0)
+                {
+                    throw new InvalidOperationException("Nothing to transcribe: add an audible audio or video source." +
+                        (mixer.Warnings.Count > 0 ? "\n" + string.Join("\n", mixer.Warnings) : string.Empty));
+                }
+
+                long sourceFrames = checked((long)Math.Round(mixer.DurationSeconds * mixer.SampleRate));
+                if (sourceFrames <= 0)
+                {
+                    throw new InvalidOperationException("The audio mix is empty.");
+                }
+
+                var mono = new MonoDownmix(mixer, sourceFrames);
+                var resampled = new WdlResamplingSampleProvider(mono, RecognitionSampleRate);
+                using var writer = new WaveFileWriter(floatPath, resampled.WaveFormat);
+                var buffer = new float[RecognitionSampleRate];
+                int read;
+                while ((read = resampled.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    for (int index = 0; index < read; index++)
+                    {
+                        peak = Math.Max(peak, Math.Abs(buffer[index]));
+                    }
+
+                    writer.WriteSamples(buffer, 0, read);
+                    frames += read;
+                    progress?.Report(Math.Min(1, (double)mono.FramesRead / sourceFrames) * 0.5);
+                }
+            }
+
+            // Quiet dialogue is boosted up to +20 dB; silence is left untouched.
+            float gain = peak > 0.0001f ? Math.Min(0.9f / peak, 10f) : 1f;
+            using (var reader = new WaveFileReader(floatPath))
+            using (var writer = new WaveFileWriter(outputPath, new WaveFormat(RecognitionSampleRate, 16, 1)))
+            {
+                ISampleProvider samples = reader.ToSampleProvider();
+                var buffer = new float[RecognitionSampleRate];
+                var pcm = new byte[buffer.Length * 2];
+                long written = 0;
+                int read;
+                while ((read = samples.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    for (int index = 0; index < read; index++)
+                    {
+                        short value = (short)Math.Round(Math.Clamp(buffer[index] * gain, -1f, 1f) * short.MaxValue);
+                        pcm[index * 2] = (byte)value;
+                        pcm[index * 2 + 1] = (byte)(value >> 8);
+                    }
+
+                    writer.Write(pcm, 0, read * 2);
+                    written += read;
+                    progress?.Report(0.5 + 0.5 * written / Math.Max(1, frames));
+                }
+            }
+
+            return (double)frames / RecognitionSampleRate;
+        }
+        finally
+        {
+            File.Delete(floatPath);
+        }
+    }
+
+    public static IReadOnlyList<SpeechRecogniserInfo> GetInstalledRecognisers()
+    {
+        try
+        {
+            return SpeechRecognitionEngine.InstalledRecognizers()
+                .Select(info => new SpeechRecogniserInfo(info.Culture.Name, info.Culture.DisplayName))
+                .DistinctBy(info => info.CultureName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(info => info.DisplayName, StringComparer.CurrentCulture)
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or PlatformNotSupportedException or
+            System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Recognises a 16 kHz mono PCM WAV with the installed Windows desktop recogniser for <paramref name="cultureName"/>
+    /// using free dictation. Everything runs on this device; no audio is uploaded.
+    /// </summary>
+    public static IReadOnlyList<SpeechWord> Recognise(string wavePath, string cultureName, double durationSeconds,
+        CancellationToken cancellationToken, IProgress<double>? progress = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(wavePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cultureName);
+        RecognizerInfo? recogniser = SpeechRecognitionEngine.InstalledRecognizers()
+            .FirstOrDefault(info => string.Equals(info.Culture.Name, cultureName, StringComparison.OrdinalIgnoreCase));
+        if (recogniser is null)
+        {
+            throw new InvalidOperationException(
+                $"No Windows speech recogniser is installed for {cultureName}. Add the speech language in Windows Settings.");
+        }
+
+        var words = new List<SpeechWord>();
+        var completed = new ManualResetEventSlim();
+        Exception? failure = null;
+        using var engine = new SpeechRecognitionEngine(recogniser);
+        engine.LoadGrammar(new DictationGrammar());
+        engine.SetInputToWaveFile(wavePath);
+        engine.SpeechRecognized += (_, args) => AddWords(args.Result, words);
+        engine.RecognizeCompleted += (_, args) =>
+        {
+            if (args.Error is not null && args.Error is not OperationCanceledException)
+            {
+                failure = args.Error;
+            }
+
+            completed.Set();
+        };
+        engine.RecognizeAsync(RecognizeMode.Multiple);
+        using (cancellationToken.Register(engine.RecognizeAsyncCancel))
+        {
+            while (!completed.Wait(250))
+            {
+                if (durationSeconds > 0)
+                {
+                    progress?.Report(Math.Clamp(engine.AudioPosition.TotalSeconds / durationSeconds, 0, 1));
+                }
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (failure is not null)
+        {
+            throw new InvalidOperationException($"Speech recognition failed: {failure.Message}", failure);
+        }
+
+        progress?.Report(1);
+        return words;
+    }
+
+    private static void AddWords(RecognitionResult result, List<SpeechWord> words)
+    {
+        if (result.Audio is null || result.Words.Count == 0)
+        {
+            return;
+        }
+
+        double phraseStart = result.Audio.AudioPosition.TotalSeconds;
+        double phraseEnd = phraseStart + result.Audio.Duration.TotalSeconds;
+        for (int index = 0; index < result.Words.Count; index++)
+        {
+            RecognizedWordUnit word = result.Words[index];
+            string text = word.Text;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            double start = phraseStart;
+            double end = phraseEnd;
+            try
+            {
+                // Word audio positions are relative to the start of the recognised phrase.
+                RecognizedAudio audio = result.GetAudioForWordRange(word, word);
+                start = Math.Min(phraseStart + audio.AudioPosition.TotalSeconds, phraseEnd);
+                end = Math.Min(start + audio.Duration.TotalSeconds, phraseEnd);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NullReferenceException)
+            {
+                // Some recognisers omit per-word audio; fall back to an even split across the phrase.
+                double step = (phraseEnd - phraseStart) / result.Words.Count;
+                start = phraseStart + step * index;
+                end = start + step;
+            }
+
+            words.Add(new SpeechWord(start, Math.Max(end, start), text));
+        }
+    }
+
+    /// <summary>Averages every channel into mono and stops after the mix duration.</summary>
+    private sealed class MonoDownmix(ExportAudioMixer mixer, long totalFrames) : ISampleProvider
+    {
+        private float[] _buffer = [];
+
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(mixer.SampleRate, 1);
+
+        public long FramesRead { get; private set; }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int frames = (int)Math.Min(count, totalFrames - FramesRead);
+            if (frames <= 0)
+            {
+                return 0;
+            }
+
+            int channels = mixer.Channels;
+            if (_buffer.Length < frames * channels)
+            {
+                _buffer = new float[frames * channels];
+            }
+
+            int read = mixer.Read(_buffer, 0, frames * channels) / channels;
+            for (int frame = 0; frame < read; frame++)
+            {
+                float sum = 0;
+                for (int channel = 0; channel < channels; channel++)
+                {
+                    sum += _buffer[frame * channels + channel];
+                }
+
+                buffer[offset + frame] = sum / channels;
+            }
+
+            FramesRead += read;
+            return read;
+        }
+    }
+}
