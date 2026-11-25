@@ -38,6 +38,37 @@
     <PackageReference Include="System.Speech" Version="10.0.15" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <Vst3HostPlatform Condition="'$(Platform)' == ''">x64</Vst3HostPlatform>
+    <Vst3HostPlatform Condition="'$(Platform)' != ''">$(Platform)</Vst3HostPlatform>
+    <Vst3HostCMakeArchitecture Condition="'$(Platform)' == 'x86'">Win32</Vst3HostCMakeArchitecture>
+    <Vst3HostCMakeArchitecture Condition="'$(Platform)' == 'x64' or '$(Platform)' == ''">x64</Vst3HostCMakeArchitecture>
+    <Vst3HostCMakeArchitecture Condition="'$(Platform)' == 'ARM64'">ARM64</Vst3HostCMakeArchitecture>
+    <Vst3HostBuildDirectory>$(BaseIntermediateOutputPath)vst3-host\$(Vst3HostPlatform)</Vst3HostBuildDirectory>
+    <Vst3HostExecutable>$(Vst3HostBuildDirectory)\$(Configuration)\InkMotionVst3Host.exe</Vst3HostExecutable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(Vst3HostExecutable)"
+             Link="Native\$(Vst3HostPlatform)\InkMotionVst3Host.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="BuildVst3HostWorker"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="cmake -S &quot;$(MSBuildProjectDirectory)\..\..\native\vst3-host&quot; -B &quot;$(Vst3HostBuildDirectory)&quot; -A $(Vst3HostCMakeArchitecture)" />
+    <Exec Command="cmake --build &quot;$(Vst3HostBuildDirectory)&quot; --config $(Configuration) --target InkMotionVst3Host --parallel 2" />
+  </Target>
+
+  <Target Name="CopyVst3HostWorker" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <MakeDir Directories="$(TargetDir)Native\$(Vst3HostPlatform)" />
+    <Copy SourceFiles="$(Vst3HostExecutable)"
+          DestinationFiles="$(TargetDir)Native\$(Vst3HostPlatform)\InkMotionVst3Host.exe"
+          SkipUnchangedFiles="true" />
+  </Target>
+
   <!-- Unpackaged publish omits the app's compiled XAML resources, so the window never loads without this. -->
   <Target Name="PublishAppResourceIndex" AfterTargets="ComputeResolvedFilesToPublishList" Condition="'$(WindowsPackageType)' == 'None'">
     <ItemGroup>
