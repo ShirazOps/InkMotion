@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace InkMotion;
 
@@ -112,6 +113,8 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioPreviewBus _previewBus;
     private AudioPreviewInput _previewInput;
     private AudioPreviewSubmix? _submix;
+    private VolumeSampleProvider _outputGain;
+    private float _outputGainLinear;
     private bool _disposed;
     private bool _soloSuppressed;
     private AudioClipGainSettings _gainSettings;
@@ -124,7 +127,8 @@ public sealed class AudioClipPlayer : IDisposable
         AudioChannelLayout mixLayout,
         AudioPreviewBus previewBus,
         Func<double, double>? gainEnvelope = null,
-        AudioPreviewSubmix? submix = null)
+        AudioPreviewSubmix? submix = null,
+        double outputGain = 1)
     {
         ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
@@ -149,7 +153,9 @@ public sealed class AudioClipPlayer : IDisposable
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _submix = submix;
             _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
-            _meter = new AudioMeterSampleProvider(_monitorMix);
+            _outputGain = new VolumeSampleProvider(_monitorMix);
+            SetOutputGain(outputGain);
+            _meter = new AudioMeterSampleProvider(_outputGain);
             _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         }
         catch
@@ -218,9 +224,21 @@ public sealed class AudioClipPlayer : IDisposable
         _previewInput.Dispose();
         _submix = submix;
         _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
-        _meter = new AudioMeterSampleProvider(_monitorMix);
+        _outputGain = new VolumeSampleProvider(_monitorMix) { Volume = _outputGainLinear };
+        _meter = new AudioMeterSampleProvider(_outputGain);
         _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         _previewInput.SetEnabled(enabled);
+    }
+
+    public void SetOutputGain(double linearGain)
+    {
+        if (!double.IsFinite(linearGain) || linearGain < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(linearGain));
+        }
+
+        _outputGainLinear = (float)linearGain;
+        _outputGain.Volume = _outputGainLinear;
     }
 
     private float[,] CreateRouteMatrix(AudioTrackProject project, AudioChannelLayout mixLayout) =>

@@ -47,7 +47,15 @@ public sealed class ExportAudioMixer : IDisposable
             bool hasSolo = project.AudioTracks.Any(track => track.Solo);
             foreach (AudioTrackProject track in project.AudioTracks)
             {
-                AddAudioTrack(track, suppressed: (hasSolo && !track.Solo) || !AudioBuses.IsAudible(_buses, track.BusId));
+                bool trackSuppressed = hasSolo && !track.Solo;
+                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId),
+                    track.BusId, outputGain: 1);
+                foreach (AudioAuxSendProject send in track.AuxSends ?? [])
+                {
+                    AddAudioTrack(track,
+                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId),
+                        send.BusId, AudioClipEditing.DecibelsToLinear(send.GainDecibels));
+                }
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
@@ -102,7 +110,7 @@ public sealed class ExportAudioMixer : IDisposable
         _readers.Clear();
     }
 
-    private void AddAudioTrack(AudioTrackProject track, bool suppressed)
+    private void AddAudioTrack(AudioTrackProject track, bool suppressed, string? outputBusId, double outputGain)
     {
         if (string.IsNullOrWhiteSpace(track.AudioPath))
         {
@@ -155,9 +163,12 @@ public sealed class ExportAudioMixer : IDisposable
 
         var finiteSource = new FiniteSampleProvider(stretch, timelineDuration);
         var effects = new AudioEffectsSampleProvider(finiteSource, effectsSettings);
-        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
+        ISampleProvider output = outputGain == 1
+            ? effects
+            : new VolumeSampleProvider(effects) { Volume = (float)outputGain };
+        AddSource(output, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
             timelineDuration + effects.TailDurationSeconds,
-            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, track.BusId);
+            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition, string? busId)

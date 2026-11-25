@@ -151,6 +151,20 @@ public sealed class AudioPreviewBusTests : IDisposable
     }
 
     [Fact]
+    public void AudioClipPlayerAppliesPostFaderSendGain()
+    {
+        string path = WriteStereoSource(0.5f, 0.5f);
+        using var bus = new AudioPreviewBus();
+        using var player = new AudioClipPlayer(path, new AudioTrackProject { AudioPath = path },
+            AudioChannelLayout.Stereo, bus, outputGain: 0.5);
+        player.Play();
+
+        float[] output = new float[8];
+        bus.Read(output, 0, output.Length);
+        Assert.All(output, sample => Assert.Equal(0.25f, sample, 4));
+    }
+
+    [Fact]
     public void ResampledAudioClipPlayerFlushesOldSamplesAfterSeek()
     {
         const int sourceRate = 44100;

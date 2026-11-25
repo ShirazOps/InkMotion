@@ -223,6 +223,7 @@ public static class AudioClipEditing
         SpatialPanEnabled = track.SpatialPanEnabled,
         SpatialPanAzimuthDegrees = track.SpatialPanAzimuthDegrees,
         BusId = track.BusId,
+        AuxSends = track.AuxSends?.Select(AudioBuses.Clone).ToList() ?? [],
         Effects = track.Effects with { },
         SourceInSeconds = track.SourceInSeconds,
         SourceOutSeconds = track.SourceOutSeconds,

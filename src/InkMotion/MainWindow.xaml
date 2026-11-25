@@ -1056,6 +1056,10 @@
                             </StackPanel>
                         </UserControl>
                         <ComboBox x:Name="AudioClipBusSelector" Header="Selected audio clip output" SelectionChanged="AudioClipBus_SelectionChanged" HorizontalAlignment="Stretch" IsEnabled="False" />
+                        <TextBlock Text="POST-FADER AUX SENDS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel x:Name="AudioAuxSendsPanel" Spacing="6" />
+                        <Button x:Name="AddAudioAuxSendButton" Content="Add send" Click="AddAudioAuxSend_Click" IsEnabled="False" />
+                        <TextBlock Text="Sends duplicate the processed audio track to another bus after its volume, effects and pan controls." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="A bus sums the clips and video tracks routed to it in the project channel layout, runs its own effect chain and gain, then feeds its parent bus or the master. Route a video track's embedded audio from its track properties. Bus mute silences its sources and descendants; while any bus is soloed, only routes passing through a soloed bus are heard. Edit bus effects by choosing the bus as the effects target below; spectral noise reduction is clip-only. The MediaPlayer fallback used when a video source cannot be decoded for routed preview plays without bus effects or gain." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="LIVE PREVIEW MASTER" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ProgressBar x:Name="MasterAudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Live preview master peak level" />

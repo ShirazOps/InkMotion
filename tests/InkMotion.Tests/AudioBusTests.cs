@@ -26,6 +26,16 @@ public sealed class AudioBusTests
     }
 
     [Fact]
+    public void VersionEightyTwoMigratesWithNoAuxiliarySends()
+    {
+        EditorProject project = EditorProjectSerialiser.Deserialise(
+            """{"Version":82,"AudioTracks":[{}]}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
+        Assert.Empty(project.AudioTracks[0].AuxSends);
+    }
+
+    [Fact]
     public void BusesAndRoutesRoundTrip()
     {
         var parent = new AudioBusProject { Name = "Dialogue", GainDecibels = -3, Solo = true };
@@ -33,7 +43,11 @@ public sealed class AudioBusTests
         var project = new EditorProject
         {
             AudioBuses = [parent, bus],
-            AudioTracks = [new() { BusId = bus.Id }],
+            AudioTracks = [new()
+            {
+                BusId = bus.Id,
+                AuxSends = [new AudioAuxSendProject { BusId = parent.Id, GainDecibels = -9 }],
+            }],
             VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = parent.Id }],
         };
 
@@ -47,6 +61,11 @@ public sealed class AudioBusTests
         Assert.True(reopened.AudioBuses[0].Solo);
         Assert.Equal(bus.Id, reopened.AudioTracks[0].BusId);
         Assert.Equal(parent.Id, reopened.VideoTracks[0].AudioBusId);
+        Assert.Equal(parent.Id, Assert.Single(reopened.AudioTracks[0].AuxSends).BusId);
+        Assert.Equal(-9, reopened.AudioTracks[0].AuxSends[0].GainDecibels);
+        AudioTrackProject clone = AudioClipEditing.Clone(project.AudioTracks[0]);
+        Assert.Equal(parent.Id, Assert.Single(clone.AuxSends).BusId);
+        Assert.NotSame(project.AudioTracks[0].AuxSends[0], clone.AuxSends[0]);
     }
 
     [Fact]
@@ -71,6 +90,11 @@ public sealed class AudioBusTests
         Assert.NotNull(AudioBuses.Validate(new EditorProject
         {
             AudioBuses = [first, second],
+        }));
+        Assert.NotNull(AudioBuses.Validate(new EditorProject
+        {
+            AudioBuses = [parent],
+            AudioTracks = [new() { AuxSends = [new AudioAuxSendProject { BusId = "missing" }] }],
         }));
         Assert.NotNull(AudioBuses.Validate(new EditorProject
         {
@@ -137,7 +161,15 @@ public sealed class AudioBusTests
         var project = new EditorProject
         {
             AudioBuses = [parent, bus, child],
-            AudioTracks = [new() { BusId = bus.Id }, new() { BusId = "other" }],
+            AudioTracks =
+            [
+                new()
+                {
+                    BusId = bus.Id,
+                    AuxSends = [new AudioAuxSendProject { BusId = bus.Id }],
+                },
+                new() { BusId = "other" },
+            ],
             VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = bus.Id }],
         };
 
@@ -146,6 +178,7 @@ public sealed class AudioBusTests
         Assert.Equal("other", project.AudioTracks[1].BusId);
         Assert.Null(project.VideoTracks[0].AudioBusId);
         Assert.Equal(parent.Id, child.ParentBusId);
+        Assert.Equal(parent.Id, Assert.Single(project.AudioTracks[0].AuxSends).BusId);
 
         Assert.Equal("Bus 1", AudioBuses.CreateName([]));
         Assert.Equal("Bus 3", AudioBuses.CreateName([bus, new AudioBusProject { Name = "Bus 1" }]));
@@ -255,6 +288,72 @@ public sealed class AudioBusTests
             float[] samples = new float[mixer.Channels * 1024];
             Assert.Equal(samples.Length, mixer.Read(samples, 0, samples.Length));
             Assert.InRange(Math.Abs(samples[1000] - 0.0625f), 0, 0.0005f);
+        }
+        finally
+        {
+            File.Delete(input);
+        }
+    }
+
+    [Fact]
+    public void ExportIncludesPostFaderTrackSendsInTheirTargetBus()
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-aux-send-{Guid.NewGuid():N}.wav");
+        try
+        {
+            WriteConstant(input, 0.25f);
+            var bus = new AudioBusProject { GainDecibels = -6.0206 };
+            var project = new EditorProject
+            {
+                AudioBuses = [bus],
+                AudioTracks =
+                [
+                    new()
+                    {
+                        AudioPath = input,
+                        AuxSends = [new AudioAuxSendProject { BusId = bus.Id, GainDecibels = -6.0206 }],
+                    },
+                ],
+            };
+
+            using var mixer = new ExportAudioMixer(project, 48000);
+            float[] samples = new float[mixer.Channels * 1024];
+            Assert.Equal(samples.Length, mixer.Read(samples, 0, samples.Length));
+            Assert.Equal(2, mixer.SourceCount);
+            Assert.InRange(Math.Abs(samples[1000] - 0.3125f), 0, 0.0005f);
+        }
+        finally
+        {
+            File.Delete(input);
+        }
+    }
+
+    [Fact]
+    public void SoloedBusCanBeHeardThroughATrackAuxiliarySend()
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-aux-solo-{Guid.NewGuid():N}.wav");
+        try
+        {
+            WriteConstant(input, 0.25f);
+            var bus = new AudioBusProject { Solo = true };
+            var project = new EditorProject
+            {
+                AudioBuses = [bus],
+                AudioTracks =
+                [
+                    new()
+                    {
+                        AudioPath = input,
+                        Volume = 0.5,
+                        AuxSends = [new AudioAuxSendProject { BusId = bus.Id, GainDecibels = 0 }],
+                    },
+                ],
+            };
+
+            using var mixer = new ExportAudioMixer(project, 48000);
+            float[] samples = new float[mixer.Channels * 1024];
+            Assert.Equal(samples.Length, mixer.Read(samples, 0, samples.Length));
+            Assert.InRange(Math.Abs(samples[1000] - 0.125f), 0, 0.0005f);
         }
         finally
         {
