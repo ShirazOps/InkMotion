@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using Xunit;
 
 namespace InkMotion.Tests;
@@ -175,5 +177,120 @@ public sealed class AudioExporterTests
         var project = new EditorProject { AudioTracks = [new() { AudioPath = @"C:\media\source.wav" }] };
         Assert.Throws<InvalidOperationException>(() => AudioExporter.Export(project,
             new(AudioExportCodec.PcmWave, 48000), @"C:\MEDIA\source.wav", null, CancellationToken.None));
+    }
+
+    [Fact]
+    public void StemExport_WritesAlignedDirectNestedBusAndSendWaves()
+    {
+        string directInput = Path.Combine(Path.GetTempPath(), $"inkmotion-stem-direct-{Guid.NewGuid():N}.wav");
+        string busInput = Path.Combine(Path.GetTempPath(), $"inkmotion-stem-bus-{Guid.NewGuid():N}.wav");
+        string output = Path.Combine(Path.GetTempPath(), $"inkmotion-stems-{Guid.NewGuid():N}.zip");
+        try
+        {
+            WriteConstant(directInput, 0.1f);
+            WriteConstant(busInput, 0.2f);
+            var parent = new AudioBusProject { Name = "Parent", GainDecibels = -6 };
+            var child = new AudioBusProject { Name = "Child", ParentBusId = parent.Id };
+            var auxiliary = new AudioBusProject { Name = "Auxiliary" };
+            var project = new EditorProject
+            {
+                AudioMixLayout = AudioChannelLayout.Mono,
+                AudioBuses = [parent, child, auxiliary],
+                AudioTracks =
+                [
+                    new() { AudioPath = directInput },
+                    new()
+                    {
+                        AudioPath = busInput,
+                        BusId = child.Id,
+                        AuxSends = [new AudioAuxSendProject { BusId = auxiliary.Id, GainDecibels = -6 }],
+                    },
+                ],
+            };
+
+            AudioExportResult result = AudioExporter.Export(project,
+                new(AudioExportCodec.PcmWave, 48000, 16, ExportStems: true), output, null, CancellationToken.None);
+
+            Assert.Equal(4, result.StemCount);
+            using var archive = ZipFile.OpenRead(output);
+            Assert.Equal(4, archive.Entries.Count);
+            AssertStem(archive.GetEntry("Master (direct).wav")!, 0.1f);
+            AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Parent [", StringComparison.Ordinal)), 0.1f);
+            AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Child [", StringComparison.Ordinal)), 0.1f);
+            AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Auxiliary [", StringComparison.Ordinal)), 0.1f);
+        }
+        finally
+        {
+            File.Delete(directInput);
+            File.Delete(busInput);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
+    public void StemExport_CancellationRemovesPartialArchive()
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-stem-cancel-{Guid.NewGuid():N}.wav");
+        string output = Path.ChangeExtension(input, ".zip");
+        try
+        {
+            WriteConstant(input, 0.1f, 48000);
+            using var cancellation = new CancellationTokenSource();
+            var project = new EditorProject { AudioTracks = [new() { AudioPath = input }] };
+
+            Assert.Throws<OperationCanceledException>(() => AudioExporter.Export(project,
+                new(AudioExportCodec.PcmWave, 48000, 16, ExportStems: true), output,
+                new CancelOnProgress(cancellation), cancellation.Token));
+            Assert.False(File.Exists(output));
+        }
+        finally
+        {
+            File.Delete(input);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
+    public void StemSettings_RejectCompressedCodecs()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new AudioExportSettings(AudioExportCodec.Mp3, 48000, ExportStems: true).Validate());
+    }
+
+    private static void AssertStem(ZipArchiveEntry entry, float expectedSample)
+    {
+        using Stream source = entry.Open();
+        using var data = new MemoryStream();
+        source.CopyTo(data);
+        data.Position = 0;
+        using var reader = new WaveFileReader(data);
+        Assert.Equal(48000, reader.WaveFormat.SampleRate);
+        Assert.Equal(1, reader.WaveFormat.Channels);
+        Assert.Equal(16, reader.WaveFormat.BitsPerSample);
+        Assert.InRange(reader.TotalTime.TotalSeconds, 0.099, 0.101);
+        float[] samples = new float[4800];
+        int read = reader.ToSampleProvider().Read(samples, 0, samples.Length);
+        Assert.Equal(samples.Length, read);
+        Assert.InRange(Math.Abs(samples[1000] - expectedSample), 0, 0.002f);
+    }
+
+    private static void WriteConstant(string path, float sample, int frames = 4800)
+    {
+        using var writer = new WaveFileWriter(path, WaveFormat.CreateIeeeFloatWaveFormat(48000, 1));
+        for (int index = 0; index < frames; index++)
+        {
+            writer.WriteSample(sample);
+        }
+    }
+
+    private sealed class CancelOnProgress(CancellationTokenSource cancellation) : IProgress<double>
+    {
+        public void Report(double value)
+        {
+            if (value > 0)
+            {
+                cancellation.Cancel();
+            }
+        }
     }
 }

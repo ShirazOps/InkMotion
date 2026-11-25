@@ -972,10 +972,13 @@
                         <TextBlock x:Name="FFmpegCapabilitiesText" Text="Optional: select a trusted local FFmpeg build for FLAC, Opus, WMA, WMV and AV1. Compatibility imports create retained WAV/H.264 editing copies; originals stay unchanged. AV1 detection needs sibling ffprobe.exe. No download or installation is performed."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
-                        <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="AUDIO EXPORT" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="WAV preserves the project channel layout. FLAC preserves up to 8 channels; MP3, AAC, Opus and WMA use mono/stereo. FLAC/Opus/WMA require optional local FFmpeg." Style="{StaticResource HintTextStyle}" />
                         <UserControl x:Name="AudioExportOptions">
                             <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="AudioStemExportToggle" Header="Export aligned bus stems as a ZIP of WAV files"
+                                              Toggled="AudioStemExport_Toggled"
+                                              ToolTipService.ToolTip="Includes a direct-master stem and one solo stem per bus. Parent stems include their child buses; bus mutes and track solos are honoured, while bus solo states are ignored so every bus is exported." />
                                 <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
                                     <ComboBoxItem Content="PCM · WAV" />
                                     <ComboBoxItem Content="32-bit float · WAV" />

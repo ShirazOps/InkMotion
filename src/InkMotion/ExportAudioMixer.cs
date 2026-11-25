@@ -430,8 +430,12 @@ public sealed class MultichannelWaveWriter : IDisposable
 {
     private readonly int _headerSize;
     private static readonly Guid PcmSubFormat = new("00000001-0000-0010-8000-00aa00389b71");
-    private readonly FileStream _stream;
+    private readonly Stream _stream;
+    private readonly bool _leaveOpen;
+    private readonly long? _expectedDataBytes;
     private readonly int _channels;
+    private readonly int _sampleRate;
+    private readonly int _channelMask;
     private readonly int _bytesPerSample;
     private readonly bool _floatingPoint;
     private readonly Random _dither = new(0);
@@ -450,32 +454,47 @@ public sealed class MultichannelWaveWriter : IDisposable
         }
 
         _channels = channels;
+        _sampleRate = sampleRate;
+        _channelMask = channelMask;
         _headerSize = channels > 2 ? 68 : 44;
         _bytesPerSample = bitsPerSample / 8;
         _floatingPoint = floatingPoint;
         _stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var header = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
-        int blockAlign = channels * _bytesPerSample;
-        header.Write("RIFF"u8);
-        header.Write(0u);
-        header.Write("WAVE"u8);
-        header.Write("fmt "u8);
-        header.Write(channels > 2 ? 40 : 16);
-        header.Write((ushort)(channels > 2 ? 0xFFFE : floatingPoint ? 3 : 1));
-        header.Write((ushort)channels);
-        header.Write(sampleRate);
-        header.Write(sampleRate * blockAlign);
-        header.Write((ushort)blockAlign);
-        header.Write((ushort)bitsPerSample);
-        if (channels > 2)
+        WriteHeader(0, 0);
+    }
+
+    public MultichannelWaveWriter(Stream stream, int sampleRate, int channels, int channelMask, long expectedFrames,
+        int bitsPerSample = 24, bool floatingPoint = false, bool leaveOpen = false)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentOutOfRangeException.ThrowIfLessThan(channels, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(sampleRate, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedFrames);
+        if (!stream.CanWrite)
         {
-            header.Write((ushort)22);
-            header.Write((ushort)bitsPerSample);
-            header.Write(channelMask);
-            header.Write((floatingPoint ? new Guid("00000003-0000-0010-8000-00aa00389b71") : PcmSubFormat).ToByteArray());
+            throw new ArgumentException("The WAV destination must be writable.", nameof(stream));
         }
-        header.Write("data"u8);
-        header.Write(0u);
+        if (bitsPerSample is not (16 or 24 or 32) || (floatingPoint && bitsPerSample != 32))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bitsPerSample));
+        }
+
+        _channels = channels;
+        _sampleRate = sampleRate;
+        _channelMask = channelMask;
+        _headerSize = channels > 2 ? 68 : 44;
+        _bytesPerSample = bitsPerSample / 8;
+        _floatingPoint = floatingPoint;
+        _stream = stream;
+        _leaveOpen = leaveOpen;
+        _expectedDataBytes = checked(expectedFrames * channels * _bytesPerSample);
+        long paddedDataBytes = _expectedDataBytes.Value + (_expectedDataBytes.Value % 2);
+        if (paddedDataBytes > uint.MaxValue - _headerSize + 8L)
+        {
+            throw new InvalidOperationException("This WAV would exceed the 4 GB RIFF limit.");
+        }
+
+        WriteHeader((uint)(_headerSize - 8 + paddedDataBytes), (uint)_expectedDataBytes.Value);
     }
 
     public bool Truncated { get; private set; }
@@ -490,7 +509,7 @@ public sealed class MultichannelWaveWriter : IDisposable
 
         int frames = count / _channels;
         int bytes = frames * _channels * _bytesPerSample;
-        if (_dataBytes + bytes > uint.MaxValue - _headerSize)
+        if (_dataBytes + bytes > uint.MaxValue - _headerSize || _expectedDataBytes is long expected && _dataBytes + bytes > expected)
         {
             Truncated = true;
             return;
@@ -535,14 +554,44 @@ public sealed class MultichannelWaveWriter : IDisposable
             _stream.WriteByte(0);
         }
 
-        _stream.Position = 4;
-        using (var writer = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true))
+        if (_expectedDataBytes is null)
         {
+            _stream.Position = 4;
+            using var writer = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
             writer.Write((uint)(_headerSize - 8 + _dataBytes + (_dataBytes % 2)));
             _stream.Position = _headerSize - 4;
             writer.Write((uint)_dataBytes);
         }
 
-        _stream.Dispose();
+        if (!_leaveOpen)
+        {
+            _stream.Dispose();
+        }
+    }
+
+    private void WriteHeader(uint riffSize, uint dataSize)
+    {
+        using var header = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        int blockAlign = _channels * _bytesPerSample;
+        header.Write("RIFF"u8);
+        header.Write(riffSize);
+        header.Write("WAVE"u8);
+        header.Write("fmt "u8);
+        header.Write(_channels > 2 ? 40 : 16);
+        header.Write((ushort)(_channels > 2 ? 0xFFFE : _floatingPoint ? 3 : 1));
+        header.Write((ushort)_channels);
+        header.Write(_sampleRate);
+        header.Write(_sampleRate * blockAlign);
+        header.Write((ushort)blockAlign);
+        header.Write((ushort)(_bytesPerSample * 8));
+        if (_channels > 2)
+        {
+            header.Write((ushort)22);
+            header.Write((ushort)(_bytesPerSample * 8));
+            header.Write(_channelMask);
+            header.Write((_floatingPoint ? new Guid("00000003-0000-0010-8000-00aa00389b71") : PcmSubFormat).ToByteArray());
+        }
+        header.Write("data"u8);
+        header.Write(dataSize);
     }
 }
