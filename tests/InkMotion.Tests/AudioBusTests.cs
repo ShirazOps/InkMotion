@@ -15,24 +15,38 @@ public sealed class AudioBusTests
     }
 
     [Fact]
+    public void VersionEightyOneMigratesBusRoutesToMaster()
+    {
+        EditorProject project = EditorProjectSerialiser.Deserialise(
+            """{"Version":81,"AudioBuses":[{"Id":"bus-parent","Name":"Parent"}],"AudioTracks":[{"BusId":"bus-parent"}]}""");
+
+        Assert.Equal(EditorProject.CurrentVersion, project.Version);
+        Assert.Null(Assert.Single(project.AudioBuses).ParentBusId);
+        Assert.Equal("bus-parent", project.AudioTracks[0].BusId);
+    }
+
+    [Fact]
     public void BusesAndRoutesRoundTrip()
     {
-        var bus = new AudioBusProject { Name = "Dialogue", GainDecibels = -3, Solo = true };
+        var parent = new AudioBusProject { Name = "Dialogue", GainDecibels = -3, Solo = true };
+        var bus = new AudioBusProject { Name = "Close mic", ParentBusId = parent.Id };
         var project = new EditorProject
         {
-            AudioBuses = [bus],
+            AudioBuses = [parent, bus],
             AudioTracks = [new() { BusId = bus.Id }],
-            VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = bus.Id }],
+            VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = parent.Id }],
         };
 
         EditorProject reopened = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
-        AudioBusProject restored = Assert.Single(reopened.AudioBuses);
+        Assert.Equal(2, reopened.AudioBuses.Count);
+        AudioBusProject restored = reopened.AudioBuses[1];
         Assert.Equal(bus.Id, restored.Id);
-        Assert.Equal("Dialogue", restored.Name);
-        Assert.Equal(-3, restored.GainDecibels);
-        Assert.True(restored.Solo);
+        Assert.Equal("Close mic", restored.Name);
+        Assert.Equal(parent.Id, restored.ParentBusId);
+        Assert.Equal(-3, reopened.AudioBuses[0].GainDecibels);
+        Assert.True(reopened.AudioBuses[0].Solo);
         Assert.Equal(bus.Id, reopened.AudioTracks[0].BusId);
-        Assert.Equal(bus.Id, reopened.VideoTracks[0].AudioBusId);
+        Assert.Equal(parent.Id, reopened.VideoTracks[0].AudioBusId);
     }
 
     [Fact]
@@ -45,6 +59,18 @@ public sealed class AudioBusTests
         Assert.NotNull(AudioBuses.Validate(new EditorProject
         {
             AudioBuses = [new() { Effects = new AudioEffectSettings { NoiseReductionEnabled = true } }],
+        }));
+        AudioBusProject parent = new();
+        Assert.NotNull(AudioBuses.Validate(new EditorProject
+        {
+            AudioBuses = [parent, new AudioBusProject { ParentBusId = "missing" }],
+        }));
+        AudioBusProject first = new();
+        AudioBusProject second = new() { ParentBusId = first.Id };
+        first.ParentBusId = second.Id;
+        Assert.NotNull(AudioBuses.Validate(new EditorProject
+        {
+            AudioBuses = [first, second],
         }));
         Assert.NotNull(AudioBuses.Validate(new EditorProject
         {
@@ -86,12 +112,31 @@ public sealed class AudioBusTests
     }
 
     [Fact]
+    public void ParentMuteAndSoloApplyToDescendantRoutes()
+    {
+        var parent = new AudioBusProject();
+        var child = new AudioBusProject { ParentBusId = parent.Id };
+        var other = new AudioBusProject();
+        List<AudioBusProject> buses = [parent, child, other];
+
+        parent.Muted = true;
+        Assert.False(AudioBuses.IsAudible(buses, child.Id));
+        parent.Muted = false;
+        parent.Solo = true;
+        Assert.True(AudioBuses.IsAudible(buses, child.Id));
+        Assert.False(AudioBuses.IsAudible(buses, other.Id));
+        Assert.False(AudioBuses.IsAudible(buses, null));
+    }
+
+    [Fact]
     public void ClearRoutesReturnsSourcesToMasterAndNamesSkipTakenNumbers()
     {
-        var bus = new AudioBusProject { Name = "Bus 2" };
+        var parent = new AudioBusProject { Name = "Parent" };
+        var bus = new AudioBusProject { Name = "Bus 2", ParentBusId = parent.Id };
+        var child = new AudioBusProject { Name = "Child", ParentBusId = bus.Id };
         var project = new EditorProject
         {
-            AudioBuses = [bus],
+            AudioBuses = [parent, bus, child],
             AudioTracks = [new() { BusId = bus.Id }, new() { BusId = "other" }],
             VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = bus.Id }],
         };
@@ -100,6 +145,7 @@ public sealed class AudioBusTests
         Assert.Null(project.AudioTracks[0].BusId);
         Assert.Equal("other", project.AudioTracks[1].BusId);
         Assert.Null(project.VideoTracks[0].AudioBusId);
+        Assert.Equal(parent.Id, child.ParentBusId);
 
         Assert.Equal("Bus 1", AudioBuses.CreateName([]));
         Assert.Equal("Bus 3", AudioBuses.CreateName([bus, new AudioBusProject { Name = "Bus 1" }]));
@@ -183,6 +229,32 @@ public sealed class AudioBusTests
             float[] samples = new float[mixer.Channels * 24000];
             Assert.Equal(samples.Length, mixer.Read(samples, 0, samples.Length));
             Assert.InRange(Math.Abs(samples[^2]), 0, 0.01f);
+        }
+        finally
+        {
+            File.Delete(input);
+        }
+    }
+
+    [Fact]
+    public void ExportRoutesNestedBusesThroughEachGainStage()
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-nested-bus-{Guid.NewGuid():N}.wav");
+        try
+        {
+            WriteConstant(input, 0.25f);
+            var parent = new AudioBusProject { GainDecibels = -6.0206 };
+            var child = new AudioBusProject { ParentBusId = parent.Id, GainDecibels = -6.0206 };
+            var project = new EditorProject
+            {
+                AudioBuses = [parent, child],
+                AudioTracks = [new() { AudioPath = input, BusId = child.Id }],
+            };
+
+            using var mixer = new ExportAudioMixer(project, 48000);
+            float[] samples = new float[mixer.Channels * 1024];
+            Assert.Equal(samples.Length, mixer.Read(samples, 0, samples.Length));
+            Assert.InRange(Math.Abs(samples[1000] - 0.0625f), 0, 0.0005f);
         }
         finally
         {

@@ -44,6 +44,22 @@ public sealed class AudioPreviewBusTests : IDisposable
     }
 
     [Fact]
+    public void NestedSubmixRoutesThroughParentGain()
+    {
+        using var bus = new AudioPreviewBus();
+        using AudioPreviewSubmix parent = bus.CreateSubmix(
+            AudioChannelLayout.Stereo, new AudioEffectSettings(), -6.0206);
+        using AudioPreviewSubmix child = bus.CreateSubmix(
+            AudioChannelLayout.Stereo, new AudioEffectSettings(), -6.0206, parent);
+        using AudioPreviewInput source = child.AddInput(new ConstantSamples(0.25f));
+        source.SetEnabled(true);
+
+        float[] output = new float[8];
+        Assert.Equal(output.Length, bus.Read(output, 0, output.Length));
+        Assert.All(output, sample => Assert.Equal(0.0625f, sample, 4));
+    }
+
+    [Fact]
     public void BusMeasuresPhaseCancellationAndDisabledInputsAsSilence()
     {
         using var bus = new AudioPreviewBus();

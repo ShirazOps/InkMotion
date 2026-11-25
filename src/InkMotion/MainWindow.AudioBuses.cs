@@ -15,34 +15,33 @@ public sealed partial class MainWindow
         busId is not null && _previewSubmixes.TryGetValue(busId, out AudioPreviewSubmix? submix) ? submix : null;
 
     /// <summary>
-    /// Keeps one preview submix per bus in the project layout and reroutes every preview player. Replaced submixes are
-    /// disposed only after their players have moved, so playback continues without a gap.
+    /// Rebuilds the bus tree and reroutes preview players. Bus edits pause playback before this is called.
     /// </summary>
     private void SyncPreviewSubmixes()
     {
-        var stale = new List<AudioPreviewSubmix>();
-        var current = new HashSet<string>(StringComparer.Ordinal);
-        foreach (AudioBusProject bus in _audioBuses)
+        DisposePreviewSubmixes();
+        AudioPreviewSubmix? CreateSubmix(string? busId)
         {
-            current.Add(bus.Id);
-            if (_previewSubmixes.TryGetValue(bus.Id, out AudioPreviewSubmix? existing) && existing.Layout == _audioMixLayout)
+            AudioBusProject? bus = AudioBuses.Find(_audioBuses, busId);
+            if (bus is null)
             {
-                existing.Update(bus.Effects, bus.GainDecibels);
-                continue;
+                return null;
             }
 
-            if (existing is not null)
+            if (_previewSubmixes.TryGetValue(bus.Id, out AudioPreviewSubmix? existing))
             {
-                stale.Add(existing);
+                return existing;
             }
 
-            _previewSubmixes[bus.Id] = _audioPreviewBus.CreateSubmix(_audioMixLayout, bus.Effects, bus.GainDecibels);
+            AudioPreviewSubmix? parent = CreateSubmix(bus.ParentBusId);
+            var submix = _audioPreviewBus.CreateSubmix(_audioMixLayout, bus.Effects, bus.GainDecibels, parent);
+            _previewSubmixes.Add(bus.Id, submix);
+            return submix;
         }
 
-        foreach (string id in _previewSubmixes.Keys.Where(id => !current.Contains(id)).ToArray())
+        foreach (AudioBusProject bus in _audioBuses)
         {
-            stale.Add(_previewSubmixes[id]);
-            _previewSubmixes.Remove(id);
+            CreateSubmix(bus.Id);
         }
 
         foreach (AudioTrackRuntime track in _audioTracks)
@@ -58,10 +57,6 @@ public sealed partial class MainWindow
             }
         }
 
-        foreach (AudioPreviewSubmix submix in stale)
-        {
-            submix.Dispose();
-        }
     }
 
     private void DisposePreviewSubmixes()
@@ -93,6 +88,7 @@ public sealed partial class MainWindow
         SyncPreviewSubmixes();
         SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: true);
+        UpdateAudioBusControls();
         UpdateSelectedAudioTrack();
     }
 
@@ -125,6 +121,7 @@ public sealed partial class MainWindow
         AudioBusGainBox.Value = selected?.GainDecibels ?? 0;
         AudioBusMuteButton.IsChecked = selected?.Muted == true;
         AudioBusSoloButton.IsChecked = selected?.Solo == true;
+        PopulateParentBusSelector(selected);
 
         bool hasTrack = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         PopulateBusOutputSelector(AudioClipBusSelector, "Master (direct)");
@@ -154,6 +151,20 @@ public sealed partial class MainWindow
         }
     }
 
+    private void PopulateParentBusSelector(AudioBusProject? selected)
+    {
+        AudioBusParentSelector.Items.Clear();
+        AudioBusParentSelector.Items.Add(new ComboBoxItem { Content = "Master", Tag = string.Empty });
+        foreach (AudioBusProject bus in _audioBuses.Where(bus => selected is not null &&
+            !AudioBuses.WouldCreateCycle(_audioBuses, selected.Id, bus.Id)))
+        {
+            AudioBusParentSelector.Items.Add(new ComboBoxItem { Content = bus.Name, Tag = bus.Id });
+        }
+
+        AudioBusParentSelector.SelectedItem = FindBusItem(AudioBusParentSelector, selected?.ParentBusId ?? string.Empty);
+        AudioBusParentSelector.IsEnabled = selected is not null;
+    }
+
     private static ComboBoxItem? FindBusItem(ComboBox selector, string tag) =>
         selector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Tag as string, tag, StringComparison.Ordinal));
 
@@ -180,9 +191,10 @@ public sealed partial class MainWindow
         ApplyAudioBusEdit(() =>
         {
             AudioBuses.ClearRoutes(_audioTracks.Select(track => track.Project), _videoTracks, bus.Id);
+            AudioBuses.ReparentChildren(_audioBuses, bus.Id, bus.ParentBusId);
             _audioBuses.Remove(bus);
             return true;
-        }, $"{bus.Name} removed; its sources now feed the master directly.", "Could not remove the bus.");
+        }, $"{bus.Name} removed; its sources and child buses now feed the previous output.", "Could not remove the bus.");
     }
 
     private void AudioBusSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -194,6 +206,37 @@ public sealed partial class MainWindow
 
         _selectedAudioBusId = id;
         UpdateAudioBusControls();
+    }
+
+    private void AudioBusParent_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            AudioBusParentSelector.SelectedItem is not ComboBoxItem { Tag: string parentId } ||
+            SelectedAudioBus is not AudioBusProject bus)
+        {
+            return;
+        }
+
+        string? newParentId = string.IsNullOrEmpty(parentId) ? null : parentId;
+        if (AudioBuses.WouldCreateCycle(_audioBuses, bus.Id, newParentId))
+        {
+            StatusText.Text = "A bus cannot be routed to itself or one of its child buses.";
+            UpdateAudioBusControls();
+            return;
+        }
+
+        if (bus.ParentBusId == newParentId)
+        {
+            return;
+        }
+
+        ApplyAudioBusEdit(() =>
+        {
+            bus.ParentBusId = newParentId;
+            return true;
+        }, newParentId is null ? $"{bus.Name} now feeds the master." :
+            $"{bus.Name} now feeds {AudioBuses.Find(_audioBuses, newParentId)?.Name}.",
+            "Could not change the bus parent.");
     }
 
     private void AudioBusName_LostFocus(object sender, RoutedEventArgs e)

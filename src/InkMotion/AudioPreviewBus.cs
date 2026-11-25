@@ -49,13 +49,14 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
     public int Read(float[] buffer, int offset, int count) => _meter.Read(buffer, offset, count);
 
     /// <summary>
-    /// Creates a submix that sums inputs in <paramref name="layout"/>, applies bus effects and gain, folds the result to
-    /// stereo and feeds it to the master, so bus processing in preview matches the export mix before the stereo fold-down.
+    /// Creates a submix that sums inputs in <paramref name="layout"/>, applies bus effects and gain, then routes to its
+    /// parent or folds the result to stereo for the master mix.
     /// </summary>
-    public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels,
+        AudioPreviewSubmix? parent = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new AudioPreviewSubmix(this, layout, effects, gainDecibels);
+        return new AudioPreviewSubmix(this, layout, effects, gainDecibels, parent);
     }
 
     public AudioMeterReading TakeMasterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
@@ -245,12 +246,13 @@ public sealed class AudioPreviewSubmix : IDisposable
     private readonly MixingSampleProvider _mixer;
     private readonly AudioEffectsSampleProvider _effects;
     private readonly VolumeSampleProvider _gain;
-    private readonly AudioPreviewInput _masterInput;
+    private readonly AudioPreviewInput _outputInput;
     private readonly List<AudioPreviewInput> _inputs = [];
     private readonly object _sync = new();
     private bool _disposed;
 
-    internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects,
+        double gainDecibels, AudioPreviewSubmix? parent)
     {
         Layout = layout;
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioPreviewBus.SampleRate, AudioChannelLayouts.Get(layout).ChannelCount);
@@ -259,8 +261,8 @@ public sealed class AudioPreviewSubmix : IDisposable
         _gain = new VolumeSampleProvider(_effects);
         SetGain(gainDecibels);
         var fold = new ChannelMixingSampleProvider(_gain, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
-        _masterInput = bus.AddInput(fold);
-        _masterInput.SetEnabled(true);
+        _outputInput = parent?.AddInput(_gain) ?? bus.AddInput(fold);
+        _outputInput.SetEnabled(true);
     }
 
     public AudioChannelLayout Layout { get; }
@@ -303,7 +305,7 @@ public sealed class AudioPreviewSubmix : IDisposable
         }
 
         _disposed = true;
-        _masterInput.Dispose();
+        _outputInput.Dispose();
         lock (_sync)
         {
             foreach (AudioPreviewInput input in _inputs.ToArray())

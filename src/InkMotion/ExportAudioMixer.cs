@@ -8,7 +8,7 @@ namespace InkMotion;
 /// Offline mix of every audible source in a project, rendered at the requested rate in the project's channel layout.
 /// Audio tracks keep their trim, gain, fades, tempo, pitch, speaker balance and mono spatial pan. Solo isolates marked audio
 /// tracks; otherwise video clips contribute their sound with clip volume and fades applied. Sources routed to a submix bus are
-/// summed in the project layout, processed by the bus effects and gain, and then mixed into the master.
+/// summed in the project layout, processed by the bus effects and gain, and routed through parent buses to the master.
 /// </summary>
 public sealed class ExportAudioMixer : IDisposable
 {
@@ -17,6 +17,7 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly MixingSampleProvider _mixer;
     private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _busEndSeconds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _buildingBusMixers = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<AudioBusProject> _buses;
     private readonly double _frameRate;
     private readonly bool _reportVideoReadFailures;
@@ -60,11 +61,11 @@ public sealed class ExportAudioMixer : IDisposable
                 }
             }
 
-            foreach (AudioBusProject bus in _buses)
+            foreach (AudioBusProject bus in _buses.Where(bus => bus.ParentBusId is null))
             {
-                if (_busEndSeconds.TryGetValue(bus.Id, out double endSeconds))
+                if (GetBusOutputEndSeconds(bus) is double busEndSeconds)
                 {
-                    DurationSeconds = Math.Max(DurationSeconds, endSeconds + bus.Effects.TailDurationSeconds);
+                    DurationSeconds = Math.Max(DurationSeconds, busEndSeconds);
                 }
             }
         }
@@ -271,19 +272,47 @@ public sealed class ExportAudioMixer : IDisposable
     {
         if (AudioBuses.Find(_buses, busId) is not AudioBusProject bus)
         {
+            if (busId is not null)
+            {
+                throw new InvalidDataException("An audio source or bus is routed to a missing bus.");
+            }
+
             return _mixer;
         }
 
-        if (!_busMixers.TryGetValue(bus.Id, out MixingSampleProvider? busMixer))
+        if (_buildingBusMixers.Contains(bus.Id))
         {
-            // ReadFully keeps the bus running after its sources end so delay and reverb tails decay naturally.
-            busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
-            var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
-            _mixer.AddMixerInput(new VolumeSampleProvider(effects) { Volume = AudioBuses.GetLinearGain(bus) });
-            _busMixers.Add(bus.Id, busMixer);
+            throw new InvalidDataException("Audio bus parent routes must not contain a cycle.");
         }
 
+        if (_busMixers.TryGetValue(bus.Id, out MixingSampleProvider? existing))
+        {
+            return existing;
+        }
+
+        _buildingBusMixers.Add(bus.Id);
+        // ReadFully keeps the bus running after its sources end so delay and reverb tails decay naturally.
+        var busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
+        _busMixers.Add(bus.Id, busMixer);
+        var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
+        GetBusMixer(bus.ParentBusId).AddMixerInput(
+            new VolumeSampleProvider(effects) { Volume = AudioBuses.GetLinearGain(bus) });
+        _buildingBusMixers.Remove(bus.Id);
         return busMixer;
+    }
+
+    private double? GetBusOutputEndSeconds(AudioBusProject bus)
+    {
+        double? inputEnd = _busEndSeconds.TryGetValue(bus.Id, out double directEnd) ? directEnd : null;
+        foreach (AudioBusProject child in _buses.Where(candidate => candidate.ParentBusId == bus.Id))
+        {
+            if (GetBusOutputEndSeconds(child) is double childEnd)
+            {
+                inputEnd = Math.Max(inputEnd ?? 0, childEnd);
+            }
+        }
+
+        return inputEnd is double end ? end + bus.Effects.TailDurationSeconds : null;
     }
 
     private static bool IsReadFailure(Exception ex) =>
