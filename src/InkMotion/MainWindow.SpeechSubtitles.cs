@@ -42,12 +42,19 @@ public sealed partial class MainWindow
         language.SelectedIndex = Math.Max(0, preferred);
         var panel = new StackPanel { Spacing = 12, MinWidth = 380 };
         panel.Children.Add(language);
+        var confidence = new Slider { Minimum = 0, Maximum = 1, StepFrequency = 0.05, Value = 0.25 };
+        var confidenceLabel = new TextBlock { Text = "Ignore recognition below 25% confidence" };
+        confidence.ValueChanged += (_, args) =>
+            confidenceLabel.Text = $"Ignore recognition below {args.NewValue:P0} confidence";
+        panel.Children.Add(confidenceLabel);
+        panel.Children.Add(confidence);
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             Text = "Transcribes the audible timeline mix on this device with Windows speech recognition. No audio is " +
-                "uploaded. Mute or solo tracks first to exclude music and effects. Cues are added to a new subtitle " +
-                "track; review the wording and timing, which are approximate.",
+                "uploaded. Mute or solo tracks first to exclude music and effects. Low-confidence words can be " +
+                "filtered, and pauses are used to add punctuation. Cues are added to a new subtitle track; review " +
+                "the wording and timing, which are approximate.",
         });
         var options = new ContentDialog
         {
@@ -60,6 +67,7 @@ public sealed partial class MainWindow
         }
 
         string cultureName = recognisers[language.SelectedIndex].CultureName;
+        double minimumConfidence = confidence.Value;
         EditorProject snapshot = CreateProjectSnapshot();
         double frameRate = _frameRate;
         using var cancellation = new CancellationTokenSource();
@@ -96,7 +104,7 @@ public sealed partial class MainWindow
                 double duration = SpeechSubtitles.RenderRecognitionMix(snapshot, wavePath, cancellation.Token, renderProgress);
                 IReadOnlyList<SpeechWord> words = SpeechSubtitles.Recognise(
                     wavePath, cultureName, duration, cancellation.Token, recogniseProgress);
-                return SpeechSubtitles.BuildCues(words);
+                return SpeechSubtitles.BuildCues(words, new SpeechCueOptions { MinimumConfidence = minimumConfidence });
             });
             finished = true;
             progressDialog.Hide();

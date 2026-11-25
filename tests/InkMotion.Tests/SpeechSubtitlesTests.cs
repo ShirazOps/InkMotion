@@ -26,7 +26,7 @@ public sealed class SpeechSubtitlesTests
 
         IReadOnlyList<SubtitleCueText> cues = SpeechSubtitles.BuildCues(words);
 
-        Assert.Equal(["hello there.", "next sentence", "after pause"], cues.Select(cue => cue.Text));
+        Assert.Equal(["hello there.", "Next sentence.", "After pause"], cues.Select(cue => cue.Text));
         Assert.Equal(0, cues[0].StartSeconds);
         Assert.Equal(0.8, cues[0].EndSeconds, 6);
         Assert.Equal(1.8, cues[1].EndSeconds, 6);
@@ -58,6 +58,25 @@ public sealed class SpeechSubtitlesTests
     }
 
     [Fact]
+    public void BuildCues_FiltersLowConfidenceWordsAndAddsPauseAwarePunctuation()
+    {
+        SpeechWord[] words =
+        [
+            new(0, 0.2, "hello", 0.9),
+            new(0.6, 0.85, "world", 0.8),
+            new(0.95, 1.1, "unreliable", 0.1),
+            new(1.8, 2.0, "again", 0.95),
+        ];
+
+        IReadOnlyList<SubtitleCueText> cues = SpeechSubtitles.BuildCues(words,
+            new SpeechCueOptions { MinimumConfidence = 0.2 });
+
+        Assert.Equal(["hello, world.", "Again"], cues.Select(cue => cue.Text));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SpeechSubtitles.BuildCues([],
+            new SpeechCueOptions { MinimumConfidence = 1.1 }));
+    }
+
+    [Fact]
     public void WrapLines_BreaksNearTheMiddle()
     {
         Assert.Equal("short", SpeechSubtitles.WrapLines("short", 42));
@@ -78,7 +97,7 @@ public sealed class SpeechSubtitlesTests
         Assert.Null(VideoTimelineEditing.Validate(tracks, 25));
         string srt = SubtitleSrt.Export(tracks, 25);
         Assert.Contains("00:00:01,000 --> 00:00:02,000\r\nfirst line.", srt);
-        Assert.Contains("00:00:02,000 --> 00:00:03,000\r\nsecond", srt);
+        Assert.Contains("00:00:02,000 --> 00:00:03,000\r\nSecond", srt);
     }
 
     [Fact]

@@ -6,9 +6,6 @@ using NAudio.Wave.SampleProviders;
 
 namespace InkMotion;
 
-/// <summary>A recognised word with its position on the project timeline.</summary>
-public sealed record SpeechWord(double StartSeconds, double EndSeconds, string Text);
-
 public sealed record SpeechCueOptions
 {
     public int MaximumLineCharacters { get; init; } = 42;
@@ -16,9 +13,13 @@ public sealed record SpeechCueOptions
     public double MaximumCueSeconds { get; init; } = 6;
     public double MinimumCueSeconds { get; init; } = 1;
     public double PauseSeconds { get; init; } = 0.8;
+    public double CommaPauseSeconds { get; init; } = 0.35;
+    public double MinimumConfidence { get; init; } = 0.25;
 }
 
 public sealed record SpeechRecogniserInfo(string CultureName, string DisplayName);
+
+public sealed record SpeechWord(double StartSeconds, double EndSeconds, string Text, double Confidence = 1);
 
 /// <summary>
 /// Offline speech-to-subtitle generation: renders the audible timeline mix, recognises it with the Windows desktop
@@ -33,7 +34,8 @@ public static class SpeechSubtitles
         ArgumentNullException.ThrowIfNull(words);
         options ??= new SpeechCueOptions();
         if (options.MaximumLineCharacters < 8 || options.MaximumLines < 1 || !(options.MaximumCueSeconds > 0) ||
-            !(options.MinimumCueSeconds >= 0) || !(options.PauseSeconds > 0))
+            !(options.MinimumCueSeconds >= 0) || !(options.PauseSeconds > 0) ||
+            !(options.CommaPauseSeconds >= 0) || !(options.MinimumConfidence is >= 0 and <= 1))
         {
             throw new ArgumentOutOfRangeException(nameof(options));
         }
@@ -42,10 +44,30 @@ public static class SpeechSubtitles
         var groups = new List<List<SpeechWord>>();
         List<SpeechWord>? current = null;
         int currentLength = 0;
-        foreach (SpeechWord word in words
-                     .Where(word => !string.IsNullOrWhiteSpace(word.Text) && double.IsFinite(word.StartSeconds) &&
-                         double.IsFinite(word.EndSeconds) && word.StartSeconds >= 0)
-                     .OrderBy(word => word.StartSeconds))
+        SpeechWord[] ordered = words
+            .Where(word => !string.IsNullOrWhiteSpace(word.Text) && double.IsFinite(word.StartSeconds) &&
+                double.IsFinite(word.EndSeconds) && word.StartSeconds >= 0 && word.EndSeconds >= word.StartSeconds &&
+                double.IsFinite(word.Confidence) && word.Confidence >= options.MinimumConfidence)
+            .OrderBy(word => word.StartSeconds)
+            .ToArray();
+        for (int index = 1; index < ordered.Length; index++)
+        {
+            SpeechWord previous = ordered[index - 1];
+            SpeechWord word = ordered[index];
+            double pause = Math.Max(0, word.StartSeconds - previous.EndSeconds);
+            bool sentenceBreak = pause >= options.PauseSeconds || EndsSentence(previous.Text);
+            if (!EndsSentence(previous.Text) && pause >= options.CommaPauseSeconds)
+            {
+                ordered[index - 1] = previous with { Text = previous.Text.TrimEnd() + (sentenceBreak ? "." : ",") };
+            }
+
+            if (sentenceBreak)
+            {
+                ordered[index] = word with { Text = Capitalise(word.Text) };
+            }
+        }
+
+        foreach (SpeechWord word in ordered)
         {
             string text = word.Text.Trim();
             bool startNew = current is null ||
@@ -104,6 +126,8 @@ public static class SpeechSubtitles
 
         return best < 0 ? text : text[..best] + "\n" + text[(best + 1)..];
     }
+
+    private static string Capitalise(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private static bool EndsSentence(string text) => text.EndsWith('.') || text.EndsWith('?') || text.EndsWith('!');
 
@@ -296,7 +320,7 @@ public static class SpeechSubtitles
                 end = start + step;
             }
 
-            words.Add(new SpeechWord(start, Math.Max(end, start), text));
+            words.Add(new SpeechWord(start, Math.Max(end, start), text, result.Confidence));
         }
     }
 
