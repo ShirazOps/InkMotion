@@ -36,7 +36,7 @@ Set **Video Editor > Project settings > Canvas width/height > Apply canvas dimen
 
 - Multitrack waveforms, sample-level source trimming, split/join, range copy/cut/silence, fades, peak normalisation, independent tempo/pitch and metadata editing.
 - Volume, mute, solo, left/right balance and mono-source spatial panning. Project layouts from mono and stereo through surround, 7.1.4 and 12.1, with stereo monitoring.
-- Non-destructive EQ and filters, noise gate, compression, sample-peak limiting, profile-based noise reduction, reverb and delay.
+- Non-destructive EQ and filters, noise gate, compression, sample-peak limiting, profile-based noise reduction, reverb and delay. Delay and reverb tails continue beyond audio clip boundaries and are included in export duration.
 - Embedded video-audio volume and balance automation, timeline curves and matching export processing.
 - **Submix buses** (Audio inspector): route audio clips, and each video track's embedded audio, to named buses with their own gain, mute, solo and non-destructive effect chain. Buses are summed in the project layout before the master in both live preview and export; soloing a bus silences every source not routed to a soloed bus.
 - Selected-track and live preview master peak/RMS meters; complete-export-mix analysis with peak/RMS and integrated LUFS. Source spectrum and spectrogram analysis.

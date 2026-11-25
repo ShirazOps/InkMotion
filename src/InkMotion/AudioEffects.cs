@@ -36,6 +36,29 @@ public sealed record AudioEffectSettings
     public double ReverbDamping { get; init; } = 0.3;
     public double ReverbWetGain { get; init; } = 0.25;
 
+    public double TailDurationSeconds
+    {
+        get
+        {
+            if (!Enabled)
+            {
+                return 0;
+            }
+
+            double delayTail = 0;
+            if (DelayEnabled)
+            {
+                int repeats = DelayFeedback <= 0
+                    ? 1
+                    : Math.Max(1, (int)Math.Ceiling(Math.Log(0.001) / Math.Log(DelayFeedback)));
+                delayTail = Math.Min(30, DelayMilliseconds * 0.001 * repeats);
+            }
+
+            double reverbTail = ReverbEnabled ? ReverbDecaySeconds + 0.05 * ReverbRoomScale : 0;
+            return Math.Min(30, delayTail + reverbTail);
+        }
+    }
+
     public bool IsValid =>
         double.IsFinite(HighPassHz) && (HighPassHz == 0 || HighPassHz is >= 20 and <= 20000) &&
         double.IsFinite(LowPassHz) && (LowPassHz == 0 || LowPassHz is >= 20 and <= 20000) &&
@@ -77,6 +100,8 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     private bool _gateOpen;
     private int _gateHoldFrames;
     private double _limiterGain = 1;
+    private long _tailFramesRemaining;
+    private bool _sourceEnded;
     private float[] _delayBuffer = [];
     private int _delayPosition;
     private AudioReverb[] _reverb = [];
@@ -90,6 +115,8 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     }
 
     public WaveFormat WaveFormat => _source.WaveFormat;
+
+    public double TailDurationSeconds => _settings.TailDurationSeconds;
 
     public void Update(AudioEffectSettings settings)
     {
@@ -137,6 +164,8 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
 
     private void ResetCore()
     {
+        _sourceEnded = false;
+        _tailFramesRemaining = (long)Math.Ceiling(_settings.TailDurationSeconds * WaveFormat.SampleRate);
         _gainReductionDecibels = 0;
         _gateGain = 0;
         _gateOpen = false;
@@ -209,7 +238,29 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
     {
         lock (_sync)
         {
-            int read = _processingSource.Read(buffer, offset, count);
+            int channels = WaveFormat.Channels;
+            int requested = count - count % channels;
+            int read = 0;
+            while (read < requested && !_sourceEnded)
+            {
+                int chunk = _processingSource.Read(buffer, offset + read, requested - read);
+                if (chunk <= 0)
+                {
+                    _sourceEnded = true;
+                    break;
+                }
+
+                read += chunk;
+            }
+
+            if (_sourceEnded && _tailFramesRemaining > 0 && read < requested)
+            {
+                int tailSamples = (int)Math.Min(requested - read, _tailFramesRemaining * channels);
+                Array.Clear(buffer, offset + read, tailSamples);
+                read += tailSamples;
+                _tailFramesRemaining -= tailSamples / channels;
+            }
+
             if (_suppressed)
             {
                 Array.Clear(buffer, offset, read);
@@ -221,7 +272,6 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
                 return read;
             }
 
-            int channels = WaveFormat.Channels;
             double attack = Math.Exp(-1 / (_settings.AttackMilliseconds * 0.001 * WaveFormat.SampleRate));
             double release = Math.Exp(-1 / (_settings.ReleaseMilliseconds * 0.001 * WaveFormat.SampleRate));
             double gateAttack = TimeCoefficient(_settings.GateAttackMilliseconds);

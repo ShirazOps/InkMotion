@@ -16,6 +16,7 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly List<string> _warnings = [];
     private readonly MixingSampleProvider _mixer;
     private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _busEndSeconds = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<AudioBusProject> _buses;
     private readonly double _frameRate;
     private readonly bool _reportVideoReadFailures;
@@ -56,6 +57,14 @@ public sealed class ExportAudioMixer : IDisposable
                 {
                     VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
                     AddVideoClipAudio(clip, transition, track.AudioBusId);
+                }
+            }
+
+            foreach (AudioBusProject bus in _buses)
+            {
+                if (_busEndSeconds.TryGetValue(bus.Id, out double endSeconds))
+                {
+                    DurationSeconds = Math.Max(DurationSeconds, endSeconds + bus.Effects.TailDurationSeconds);
                 }
             }
         }
@@ -143,8 +152,10 @@ public sealed class ExportAudioMixer : IDisposable
             _warnings.Add($"Spectral noise reduction was bypassed for {Path.GetFileName(path)} because its saved profile does not match this source.");
         }
 
-        var effects = new AudioEffectsSampleProvider(stretch, effectsSettings);
-        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration,
+        var finiteSource = new FiniteSampleProvider(stretch, timelineDuration);
+        var effects = new AudioEffectsSampleProvider(finiteSource, effectsSettings);
+        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
+            timelineDuration + effects.TailDurationSeconds,
             track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, track.BusId);
     }
 
@@ -246,6 +257,12 @@ public sealed class ExportAudioMixer : IDisposable
             DelayBy = TimeSpan.FromSeconds(start),
             Take = TimeSpan.FromSeconds(durationSeconds),
         });
+        if (AudioBuses.Find(_buses, busId) is AudioBusProject bus)
+        {
+            _busEndSeconds[bus.Id] = Math.Max(
+                _busEndSeconds.GetValueOrDefault(bus.Id), start + durationSeconds);
+        }
+
         SourceCount++;
         DurationSeconds = Math.Max(DurationSeconds, start + durationSeconds);
     }
@@ -272,6 +289,22 @@ public sealed class ExportAudioMixer : IDisposable
     private static bool IsReadFailure(Exception ex) =>
         ex is IOException or UnauthorizedAccessException or InvalidOperationException or COMException or
             FormatException or ArgumentException or NotSupportedException;
+
+    private sealed class FiniteSampleProvider(ISampleProvider source, double durationSeconds) : ISampleProvider
+    {
+        private long _remainingSamples = Math.Max(0,
+            (long)Math.Round(durationSeconds * source.WaveFormat.SampleRate) * source.WaveFormat.Channels);
+
+        public WaveFormat WaveFormat => source.WaveFormat;
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int requested = count - count % WaveFormat.Channels;
+            int read = source.Read(buffer, offset, (int)Math.Min(requested, _remainingSamples));
+            _remainingSamples -= read;
+            return read;
+        }
+    }
 
     /// <summary>Applies a time-varying gain, with time measured from the first sample read.</summary>
     private sealed class GainEnvelopeSampleProvider(ISampleProvider source, Func<double, double> gainAtSeconds) : ISampleProvider
