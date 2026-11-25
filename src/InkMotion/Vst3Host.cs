@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -68,11 +69,12 @@ public static class Vst3Host
     public static Vst3HostedSampleProvider CreateEffect(
         ISampleProvider source,
         Vst3PluginDescription plugin,
-        IReadOnlyDictionary<uint, double>? parameterValues = null)
+        IReadOnlyDictionary<uint, double>? parameterValues = null,
+        bool preserveTail = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plugin);
-        return new Vst3HostedSampleProvider(source, plugin, parameterValues);
+        return new Vst3HostedSampleProvider(source, plugin, parameterValues, preserveTail);
     }
 
     internal static string GetWorkerPath()
@@ -125,12 +127,15 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
     private readonly Stream _output;
     private readonly object _ioLock = new();
     private string? _failureMessage;
+    private long _tailFramesRemaining;
+    private bool _workerTerminated;
     private bool _disposed;
 
     internal Vst3HostedSampleProvider(
         ISampleProvider source,
         Vst3PluginDescription plugin,
-        IReadOnlyDictionary<uint, double>? parameterValues)
+        IReadOnlyDictionary<uint, double>? parameterValues,
+        bool preserveTail)
     {
         _source = source;
         if (source.WaveFormat.Channels is < 1 or > 2)
@@ -152,6 +157,12 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
         try
         {
             ReadStatus(_output);
+            WritePacket(_input, [5]);
+            ReadStatus(_output);
+            uint tailSamples = ReadUInt32(_output);
+            HasInfiniteTail = tailSamples == uint.MaxValue;
+            TailDurationSeconds = HasInfiniteTail ? 0 : tailSamples / (double)source.WaveFormat.SampleRate;
+            _tailFramesRemaining = preserveTail && !HasInfiniteTail ? tailSamples : 0;
             if (parameterValues is not null)
             {
                 foreach ((uint id, double value) in parameterValues)
@@ -170,6 +181,10 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
     public WaveFormat WaveFormat => _source.WaveFormat;
 
     public string? FailureMessage => Volatile.Read(ref _failureMessage);
+
+    public double TailDurationSeconds { get; }
+
+    public bool HasInfiniteTail { get; }
 
     public IReadOnlyList<Vst3Parameter> GetParameters()
     {
@@ -224,6 +239,19 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
         ArgumentNullException.ThrowIfNull(buffer);
         ObjectDisposedException.ThrowIf(_disposed, this);
         int read = _source.Read(buffer, offset, count);
+        if (read == 0 && _tailFramesRemaining > 0 && FailureMessage is null)
+        {
+            int frames = (int)Math.Min(count / WaveFormat.Channels, _tailFramesRemaining);
+            if (frames == 0)
+            {
+                return 0;
+            }
+
+            read = frames * WaveFormat.Channels;
+            Array.Clear(buffer, offset, read);
+            _tailFramesRemaining -= frames;
+        }
+
         if (read <= 0 || FailureMessage is not null)
         {
             return read;
@@ -250,7 +278,8 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
             }
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or
-            InvalidOperationException or TimeoutException or OperationCanceledException or ObjectDisposedException)
+            InvalidOperationException or TimeoutException or OperationCanceledException or
+            ObjectDisposedException or Win32Exception)
         {
             Fail($"The VST3 insert was bypassed: {exception.Message}");
         }
@@ -268,9 +297,8 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
         _disposed = true;
         lock (_ioLock)
         {
-            if (_process.HasExited)
+            if (_workerTerminated)
             {
-                _process.Dispose();
                 return;
             }
 
@@ -328,19 +356,28 @@ public sealed class Vst3HostedSampleProvider : ISampleProvider, IDisposable
 
     private void TerminateWorker()
     {
-        try
+        lock (_ioLock)
         {
-            if (!_process.HasExited)
+            if (_workerTerminated)
             {
-                _process.Kill(entireProcessTree: true);
+                return;
             }
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        finally
-        {
-            _process.Dispose();
+
+            _workerTerminated = true;
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            finally
+            {
+                _process.Dispose();
+            }
         }
     }
 

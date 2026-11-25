@@ -14,9 +14,11 @@ public sealed class ExportAudioMixer : IDisposable
 {
     private readonly List<IDisposable> _readers = [];
     private readonly List<string> _warnings = [];
+    private readonly List<Vst3InsertChainSampleProvider> _vst3Providers = [];
     private readonly MixingSampleProvider _mixer;
     private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _busEndSeconds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _busVst3TailDurationSeconds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _buildingBusMixers = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<AudioBusProject> _buses;
     private readonly double _frameRate;
@@ -95,7 +97,10 @@ public sealed class ExportAudioMixer : IDisposable
     /// <summary>Timeline time at which the last included source ends, including muted audio segments.</summary>
     public double DurationSeconds { get; private set; }
 
-    public IReadOnlyList<string> Warnings => _warnings;
+    public IReadOnlyList<string> Warnings => _warnings
+        .Concat(_vst3Providers.Select(provider => provider.FailureMessage).OfType<string>())
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
 
     /// <summary>Reads interleaved float samples; silence is returned once every source has finished.</summary>
     public int Read(float[] buffer, int offset, int count) => _mixer.Read(buffer, offset, count);
@@ -163,11 +168,14 @@ public sealed class ExportAudioMixer : IDisposable
 
         var finiteSource = new FiniteSampleProvider(stretch, timelineDuration);
         var effects = new AudioEffectsSampleProvider(finiteSource, effectsSettings);
+        var vst3 = new Vst3InsertChainSampleProvider(effects, track.Vst3Plugins, preservePluginTails: true);
+        _readers.Add(vst3);
+        _vst3Providers.Add(vst3);
         ISampleProvider output = outputGain == 1
-            ? effects
-            : new VolumeSampleProvider(effects) { Volume = (float)outputGain };
+            ? vst3
+            : new VolumeSampleProvider(vst3) { Volume = (float)outputGain };
         AddSource(output, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
-            timelineDuration + effects.TailDurationSeconds,
+            timelineDuration + effects.TailDurationSeconds + vst3.TailDurationSeconds,
             track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId);
     }
 
@@ -306,8 +314,12 @@ public sealed class ExportAudioMixer : IDisposable
         var busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
         _busMixers.Add(bus.Id, busMixer);
         var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
+        var vst3 = new Vst3InsertChainSampleProvider(effects, bus.Vst3Plugins, preservePluginTails: true);
+        _readers.Add(vst3);
+        _vst3Providers.Add(vst3);
+        _busVst3TailDurationSeconds[bus.Id] = vst3.TailDurationSeconds;
         GetBusMixer(bus.ParentBusId).AddMixerInput(
-            new VolumeSampleProvider(effects) { Volume = AudioBuses.GetLinearGain(bus) });
+            new VolumeSampleProvider(vst3) { Volume = AudioBuses.GetLinearGain(bus) });
         _buildingBusMixers.Remove(bus.Id);
         return busMixer;
     }
@@ -323,8 +335,13 @@ public sealed class ExportAudioMixer : IDisposable
             }
         }
 
-        return inputEnd is double end ? end + bus.Effects.TailDurationSeconds : null;
+        return inputEnd is double end
+            ? end + bus.Effects.TailDurationSeconds + GetBusVst3TailDuration(bus.Id)
+            : null;
     }
+
+    private double GetBusVst3TailDuration(string busId) =>
+        _busVst3TailDurationSeconds.GetValueOrDefault(busId);
 
     private static bool IsReadFailure(Exception ex) =>
         ex is IOException or UnauthorizedAccessException or InvalidOperationException or COMException or

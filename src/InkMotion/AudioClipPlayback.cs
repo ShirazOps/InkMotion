@@ -108,6 +108,7 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
     private readonly AudioEffectsSampleProvider _effects;
+    private readonly Vst3InsertChainSampleProvider _vst3;
     private ChannelMixingSampleProvider _monitorMix;
     private AudioMeterSampleProvider _meter;
     private readonly AudioPreviewBus _previewBus;
@@ -150,9 +151,10 @@ public sealed class AudioClipPlayer : IDisposable
             _pitchSemitones = project.PitchSemitones;
             _stretch.SetParameters(_tempoRatio, _pitchSemitones);
             _effects = new AudioEffectsSampleProvider(_stretch, GetCompatibleEffects(project.Effects));
+            _vst3 = new Vst3InsertChainSampleProvider(_effects, project.Vst3Plugins);
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _submix = submix;
-            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
+            _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
             _outputGain = new VolumeSampleProvider(_monitorMix);
             SetOutputGain(outputGain);
             _meter = new AudioMeterSampleProvider(_outputGain);
@@ -172,6 +174,8 @@ public sealed class AudioClipPlayer : IDisposable
     public int SourceSampleRate => _reader.WaveFormat.SampleRate;
 
     public long SourceSampleFrames => _reader.Length / _reader.WaveFormat.BlockAlign;
+
+    public string? Vst3FailureMessage => _vst3.FailureMessage;
 
     public bool IsPlaying => !_disposed && _previewInput.IsEnabled && _previewBus.IsPlaying;
 
@@ -205,6 +209,7 @@ public sealed class AudioClipPlayer : IDisposable
             _previewInput.Reset();
         }
         _effects.Update(GetCompatibleEffects(project.Effects));
+        _vst3.Update(project.Vst3Plugins);
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateRouteMatrix(project, mixLayout));
     }
@@ -223,7 +228,7 @@ public sealed class AudioClipPlayer : IDisposable
         bool enabled = _previewInput.IsEnabled;
         _previewInput.Dispose();
         _submix = submix;
-        _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
+        _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
         _outputGain = new VolumeSampleProvider(_monitorMix) { Volume = _outputGainLinear };
         _meter = new AudioMeterSampleProvider(_outputGain);
         _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
@@ -295,6 +300,7 @@ public sealed class AudioClipPlayer : IDisposable
         _disposed = true;
         _disposed = true;
         _previewInput.Dispose();
+        _vst3.Dispose();
         _reader.Dispose();
     }
 

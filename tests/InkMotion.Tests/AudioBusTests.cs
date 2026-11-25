@@ -39,7 +39,18 @@ public sealed class AudioBusTests
     public void BusesAndRoutesRoundTrip()
     {
         var parent = new AudioBusProject { Name = "Dialogue", GainDecibels = -3, Solo = true };
-        var bus = new AudioBusProject { Name = "Close mic", ParentBusId = parent.Id };
+        var bus = new AudioBusProject
+        {
+            Name = "Close mic",
+            ParentBusId = parent.Id,
+            Vst3Plugins = [new AudioVst3PluginProject
+            {
+                ModulePath = @"C:\Plugins\room.vst3",
+                ClassId = "room-reverb",
+                Name = "Room Reverb",
+                ParameterValues = new Dictionary<uint, double> { [42] = 0.75 },
+            }],
+        };
         var project = new EditorProject
         {
             AudioBuses = [parent, bus],
@@ -47,6 +58,13 @@ public sealed class AudioBusTests
             {
                 BusId = bus.Id,
                 AuxSends = [new AudioAuxSendProject { BusId = parent.Id, GainDecibels = -9 }],
+                Vst3Plugins = [new AudioVst3PluginProject
+                {
+                    ModulePath = @"C:\Plugins\compressor.vst3",
+                    ClassId = "compressor",
+                    Name = "Compressor",
+                    ParameterValues = new Dictionary<uint, double> { [9] = 0.25 },
+                }],
             }],
             VideoTracks = [new() { Kind = TimelineTrackKind.Video, AudioBusId = parent.Id }],
         };
@@ -63,9 +81,39 @@ public sealed class AudioBusTests
         Assert.Equal(parent.Id, reopened.VideoTracks[0].AudioBusId);
         Assert.Equal(parent.Id, Assert.Single(reopened.AudioTracks[0].AuxSends).BusId);
         Assert.Equal(-9, reopened.AudioTracks[0].AuxSends[0].GainDecibels);
+        Assert.Equal(0.75, Assert.Single(restored.Vst3Plugins).ParameterValues[42]);
+        Assert.Equal(0.25, Assert.Single(reopened.AudioTracks[0].Vst3Plugins).ParameterValues[9]);
+        AudioBusProject busClone = AudioBuses.Clone(bus);
+        AudioVst3PluginProject clonedBusPlugin = Assert.Single(busClone.Vst3Plugins);
+        Assert.NotSame(bus.Vst3Plugins[0], clonedBusPlugin);
+        Assert.NotSame(bus.Vst3Plugins[0].ParameterValues, clonedBusPlugin.ParameterValues);
         AudioTrackProject clone = AudioClipEditing.Clone(project.AudioTracks[0]);
         Assert.Equal(parent.Id, Assert.Single(clone.AuxSends).BusId);
         Assert.NotSame(project.AudioTracks[0].AuxSends[0], clone.AuxSends[0]);
+        AudioVst3PluginProject clonedTrackPlugin = Assert.Single(clone.Vst3Plugins);
+        Assert.NotSame(project.AudioTracks[0].Vst3Plugins[0], clonedTrackPlugin);
+        Assert.NotSame(project.AudioTracks[0].Vst3Plugins[0].ParameterValues, clonedTrackPlugin.ParameterValues);
+    }
+
+    [Fact]
+    public void ValidationRejectsInvalidVst3InsertSettings()
+    {
+        var invalidPlugin = new AudioVst3PluginProject
+        {
+            ModulePath = @"C:\Plugins\compressor.vst3",
+            ClassId = "compressor",
+            Name = "Compressor",
+            ParameterValues = new Dictionary<uint, double> { [9] = 1.5 },
+        };
+
+        Assert.NotNull(AudioBuses.Validate(new EditorProject
+        {
+            AudioTracks = [new AudioTrackProject { Vst3Plugins = [invalidPlugin] }],
+        }));
+        Assert.NotNull(AudioBuses.Validate(new EditorProject
+        {
+            AudioBuses = [new AudioBusProject { Vst3Plugins = [invalidPlugin] }],
+        }));
     }
 
     [Fact]

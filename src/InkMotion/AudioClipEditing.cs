@@ -225,6 +225,7 @@ public static class AudioClipEditing
         BusId = track.BusId,
         AuxSends = track.AuxSends?.Select(AudioBuses.Clone).ToList() ?? [],
         Effects = track.Effects with { },
+        Vst3Plugins = track.Vst3Plugins?.Select(AudioVst3PluginProject.Clone).ToList() ?? [],
         SourceInSeconds = track.SourceInSeconds,
         SourceOutSeconds = track.SourceOutSeconds,
         FadeInSeconds = track.FadeInSeconds,

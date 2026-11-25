@@ -34,7 +34,8 @@ public sealed partial class MainWindow
             }
 
             AudioPreviewSubmix? parent = CreateSubmix(bus.ParentBusId);
-            var submix = _audioPreviewBus.CreateSubmix(_audioMixLayout, bus.Effects, bus.GainDecibels, parent);
+            var submix = _audioPreviewBus.CreateSubmix(
+                _audioMixLayout, bus.Effects, bus.GainDecibels, parent, bus.Vst3Plugins);
             _previewSubmixes.Add(bus.Id, submix);
             return submix;
         }

@@ -53,10 +53,10 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
     /// parent or folds the result to stereo for the master mix.
     /// </summary>
     public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels,
-        AudioPreviewSubmix? parent = null)
+        AudioPreviewSubmix? parent = null, IReadOnlyList<AudioVst3PluginProject>? vst3Plugins = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new AudioPreviewSubmix(this, layout, effects, gainDecibels, parent);
+        return new AudioPreviewSubmix(this, layout, effects, gainDecibels, parent, vst3Plugins);
     }
 
     public AudioMeterReading TakeMasterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
@@ -245,6 +245,7 @@ public sealed class AudioPreviewSubmix : IDisposable
 {
     private readonly MixingSampleProvider _mixer;
     private readonly AudioEffectsSampleProvider _effects;
+    private readonly Vst3InsertChainSampleProvider _vst3;
     private readonly VolumeSampleProvider _gain;
     private readonly AudioPreviewInput _outputInput;
     private readonly List<AudioPreviewInput> _inputs = [];
@@ -252,13 +253,14 @@ public sealed class AudioPreviewSubmix : IDisposable
     private bool _disposed;
 
     internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects,
-        double gainDecibels, AudioPreviewSubmix? parent)
+        double gainDecibels, AudioPreviewSubmix? parent, IReadOnlyList<AudioVst3PluginProject>? vst3Plugins)
     {
         Layout = layout;
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioPreviewBus.SampleRate, AudioChannelLayouts.Get(layout).ChannelCount);
         _mixer = new MixingSampleProvider(WaveFormat) { ReadFully = true };
         _effects = new AudioEffectsSampleProvider(_mixer, effects);
-        _gain = new VolumeSampleProvider(_effects);
+        _vst3 = new Vst3InsertChainSampleProvider(_effects, vst3Plugins);
+        _gain = new VolumeSampleProvider(_vst3);
         SetGain(gainDecibels);
         var fold = new ChannelMixingSampleProvider(_gain, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
         _outputInput = parent?.AddInput(_gain) ?? bus.AddInput(fold);
@@ -306,6 +308,7 @@ public sealed class AudioPreviewSubmix : IDisposable
 
         _disposed = true;
         _outputInput.Dispose();
+        _vst3.Dispose();
         lock (_sync)
         {
             foreach (AudioPreviewInput input in _inputs.ToArray())

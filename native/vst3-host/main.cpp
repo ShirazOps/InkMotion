@@ -47,6 +47,7 @@ enum class Command : uint8_t
     GetParameters = 2,
     SetParameter = 3,
     Shutdown = 4,
+    GetTailSamples = 5,
 };
 
 std::string JsonString(const std::string& value)
@@ -424,6 +425,13 @@ public:
         return WriteValue(status);
     }
 
+    bool WriteTailSamples()
+    {
+        const uint8_t status = 0;
+        const uint32_t tailSamples = processor_->getTailSamples();
+        return WriteValue(status) && WriteValue(tailSamples);
+    }
+
 private:
     bool ConfigureBus(Steinberg::Vst::BusDirection direction)
     {
@@ -504,6 +512,12 @@ int RunWorker(const std::string& path, const std::string& classId, double sample
                 WriteValue(status);
                 return 0;
             }
+            case Command::GetTailSamples:
+                if (!worker.WriteTailSamples())
+                {
+                    return 3;
+                }
+                break;
             default:
                 WriteError("Unknown VST3 host command.");
                 break;

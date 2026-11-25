@@ -87,6 +87,7 @@ public sealed class AudioTrackProject
     public string? BusId { get; set; }
     public List<AudioAuxSendProject> AuxSends { get; set; } = [];
     public AudioEffectSettings Effects { get; set; } = new();
+    public List<AudioVst3PluginProject> Vst3Plugins { get; set; } = [];
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     public double FadeInSeconds { get; set; }

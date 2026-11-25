@@ -13,6 +13,7 @@ public sealed class AudioBusProject
     public bool Muted { get; set; }
     public bool Solo { get; set; }
     public AudioEffectSettings Effects { get; set; } = new();
+    public List<AudioVst3PluginProject> Vst3Plugins { get; set; } = [];
 }
 
 public static class AudioBuses
@@ -88,6 +89,7 @@ public static class AudioBuses
             Muted = bus.Muted,
             Solo = bus.Solo,
             Effects = bus.Effects,
+            Vst3Plugins = bus.Vst3Plugins?.Select(AudioVst3PluginProject.Clone).ToList() ?? [],
         };
     }
 
@@ -115,6 +117,7 @@ public static class AudioBuses
         bus.GainDecibels is >= MinimumGainDecibels and <= MaximumGainDecibels &&
         bus.Effects is not null &&
         bus.Effects.IsValid &&
+        AudioVst3Plugins.IsValid(bus.Vst3Plugins) &&
         !bus.Effects.NoiseReductionEnabled;
 
     public static string? Validate(EditorProject project)
@@ -140,6 +143,11 @@ public static class AudioBuses
         if (project.AudioBuses.Any(bus => WouldCreateCycle(project.AudioBuses, bus.Id, bus.ParentBusId)))
         {
             return "Audio bus parent routes must not contain a cycle.";
+        }
+
+        if (project.AudioTracks.Any(track => !AudioVst3Plugins.IsValid(track.Vst3Plugins)))
+        {
+            return "Audio track VST3 inserts must have unique ids, module paths, class ids and valid parameter values.";
         }
 
         if (project.AudioTracks.Any(track => track.AuxSends is null ||
