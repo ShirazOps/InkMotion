@@ -77,6 +77,34 @@ public sealed class SpeechSubtitlesTests
     }
 
     [Fact]
+    public void WhisperWords_ReassemblesTokensAndUsesTokenTimings()
+    {
+        IReadOnlyList<SpeechWord> words = SpeechSubtitles.BuildWhisperWords(
+            [" Hello", " world", ",", " how", " are", " you", "."],
+            [0.1f, 0.3f, 0.5f, 0.7f, 0.8f, 0.9f, 1.1f], 1.5);
+
+        Assert.Equal(["Hello", "world,", "how", "are", "you."], words.Select(word => word.Text));
+        Assert.Equal(0.1, words[0].StartSeconds, 6);
+        Assert.Equal(0.7, words[1].EndSeconds, 6);
+        Assert.Equal(1.5, words[^1].EndSeconds, 6);
+        Assert.Throws<InvalidDataException>(() =>
+            SpeechSubtitles.BuildWhisperWords([" Hello"], [], 1));
+    }
+
+    [Fact]
+    public void AssignSpeakers_LabelsWordsByTheirGreatestTimeOverlap()
+    {
+        SpeechWord[] words = [new(0.1, 0.4, "hello"), new(0.5, 0.8, "there.")];
+        SpeechSpeakerSegment[] segments = [new(0, 0.55, 0), new(0.55, 1, 1)];
+
+        IReadOnlyList<SpeechWord> assigned = SpeechSubtitles.AssignSpeakers(words, segments);
+        IReadOnlyList<SubtitleCueText> cues = SpeechSubtitles.BuildCues(assigned);
+
+        Assert.Equal([0, 1], assigned.Select(word => word.SpeakerId));
+        Assert.Equal(["Speaker 1: hello", "Speaker 2: There."], cues.Select(cue => cue.Text));
+    }
+
+    [Fact]
     public void WrapLines_BreaksNearTheMiddle()
     {
         Assert.Equal("short", SpeechSubtitles.WrapLines("short", 42));

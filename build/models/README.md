@@ -40,3 +40,17 @@ InkMotion checks these names when loading a model and refuses a file that does n
 3. Export the encoder (`model.image_encoder`) with `torch.onnx.export`, using a `[1, 3, 1024, 1024]` input named `image` and an output named `image_embeddings`. InkMotion normalises and pads the image itself, so export the bare encoder without preprocessing.
 
 After importing, InkMotion shows each file's SHA-256 so you can record which build you are using. Exported files are not covered by InkMotion's licence.
+
+## Speech recognition and speaker labels
+
+Speech models are optional, are not bundled, and are never downloaded by InkMotion. If you choose to use them, obtain the files yourself from the sources below, extract them, and import the required files from the speech subtitle dialogue. Put each model set's files in one folder before opening the picker. InkMotion copies them under `%LOCALAPPDATA%\InkMotion\Models\Speech` and displays their SHA-256 hashes after import. Import checks file sizes and the ONNX header; it does not establish a model's provenance, licence, or compatibility.
+
+The `org.k2fsa.sherpa.onnx` NuGet package supplies the local inference runtime (Apache-2.0); it does not include speech weights. The model weights have separate terms:
+
+| Use | Required files | Model source and terms |
+| --- | --- | --- |
+| Multilingual transcription | A matching `tiny-encoder.int8.onnx` and `tiny-decoder.int8.onnx` pair, plus `tiny-tokens.txt` | The [sherpa-onnx Whisper guide](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/whisper/index.html) links to its exported files. The underlying OpenAI Whisper model is MIT-licensed; check the terms accompanying the exact export you obtain. |
+| Speaker segmentation | `model.int8.onnx` or `model.onnx` | sherpa-onnx's [speaker diarisation model guide](https://github.com/k2-fsa/sherpa-onnx/blob/master/docs/source/onnx/speaker-diarization/models.rst) identifies this as an export of [pyannote segmentation 3.0](https://huggingface.co/pyannote/segmentation-3.0), which is MIT-licensed. Hugging Face requires users to accept the model conditions and share account information before accessing its files. Do not bypass that access gate; use the model only if you accept those conditions. |
+| Speaker embeddings | `3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx` | The [3D-Speaker ERes2Net model](https://www.modelscope.cn/models/iic/speech_eres2net_sv_en_voxceleb_16k/) is listed under Apache-2.0. sherpa-onnx's diarisation guide links to the compatible ONNX export. This embedding model is trained for English speech, so speaker labels may be less reliable for other languages. |
+
+Whisper expects the multilingual tiny files above; this import flow does not accept other Whisper sizes or English-only `tiny.en` files. Speaker labelling is optional and requires both diarisation files. Speaker numbers are anonymous turns, not identities, and should be checked. Each model run is limited to one hour of audio. Processing is local; speech audio is not uploaded and InkMotion does not download the model files.
