@@ -173,10 +173,11 @@ public sealed class ExportJobsTests : IDisposable
             AudioTracks = [new() { AudioPath = input, BusId = bus.Id }],
         };
         string output = Path.Combine(_root, "stems.zip");
-        var settings = new AudioExportSettings(AudioExportCodec.PcmWave, 44100, 16, ExportStems: true);
+        var settings = new AudioExportSettings(AudioExportCodec.PcmWave, 44100, 16, ExportStems: true,
+            TruePeakLimiterEnabled: true, TruePeakCeilingDecibels: -6);
         ExportJobStatus job = _store.Launch(project, output, settings, null, WorkerExecutable);
 
-        Assert.True(_store.ReadRequest(job.Id).Audio!.ExportStems);
+        Assert.Equal(settings, _store.ReadRequest(job.Id).Audio);
         ExportJobStatus result = await WaitForTerminal(job.Id);
         Assert.Equal(ExportJobPhase.Completed, result.Phase);
         Assert.Contains("2 aligned WAV stems", result.Message);

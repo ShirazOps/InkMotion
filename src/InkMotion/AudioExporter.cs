@@ -16,7 +16,8 @@ public enum AudioExportCodec
 }
 
 public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate, int BitsPerSample = 24,
-    int BitRate = 192000, string? FFmpegPath = null, bool ExportStems = false)
+    int BitRate = 192000, string? FFmpegPath = null, bool ExportStems = false,
+    bool TruePeakLimiterEnabled = false, double TruePeakCeilingDecibels = -1)
 {
     public static IReadOnlyList<int> SampleRates { get; } = Array.AsReadOnly(new[] { 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000 });
 
@@ -44,6 +45,7 @@ public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate,
             (Codec == AudioExportCodec.PcmWave && BitsPerSample is not (16 or 24 or 32)) ||
             (Codec == AudioExportCodec.FloatWave && BitsPerSample != 32) ||
             (Codec == AudioExportCodec.Flac && BitsPerSample is not (16 or 24)) ||
+            !double.IsFinite(TruePeakCeilingDecibels) || TruePeakCeilingDecibels is < -24 or > 0 ||
             (!IsLossless && BitRate is not (128000 or 160000 or 192000 or 256000 or 320000)) ||
             (UsesFFmpeg && (string.IsNullOrWhiteSpace(FFmpegPath) || !Path.IsPathFullyQualified(FFmpegPath))))
         {
@@ -85,6 +87,10 @@ public static class AudioExporter
         if (settings.Codec == AudioExportCodec.Flac && source.WaveFormat.Channels > 8)
         {
             throw new InvalidOperationException("FLAC supports at most 8 channels. Choose WAV to preserve this project layout.");
+        }
+        if (settings.TruePeakLimiterEnabled)
+        {
+            source = new TruePeakLimiterSampleProvider(source, settings.TruePeakCeilingDecibels);
         }
 
         bool completed = false;
@@ -267,13 +273,18 @@ public static class AudioExporter
         using Stream destination = entry.Open();
         using var writer = new MultichannelWaveWriter(destination, settings.SampleRate, info.ChannelCount,
             info.ChannelMask, frames, settings.BitsPerSample, settings.Codec == AudioExportCodec.FloatWave, leaveOpen: true);
+        ISampleProvider source = new FiniteMix(mixer, cancellationToken, durationSeconds);
+        if (settings.TruePeakLimiterEnabled)
+        {
+            source = new TruePeakLimiterSampleProvider(source, settings.TruePeakCeilingDecibels);
+        }
         int samplesPerBuffer = 4096 * info.ChannelCount;
         float[] buffer = new float[samplesPerBuffer];
         long remaining = frames * info.ChannelCount;
         while (remaining > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            int read = mixer.Read(buffer, 0, (int)Math.Min(samplesPerBuffer, remaining));
+            int read = source.Read(buffer, 0, (int)Math.Min(samplesPerBuffer, remaining));
             if (read == 0)
             {
                 throw new InvalidOperationException("An audio stem stopped before the end of the aligned mix.");
@@ -294,9 +305,10 @@ public static class AudioExporter
     private static EditorProject CloneProject(EditorProject project) =>
         EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
 
-    private sealed class FiniteMix(ExportAudioMixer mixer, CancellationToken cancellationToken) : ISampleProvider
+    private sealed class FiniteMix(ExportAudioMixer mixer, CancellationToken cancellationToken,
+        double? durationSeconds = null) : ISampleProvider
     {
-        private long _remaining = (long)Math.Round(mixer.DurationSeconds * mixer.SampleRate) * mixer.Channels;
+        private long _remaining = (long)Math.Round((durationSeconds ?? mixer.DurationSeconds) * mixer.SampleRate) * mixer.Channels;
 
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(mixer.SampleRate, mixer.Channels);
 

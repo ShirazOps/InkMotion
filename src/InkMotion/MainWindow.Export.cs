@@ -349,14 +349,20 @@ public sealed partial class MainWindow
 
     private void AudioStemExport_Toggled(object sender, RoutedEventArgs e) => UpdateAudioExportOptions();
 
+    private void AudioTruePeakLimiter_Changed(object sender, RoutedEventArgs e)
+    {
+        AudioTruePeakCeilingBox.IsEnabled = AudioTruePeakLimiterToggle.IsChecked == true;
+    }
+
     private void UpdateAudioExportOptions()
     {
         if (AudioExportRateSelector is null || AudioExportDepthSelector is null || AudioExportBitRateSelector is null ||
-            AudioStemExportToggle is null)
+            AudioStemExportToggle is null || AudioTruePeakLimiterToggle is null || AudioTruePeakCeilingBox is null)
         {
             return;
         }
 
+        AudioTruePeakCeilingBox.IsEnabled = AudioTruePeakLimiterToggle.IsChecked == true;
         bool stems = AudioStemExportToggle.IsOn;
         if (stems && AudioExportCodecSelector.SelectedIndex > 1)
         {
@@ -397,7 +403,16 @@ public sealed partial class MainWindow
         }
 
         var settings = new AudioExportSettings((AudioExportCodec)AudioExportCodecSelector.SelectedIndex, rate,
-            int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim(), AudioStemExportToggle.IsOn);
+            int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim(), AudioStemExportToggle.IsOn,
+            AudioTruePeakLimiterToggle.IsChecked == true, AudioTruePeakCeilingBox.Value);
+        if (!double.IsFinite(settings.TruePeakCeilingDecibels) ||
+            settings.TruePeakCeilingDecibels is < -24 or > 0)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose a true-peak ceiling between -24 and 0 dBTP.";
+            return;
+        }
+
         if (settings.UsesFFmpeg && (_ffmpegCapabilities is null ||
             !string.Equals(settings.FFmpegPath, _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase)))
         {
