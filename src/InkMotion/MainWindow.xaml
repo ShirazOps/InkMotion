@@ -1296,8 +1296,10 @@
                             <ComboBoxItem Content="Rigid (move, rotate, scale)" />
                             <ComboBoxItem Content="Planar surface (corner pin in perspective)" />
                             <ComboBoxItem Content="Deformable mesh (bending surface)" />
+                            <ComboBoxItem Content="Articulated limb (two-point)" />
+                            <ComboBoxItem x:Name="InkTrackingPoseModeItem" Content="Articulated limb (AI pose, Windows ML)" />
                         </ComboBox>
-                        <TextBlock Text="Rigid mode follows objects that only move, rotate or scale. Planar mode follows a flat textured surface, such as a sign, screen or wall, as it turns in perspective, and pins the artwork's box corners to it. Deformable mode follows a smoothly bending textured surface, such as fabric, paper or a flag, with a 4 × 4 mesh over the box; it is not body or limb tracking and loses the surface at folds, occlusion or plain areas. The mode is fixed once tracked; clear tracking to change it."
+                        <TextBlock Text="Rigid mode follows objects that only move, rotate or scale. Planar mode follows a flat textured surface, such as a sign, screen or wall, as it turns in perspective, and pins the artwork's box corners to it. Deformable mode follows a smoothly bending textured surface, such as fabric, paper or a flag, with a 4 × 4 mesh over the box; it loses the surface at folds, occlusion or plain areas. Limb modes follow one bending body segment, such as a forearm or shin: drag a line from joint to joint and the artwork moves, turns and stretches with it. Two-point mode follows texture at each end and holds a briefly hidden end. AI pose mode finds the joints with an on-device pose model through Windows ML (64-bit editions only; import the model under AI models) and bridges short occlusions. The mode is fixed once tracked; clear tracking to change it."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button x:Name="InkTrackObjectButton" Content="Track / resume from playhead" Click="TrackInkObject_Click" />
@@ -1337,6 +1339,24 @@
                         <TextBlock Text="A clipped layer only shows where the nearest unclipped layer beneath it has drawn pixels (after its effects). If that layer is hidden or off-screen, the clipped layer is hidden too. Stack several clipped layers on one base." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ToggleButton x:Name="InkLayerHoldoutButton" Content="Occlusion matte" Click="InkLayerHoldout_Click" AutomationProperties.Name="Occlusion matte" />
                         <TextBlock Text="An occlusion matte is never shown. Paint over a foreground object (such as a hand or a passing person) and every ink layer beneath the matte is hidden there, so that artwork appears to pass behind the object. Layers above the matte, cel text and timeline titles are unaffected. Use a soft brush for soft edges, animate the matte cel by cel, or use Follow object to move it with the foreground object. Blend mode and layer effects do not apply to a matte. While editing a matte in the Ink workspace it is shown as a red tint." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="InkAutoMatteButton" Content="Automatic matte from box" Click="InkAutoMatte_Click" IsEnabled="False"
+                                    AutomationProperties.Name="Generate automatic occlusion matte from the selected box" />
+                            <Button x:Name="ClearInkAutoMatteButton" Content="Clear" Click="ClearInkAutoMatte_Click" IsEnabled="False"
+                                    AutomationProperties.Name="Clear automatic occlusion matte" />
+                        </StackPanel>
+                        <TextBlock x:Name="InkAutoMatteStatusText" Text="Automatic matte: make this layer an occlusion matte first." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="On an occlusion matte, select a box around the foreground object at the playhead (Select object box in viewer, in a box mode), then choose Automatic matte from box. A segmentation model outlines the object on every frame on this device through Windows ML, from the playhead to the tracking end time; the outline is added to anything you paint. It stops when the object is lost, so you can review and paint corrections. Needs the 64-bit edition and the segmentation models under AI models." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="AI MODELS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <ComboBox x:Name="OnDeviceModelSelector" Header="On-device model" SelectedIndex="0" HorizontalAlignment="Stretch"
+                                  SelectionChanged="OnDeviceModel_Changed" AutomationProperties.Name="On-device AI model" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="ImportOnDeviceModelButton" Content="Import…" Click="ImportOnDeviceModel_Click" />
+                            <Button x:Name="DownloadOnDeviceModelButton" Content="Download…" Click="DownloadOnDeviceModel_Click" IsEnabled="False" />
+                            <Button x:Name="RemoveOnDeviceModelButton" Content="Remove" Click="RemoveOnDeviceModel_Click" IsEnabled="False" />
+                        </StackPanel>
+                        <TextBlock x:Name="OnDeviceModelStatusText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" IsTextSelectionEnabled="True" />
+                        <TextBlock Text="AI models are not bundled. Import an ONNX file you exported with the scripts in build/models, or download one after you agree to it. Nothing is downloaded automatically, and video frames never leave this device." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="NODE COMPOSITING" Style="{StaticResource SectionHeaderTextStyle}" />
                         <Button x:Name="InkCompositeGraphButton" Content="Open node graph…" Click="InkCompositeGraph_Click" AutomationProperties.Name="Open node compositing graph" />
                         <TextBlock x:Name="InkCompositeGraphStatusText" Text="Node graph off: the layer stack above decides how ink is composited." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

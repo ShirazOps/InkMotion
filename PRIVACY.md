@@ -1,6 +1,6 @@
 # InkMotion privacy policy
 
-**Last updated: 24 October 2026**
+**Last updated: 25 November 2026**
 
 InkMotion is a Windows video, audio and ink-animation editor provided by Shiraz Ops. This policy describes how the application handles your information.
 
@@ -43,6 +43,9 @@ Export jobs run in separate local processes and can continue after you close the
 
 If you choose to use a locally installed FFmpeg executable, InkMotion passes it media data and local file paths needed for encoding. FFmpeg is optional and is not bundled with or automatically downloaded by InkMotion. Use a build you trust; independently installed tools have their own licensing and privacy practices.
 
+### On-device AI models
+
+AI pose tracking and automatic occlusion mattes analyse video frames on your computer with Windows ML. Frames, masks and pose results are not sent anywhere; results are saved only in your project. The models are not bundled. Models you import are copied to `%LOCALAPPDATA%\InkMotion\Models`, and you can remove them from the AI MODELS section. InkMotion never downloads a model automatically: a download is offered only for a model with a published source and pinned SHA-256 hash, and only after you confirm it. A download connects to the listed host, which receives the usual network information such as your IP address. Each model has its own licence, shown before import or download.
 ## Windows, the Microsoft Store and other services
 
 Microsoft may process information relating to Store downloads, purchases, updates, permissions or Windows diagnostics under the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). Such processing is controlled by Microsoft and your Windows settings, not by InkMotion.

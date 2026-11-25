@@ -594,9 +594,9 @@ public static partial class TimelineCompositor
                     clipBase = null;
                 }
 
+                bool paintedVisible = InkAutoMattes.IsPaintedVisible(layer, project.VideoTracks, seconds);
                 if (!layer.IsVisible ||
-                    !InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
-                    !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks) ||
+                    (!paintedVisible && !InkAutoMattes.IsActive(layer, project.VideoTracks, seconds)) ||
                     (clipped && clipBase is null))
                 {
                     continue;
@@ -806,7 +806,10 @@ public static partial class TimelineCompositor
         {
             session.Clear(Color.FromArgb(0, 0, 0, 0));
             session.Transform = drawingTransform;
-            DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+            if (InkAutoMattes.IsPaintedVisible(layer, project.VideoTracks, seconds))
+                DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+            InkAutoMattes.Draw(session, layer.AutoMatte, project.VideoTracks, seconds, width, height,
+                Color.FromArgb((byte)Math.Round(255 * Math.Clamp(layer.Opacity, 0, 1)), 255, 255, 255));
         }
 
         CanvasRenderTarget restored = CreateTarget(device, targetWidth, targetHeight);
@@ -837,6 +840,7 @@ public static partial class TimelineCompositor
     public static void DrawLayerTint(CanvasDrawingSession session, EditorProject project, InkLayerProject layer,
         int frameIndex, float width, float height, double seconds, Color tint)
     {
+        if (layer.IsHoldout) InkAutoMattes.Draw(session, layer.AutoMatte, project.VideoTracks, seconds, width, height, tint);
         if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
             !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) return;
         IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);

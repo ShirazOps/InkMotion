@@ -89,6 +89,7 @@ public sealed partial class MainWindow
         CommitEdit();
         RenderCurrentInk();
         UpdateInkLayerEffectControls();
+        UpdateInkAutoMatteControls();
         StatusText.Text = holdout
             ? $"{CurrentInkLayer.Name} is an occlusion matte. Paint over the foreground object to hide the ink layers beneath it there."
             : $"{CurrentInkLayer.Name} is a normal drawing layer again.";

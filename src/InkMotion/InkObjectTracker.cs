@@ -5,60 +5,32 @@ using Windows.Foundation;
 namespace InkMotion;
 
 public sealed record InkTrackingBox(double X, double Y, double Width, double Height);
-public sealed record InkTrackingResult(IReadOnlyList<InkObjectPose> Keys, double? LostSeconds, string Message);
+/// <param name="Bone">Articulated tracking only: the reference segment to store on the tracking.</param>
+/// <param name="PoseJoints">AI pose only: the followed COCO joints.</param>
+public sealed record InkTrackingResult(IReadOnlyList<InkObjectPose> Keys, double? LostSeconds, string Message,
+    double[]? Bone = null, int[]? PoseJoints = null);
 
-public static class InkObjectTracker
+public static partial class InkObjectTracker
 {
     private sealed record Feature(Vector2 Point, byte[] Patch);
 
     public static InkTrackingResult Analyse(EditorProject project, string clipId, double start, double end,
         InkTrackingBox box, InkObjectPose initialPose, double aspectRatio, IProgress<double>? progress,
         CancellationToken cancellationToken, InkObjectTracking? previousTracking = null, bool perspective = false,
-        bool deformable = false)
+        bool deformable = false, InkLimbRequest? limb = null)
     {
         if (perspective && deformable)
             throw new ArgumentException("Choose either planar or deformable tracking, not both.", nameof(deformable));
-        TimelineTrackProject? track = project.VideoTracks.FirstOrDefault(track =>
-            track.Kind == TimelineTrackKind.Video && track.Clips.Any(clip => clip.Id == clipId));
-        TimelineClipProject? clip = track?.Clips.FirstOrDefault(clip => clip.Id == clipId);
-        if (clip is null || track is null) throw new InvalidOperationException("Select a visible video clip beneath the ink.");
-        double clipStart = VideoTimelineEditing.GetStartSeconds(clip, project.FrameRate);
-        double clipEnd = clipStart + VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video);
-        if (!double.IsFinite(start) || !double.IsFinite(end) || start < clipStart ||
-            end > clipEnd + 0.0001 || end - start < 1 / project.FrameRate ||
-            (end - start) * project.FrameRate > 100000 ||
-            !double.IsFinite(aspectRatio) || aspectRatio <= 0 ||
-            !double.IsFinite(box.X) || !double.IsFinite(box.Y) ||
-            !double.IsFinite(box.Width) || !double.IsFinite(box.Height) ||
-            box.Width < 0.04 || box.Height < 0.04 || box.X - box.Width / 2 < 0 ||
-            box.Y - box.Height / 2 < 0 || box.X + box.Width / 2 > 1 || box.Y + box.Height / 2 > 1)
-            throw new InvalidOperationException("Choose a box inside the viewer and a range within one video clip (at least two frames, at most 100,000 frames).");
-
-        // Analyse the selected clip's displayed picture, including its crop, transform and effects,
-        // but never the drawing being attached or other video tracks.
-        project.VideoTracks = [track];
-        // Analysis uses its own aspect-adjusted sampling frame, not a letterboxed export.
-        project.CanvasSize = null;
-        // Tracking samples 8-bit luminance; HDR export settings do not apply to analysis.
-        project.Colour = null;
-        track.Clips = [clip];
-        track.IsVisible = true;
-        project.VideoMulticamGroups.Clear();
-        // The analysed picture must not include node-graph colour changes or drawing.
-        project.CompositeGraph = null;
-        foreach (InkLayerProject layer in project.InkLayers) layer.IsVisible = false;
-        foreach (EditorFrame frame in project.Frames) frame.TextOverlays.Clear();
-        using var source = new TimelineVideoFrameSource(VideoProxy.GetRenderPath(clip));
-        (int _, int _, int sourceWidth, int sourceHeight) = source.Aperture;
-        InkObjectPose Geometry(InkObjectPose pose)
-        {
-            VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, pose.Seconds, project.FrameRate);
-            Rect crop = VideoCrop.GetSourceRect(new Rect(0, 0, sourceWidth, sourceHeight),
-                VideoCropKeyframes.GetValueAtTime(clip, pose.Seconds, project.FrameRate));
-            return pose with { ClipX = transform.X, ClipY = transform.Y, PictureAspectRatio = crop.Width / crop.Height };
-        }
+        if (limb is not null && (perspective || deformable))
+            throw new ArgumentException("Limb tracking cannot be combined with planar or deformable tracking.", nameof(limb));
+        if (limb?.Articulation == InkTrackingArticulation.Pose && OnDeviceModels.UnsupportedReason() is string unsupported)
+            throw new InvalidOperationException(unsupported);
+        if (limb is not null && previousTracking is { CanvasAspectRatio: > 0 } &&
+            Math.Abs(previousTracking.CanvasAspectRatio - aspectRatio) > 0.01)
+            throw new InvalidOperationException("Resize the viewer to its shape when tracking started, or clear tracking and start again.");
+        Func<InkObjectPose, InkObjectPose> Geometry = IsolateClip(project, clipId, start, end, box, aspectRatio);
         initialPose = Geometry(initialPose);
-        if (previousTracking is { CanvasAspectRatio: > 0 })
+        if (previousTracking is { CanvasAspectRatio: > 0 } && limb is null)
         {
             double referenceAspect = previousTracking.CanvasAspectRatio;
             double factor = Math.Min(referenceAspect / initialPose.PictureAspectRatio, 1) /
@@ -77,14 +49,18 @@ public static class InkObjectTracker
             initialPose = initialPose with { Corners = InitialCorners(box, previousTracking, start) };
         if (deformable)
             initialPose = initialPose with { Mesh = InitialMesh(box, previousTracking, start) };
-        const int width = 384;
-        int height = Math.Clamp((int)Math.Round(width / aspectRatio), 96, 768);
+        // Pose estimation needs more detail than template matching, so AI limb tracking analyses a larger picture.
+        int width = limb?.Articulation == InkTrackingArticulation.Pose ? 640 : 384;
+        int height = Math.Clamp((int)Math.Round(width / aspectRatio), 96, width * 2);
         var profile = new VideoExportProfile(ExportResolution.P720, width, height, project.FrameRate);
         using var device = new CanvasDevice();
         using var renderer = new VideoExporter.FrameRenderer(device,
             new(project, profile, VideoExportCodec.H264, "", height), []);
         int first = (int)Math.Round(start * project.FrameRate);
         int last = (int)Math.Ceiling(end * project.FrameRate) - 1;
+        if (limb is not null)
+            return TrackLimb(renderer, width, height, first, last, project.FrameRate, Geometry, limb,
+                initialPose.Rotation, progress, cancellationToken);
         byte[] previous = Luma(renderer.Render(first));
         if (deformable)
             return TrackDeformable(renderer, previous, first, last, start, width, height, box, initialPose, Geometry,
@@ -532,6 +508,54 @@ public static class InkObjectTracker
         double minY = corners.Min(corner => corner.Y) / height, maxY = corners.Max(corner => corner.Y) / height;
         return new((minX + maxX) / 2, (minY + maxY) / 2,
             Math.Min(1, (maxX - minX) * 0.85), Math.Min(1, (maxY - minY) * 0.85));
+    }
+
+    /// <summary>
+    /// Reduces <paramref name="project"/> to the selected clip's displayed picture, including its crop, transform and
+    /// effects, but never drawing or other video tracks. Returns a function that stamps the clip's placement on a pose.
+    /// </summary>
+    internal static Func<InkObjectPose, InkObjectPose> IsolateClip(EditorProject project, string clipId, double start,
+        double end, InkTrackingBox box, double aspectRatio)
+    {
+        TimelineTrackProject? track = project.VideoTracks.FirstOrDefault(track =>
+            track.Kind == TimelineTrackKind.Video && track.Clips.Any(clip => clip.Id == clipId));
+        TimelineClipProject? clip = track?.Clips.FirstOrDefault(clip => clip.Id == clipId);
+        if (clip is null || track is null) throw new InvalidOperationException("Select a visible video clip beneath the ink.");
+        double clipStart = VideoTimelineEditing.GetStartSeconds(clip, project.FrameRate);
+        double clipEnd = clipStart + VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video);
+        if (!double.IsFinite(start) || !double.IsFinite(end) || start < clipStart ||
+            end > clipEnd + 0.0001 || end - start < 1 / project.FrameRate ||
+            (end - start) * project.FrameRate > 100000 ||
+            !double.IsFinite(aspectRatio) || aspectRatio <= 0 ||
+            !double.IsFinite(box.X) || !double.IsFinite(box.Y) ||
+            !double.IsFinite(box.Width) || !double.IsFinite(box.Height) ||
+            box.Width < 0.04 || box.Height < 0.04 || box.X - box.Width / 2 < 0 ||
+            box.Y - box.Height / 2 < 0 || box.X + box.Width / 2 > 1 || box.Y + box.Height / 2 > 1)
+            throw new InvalidOperationException("Choose a box inside the viewer and a range within one video clip (at least two frames, at most 100,000 frames).");
+
+        project.VideoTracks = [track];
+        // Analysis uses its own aspect-adjusted sampling frame, not a letterboxed export.
+        project.CanvasSize = null;
+        // Analysis samples 8-bit pixels; HDR export settings do not apply.
+        project.Colour = null;
+        track.Clips = [clip];
+        track.IsVisible = true;
+        project.VideoMulticamGroups.Clear();
+        // The analysed picture must not include node-graph colour changes or drawing.
+        project.CompositeGraph = null;
+        foreach (InkLayerProject layer in project.InkLayers) layer.IsVisible = false;
+        foreach (EditorFrame frame in project.Frames) frame.TextOverlays.Clear();
+        int sourceWidth, sourceHeight;
+        using (var source = new TimelineVideoFrameSource(VideoProxy.GetRenderPath(clip)))
+            (_, _, sourceWidth, sourceHeight) = source.Aperture;
+        double frameRate = project.FrameRate;
+        return pose =>
+        {
+            VideoTransformValue transform = VideoTransformKeyframes.GetValueAtTime(clip, pose.Seconds, frameRate);
+            Rect crop = VideoCrop.GetSourceRect(new Rect(0, 0, sourceWidth, sourceHeight),
+                VideoCropKeyframes.GetValueAtTime(clip, pose.Seconds, frameRate));
+            return pose with { ClipX = transform.X, ClipY = transform.Y, PictureAspectRatio = crop.Width / crop.Height };
+        };
     }
 
     private static List<Feature> FindFeatures(byte[] luma, int width, int height, InkTrackingBox box,
