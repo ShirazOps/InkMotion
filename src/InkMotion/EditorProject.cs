@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 80;
+    public const int CurrentVersion = 81;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -66,6 +66,8 @@ public sealed class InkLayerProject
     /// original picture underneath shows through, so lower artwork passes behind a foreground object.
     /// </summary>
     public bool IsHoldout { get; set; }
+    /// <summary>Holdout layers only: an automatically generated occlusion matte drawn with the painted one.</summary>
+    public InkAutoMatte? AutoMatte { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
 }
 
@@ -695,6 +697,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 80)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1229,7 +1235,8 @@ internal static class EditorProjectValidation
                 layer.Opacity is < 0 or > 1 ||
                 !Enum.IsDefined(layer.BlendMode) ||
                 !InkLayerEffects.IsValid(layer) ||
-                (layer.ObjectTracking is not null && !InkObjectMotion.IsValid(layer.ObjectTracking))) ||
+                (layer.ObjectTracking is not null && !InkObjectMotion.IsValid(layer.ObjectTracking)) ||
+                (layer.AutoMatte is not null && !InkAutoMattes.IsValid(layer.AutoMatte))) ||
             project.InkLayers.Select(layer => layer.Id).Distinct(StringComparer.Ordinal).Count() != project.InkLayers.Count ||
             !project.InkLayers.Any(layer => layer.Id == project.ActiveInkLayerId) ||
             !project.InkLayers.Any(layer => layer.Id == "ink-1"))

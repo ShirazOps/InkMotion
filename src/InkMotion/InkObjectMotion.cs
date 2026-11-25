@@ -27,7 +27,25 @@ public sealed class InkObjectTracking
     /// so it can bend with a flexing surface. Mutually exclusive with <see cref="Perspective"/>.
     /// </summary>
     public bool Deformable { get; set; }
+    /// <summary>
+    /// Articulated (limb) tracking: artwork follows one body segment, rotating and stretching with it, so it stays on
+    /// a bending arm or leg. Keys carry position, scale and rotation only.
+    /// </summary>
+    public InkTrackingArticulation Articulation { get; set; }
+    /// <summary>The followed segment at the reference time as x1, y1, x2, y2 in normalised analysis coordinates.</summary>
+    public double[]? Bone { get; set; }
+    /// <summary>AI pose only: the two COCO keypoint indices of the followed segment.</summary>
+    public int[]? PoseJoints { get; set; }
     public List<InkObjectPose> Keys { get; set; } = [];
+}
+
+public enum InkTrackingArticulation
+{
+    None,
+    /// <summary>Classical feature tracking at both ends of a segment, holding the last direction when one end is hidden.</summary>
+    TwoPoint,
+    /// <summary>On-device RTMPose body-pose estimation through Windows ML.</summary>
+    Pose,
 }
 
 /// <param name="Corners">Planar tracking only: top-left, top-right, bottom-right and bottom-left corners as
@@ -74,6 +92,14 @@ public static class InkObjectMotion
                 ? key.Mesh is { Length: MeshValues } mesh && mesh.All(value => double.IsFinite(value) && value is >= -10 and <= 11)
                 : key.Mesh is null)) &&
         !(tracking.Perspective && tracking.Deformable) &&
+        Enum.IsDefined(tracking.Articulation) &&
+        (tracking.Articulation == InkTrackingArticulation.None
+            ? tracking.Bone is null && tracking.PoseJoints is null
+            : !tracking.Perspective && !tracking.Deformable &&
+              tracking.Bone is { Length: 4 } bone && bone.All(value => double.IsFinite(value) && value is >= -1 and <= 2) &&
+              (tracking.Articulation == InkTrackingArticulation.Pose
+                  ? tracking.PoseJoints is { Length: 2 } joints && joints.All(j => j is >= 0 and < RtmPoseModel.KeypointCount) && joints[0] != joints[1]
+                  : tracking.PoseJoints is null)) &&
         tracking.Keys.Zip(tracking.Keys.Skip(1)).All(pair => pair.First.Seconds < pair.Second.Seconds);
 
     public static bool IsVisible(InkObjectTracking? tracking, double seconds) =>

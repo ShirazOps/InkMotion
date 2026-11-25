@@ -87,9 +87,9 @@ public static partial class TimelineCompositor
         float sizeScale, double seconds, Matrix3x2 drawingTransform)
     {
         InkLayerProject? layer = project.InkLayers.FirstOrDefault(candidate => candidate.Id == node.LayerId);
+        bool paintedVisible = layer is not null && InkAutoMattes.IsPaintedVisible(layer, project.VideoTracks, seconds);
         if (layer is null || !layer.IsVisible ||
-            !InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
-            !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks))
+            (!paintedVisible && !InkAutoMattes.IsActive(layer, project.VideoTracks, seconds)))
         {
             return null;
         }
@@ -97,7 +97,10 @@ public static partial class TimelineCompositor
         CanvasRenderTarget result = DrawGraphTarget(device, targetWidth, targetHeight, session =>
         {
             session.Transform = drawingTransform;
-            DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+            if (paintedVisible) DrawInkLayer(session, project, layer, frameIndex, width, height, sizeScale, seconds);
+            if (layer.IsHoldout)
+                InkAutoMattes.Draw(session, layer.AutoMatte, project.VideoTracks, seconds, width, height,
+                    Color.FromArgb((byte)Math.Round(255 * Math.Clamp(layer.Opacity, 0, 1)), 255, 255, 255));
         });
         try
         {

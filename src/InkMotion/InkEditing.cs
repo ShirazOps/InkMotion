@@ -284,6 +284,7 @@ public static class InkEditing
         copy.Name += " copy";
         copy.IsLocked = false;
         copy.ObjectTracking = null;
+        copy.AutoMatte = null;
         List<List<List<InkPoint>>> drawings = frames.Select(frame => CloneStrokes(ExportPlanning.GetLayerStrokes(frame, id))).ToList();
         for (int frame = 0; frame < frames.Count; frame++)
         {
@@ -327,6 +328,7 @@ public static class InkEditing
         PixelSize = layer.PixelSize,
         ClipToLayerBelow = layer.ClipToLayerBelow,
         IsHoldout = layer.IsHoldout,
+        AutoMatte = layer.AutoMatte is null ? null : InkAutoMattes.Clone(layer.AutoMatte),
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
     };
 

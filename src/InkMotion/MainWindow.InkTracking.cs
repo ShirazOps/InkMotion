@@ -20,6 +20,25 @@ public sealed partial class MainWindow
     private EditorFrame? _inkTrackingBoxFrame;
     private TimelineClipProject? _inkTrackingBoxTitle;
     private int _inkTrackingBoxTargetIndex;
+    private double[]? _inkTrackingLine;
+
+    private const int TwoPointLimbModeIndex = 3, PoseLimbModeIndex = 4;
+
+    private bool LimbModeSelected => InkTrackingModeSelector?.SelectedIndex is TwoPointLimbModeIndex or PoseLimbModeIndex;
+
+    private static int TrackingModeIndex(InkObjectTracking tracking) => tracking.Articulation switch
+    {
+        InkTrackingArticulation.TwoPoint => TwoPointLimbModeIndex,
+        InkTrackingArticulation.Pose => PoseLimbModeIndex,
+        _ => tracking.Deformable ? 2 : tracking.Perspective ? 1 : 0,
+    };
+
+    private static string TrackingModeName(InkObjectTracking tracking) => tracking.Articulation switch
+    {
+        InkTrackingArticulation.TwoPoint => "two-point limb",
+        InkTrackingArticulation.Pose => "AI pose limb",
+        _ => tracking.Deformable ? "deformable mesh" : tracking.Perspective ? "planar corner pin" : "rigid",
+    };
 
     private InkTextOverlay? SelectedInkTrackingText =>
         ReferenceEquals(_textInspectorFrame, CurrentFrame) &&
@@ -80,7 +99,7 @@ public sealed partial class MainWindow
         InkTrackObjectButton.IsEnabled = editable;
         InkTrackingEndBox.IsEnabled = editable;
         InkTrackingModeSelector.IsEnabled = editable && tracking is null;
-        if (tracking is not null) InkTrackingModeSelector.SelectedIndex = tracking.Deformable ? 2 : tracking.Perspective ? 1 : 0;
+        if (tracking is not null) InkTrackingModeSelector.SelectedIndex = TrackingModeIndex(tracking);
         InkFollowObjectToggle.IsEnabled = editable && tracking is not null;
         InkFollowObjectToggle.IsChecked = tracking?.Enabled == true;
         ClearInkTrackingButton.IsEnabled = editable && tracking is not null;
@@ -100,10 +119,11 @@ public sealed partial class MainWindow
                     2 => "Off for this title clip. Select an object box and track.",
                     _ => "Off for this layer. Draw first, select an object box, then track.",
                 } :
-            $"{(tracking.Enabled ? "Following" : "Disabled")} · {(tracking.Deformable ? "deformable mesh" : tracking.Perspective ? "planar corner pin" : "rigid")} · " +
+            $"{(tracking.Enabled ? "Following" : "Disabled")} · {TrackingModeName(tracking)} · " +
             $"{tracking.StartSeconds:0.###}–{tracking.EndSeconds:0.###} s · " +
             $"{tracking.Keys.Count} motion keys" +
             (tracking.LostSeconds is double lost ? $" · STOP at {lost:0.###} s: correct the box here or at a later visible frame and resume; motion across the gap is interpolated." : "");
+        UpdateInkAutoMatteControls();
     }
 
     private void InkTrackingTarget_Changed(object sender, SelectionChangedEventArgs e)
@@ -115,10 +135,22 @@ public sealed partial class MainWindow
     private void InkTrackingMode_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (StatusText is null || sender is not ComboBox { IsEnabled: true } selector) return;
+        if (selector.SelectedIndex == PoseLimbModeIndex && OnDeviceModels.UnsupportedReason() is string unsupported)
+        {
+            selector.SelectedIndex = TwoPointLimbModeIndex;
+            StatusText.Text = unsupported;
+            return;
+        }
+        if (_inkTrackingBox is not null && !_selectInkTrackingBox && _inkTrackingCancellation is null)
+            CancelInkTrackingSelection();
         StatusText.Text = selector.SelectedIndex switch
         {
             1 => "Planar mode: select a box on a flat, textured surface. The artwork's box corners will be pinned to it.",
             2 => "Deformable mode: select a box on a smoothly bending, textured surface. The artwork will bend with its mesh.",
+            TwoPointLimbModeIndex => "Two-point limb mode: drag a line along one limb segment, from joint to joint, starting and ending on textured points. The artwork bends and turns with that segment.",
+            PoseLimbModeIndex => OnDeviceModelStore.Default.IsInstalled(OnDeviceModels.PoseEstimator)
+                ? "AI pose limb mode: drag a line from one joint to the next, for example shoulder to elbow. Pose estimation runs on this device with Windows ML."
+                : "AI pose limb mode needs the pose model. Import it under AI models first, or use two-point limb mode.",
             _ => "Rigid mode: position, rotation and size follow the selected object.",
         };
     }
@@ -149,7 +181,9 @@ public sealed partial class MainWindow
         _inkTrackingBoxTitle = targetIndex == 2 ? SelectedTimelineTitle?.Clip : null;
         _selectInkTrackingBox = true;
         UpdateInkTrackingControls();
-        StatusText.Text = targetIndex == 0
+        StatusText.Text = LimbModeSelected
+            ? "Drag a line along the limb segment, from one joint to the next, in the Modified Ink Editor viewer."
+            : targetIndex == 0
             ? "Drag a box around a textured part of the object in the Modified Ink Editor viewer."
             : targetIndex == 1
                 ? "Drag a box around a textured part of the object for the selected text overlay in the Modified Ink Editor viewer."
@@ -163,6 +197,7 @@ public sealed partial class MainWindow
         _inkTrackingPointer = null;
         _inkTrackingBoxStart = null;
         _inkTrackingBox = null;
+        _inkTrackingLine = null;
         _inkTrackingBoxLayer = null;
         _inkTrackingBoxText = null;
         _inkTrackingBoxFrame = null;
@@ -189,6 +224,17 @@ public sealed partial class MainWindow
         {
             Point end = e.GetCurrentPoint(InkSurface).Position;
             double width = Math.Max(1, InkSurface.ActualWidth), height = Math.Max(1, InkSurface.ActualHeight);
+            if (LimbModeSelected)
+            {
+                double x1 = Math.Clamp(start.X / width, 0, 1), y1 = Math.Clamp(start.Y / height, 0, 1);
+                double x2 = Math.Clamp(end.X / width, 0, 1), y2 = Math.Clamp(end.Y / height, 0, 1);
+                _inkTrackingLine = [x1, y1, x2, y2];
+                _inkTrackingBox = InkObjectTracker.LimbBox(x1, y1, x2, y2);
+                InkSurface.Invalidate();
+                e.Handled = true;
+                return true;
+            }
+            _inkTrackingLine = null;
             double left = Math.Clamp(Math.Min(start.X, end.X) / width, 0, 1);
             double top = Math.Clamp(Math.Min(start.Y, end.Y) / height, 0, 1);
             double right = Math.Clamp(Math.Max(start.X, end.X) / width, 0, 1);
@@ -208,8 +254,16 @@ public sealed partial class MainWindow
         _selectInkTrackingBox = false;
         _inkTrackingPointer = null;
         InkSurface.ReleasePointerCapture(e.Pointer);
-        StatusText.Text = _inkTrackingBox is { Width: >= 0.04, Height: >= 0.04 } ?
-            "Object box selected. Choose Track / resume from playhead." : "Box too small. Select a larger object region.";
+        if (_inkTrackingLine is [double x1, double y1, double x2, double y2])
+        {
+            bool longEnough = Math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)) >= 0.04;
+            if (!longEnough) { _inkTrackingLine = null; _inkTrackingBox = null; }
+            StatusText.Text = longEnough ? "Limb line drawn. Choose Track / resume from playhead." :
+                "Line too short. Drag from one joint to the next.";
+        }
+        else
+            StatusText.Text = _inkTrackingBox is { Width: >= 0.04, Height: >= 0.04 } ?
+                "Object box selected. Choose Track / resume from playhead." : "Box too small. Select a larger object region.";
         UpdateInkTrackingControls();
         e.Handled = true;
         return true;
@@ -218,6 +272,15 @@ public sealed partial class MainWindow
     private void DrawInkTrackingBox(CanvasDrawingSession session, float width, float height)
     {
         if (_inkTrackingBox is not { } box || _isPlaying) return;
+        if (_inkTrackingLine is [double x1, double y1, double x2, double y2])
+        {
+            var a = new System.Numerics.Vector2((float)x1 * width, (float)y1 * height);
+            var b = new System.Numerics.Vector2((float)x2 * width, (float)y2 * height);
+            session.DrawLine(a, b, Microsoft.UI.Colors.DeepSkyBlue, 3);
+            session.FillCircle(a, 5, Microsoft.UI.Colors.DeepSkyBlue);
+            session.FillCircle(b, 5, Microsoft.UI.Colors.DeepSkyBlue);
+            return;
+        }
         session.DrawRectangle(new Rect((box.X - box.Width / 2) * width, (box.Y - box.Height / 2) * height,
             box.Width * width, box.Height * height), Microsoft.UI.Colors.DeepSkyBlue, 2);
     }
@@ -313,22 +376,54 @@ public sealed partial class MainWindow
         object target = targetIndex switch { 1 => text!, 2 => title!, _ => layer! };
         string targetSignature = JsonSerializer.Serialize(target);
         double frameRate = _frameRate;
+        InkTrackingArticulation articulation = original?.Articulation ?? InkTrackingModeSelector.SelectedIndex switch
+        {
+            TwoPointLimbModeIndex => InkTrackingArticulation.TwoPoint,
+            PoseLimbModeIndex => InkTrackingArticulation.Pose,
+            _ => InkTrackingArticulation.None,
+        };
+        double[]? line = _inkTrackingLine;
+        if (articulation != InkTrackingArticulation.None && line is null)
+        {
+            StatusText.Text = "Limb tracking needs a line: select it again and drag from one joint to the next.";
+            return;
+        }
+        if (articulation == InkTrackingArticulation.Pose && OnDeviceModels.UnsupportedReason() is string unsupported)
+        {
+            StatusText.Text = unsupported;
+            return;
+        }
+        if (articulation == InkTrackingArticulation.Pose && !OnDeviceModelStore.Default.IsInstalled(OnDeviceModels.PoseEstimator))
+        {
+            StatusText.Text = "Import the pose model under AI models first, or use two-point limb mode.";
+            return;
+        }
         var tracking = original is null ? new InkObjectTracking
         {
             SourceClipId = visible.Clip.Id, StartSeconds = start, EndSeconds = end,
             SourceSignature = JsonSerializer.Serialize(visible.Clip),
             CanvasAspectRatio = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight),
             ReferenceSeconds = start, AnchorX = box.X, AnchorY = box.Y, BoxWidth = box.Width, BoxHeight = box.Height,
-            Perspective = InkTrackingModeSelector.SelectedIndex == 1,
-            Deformable = InkTrackingModeSelector.SelectedIndex == 2,
+            Perspective = articulation == InkTrackingArticulation.None && InkTrackingModeSelector.SelectedIndex == 1,
+            Deformable = articulation == InkTrackingArticulation.None && InkTrackingModeSelector.SelectedIndex == 2,
+            Articulation = articulation,
         } : InkObjectMotion.Clone(original);
+        if (original is null && line is not null && articulation != InkTrackingArticulation.None)
+        {
+            tracking.AnchorX = (line[0] + line[2]) / 2;
+            tracking.AnchorY = (line[1] + line[3]) / 2;
+        }
+        InkLimbRequest? limb = articulation == InkTrackingArticulation.None ? null :
+            new(articulation, line!, new((float)tracking.AnchorX, (float)tracking.AnchorY),
+                original?.Bone, original?.PoseJoints, OnDeviceModelStore.Default.Directory);
         double? priorLostSeconds = resume ? original!.LostSeconds : null;
         bool interpolatesCorrectionGap = priorLostSeconds is double priorLost &&
             start > priorLost + 0.5 / _frameRate;
-        InkObjectPose initial = resume ?
+        double initialRotation = resume ? InkObjectMotion.Evaluate(tracking, start).Rotation : 0;
+        InkObjectPose initial = limb is not null ? new(start, box.X, box.Y, 1, initialRotation) : resume ?
             new(start, box.X, box.Y,
                 Math.Sqrt(box.Width * box.Height / (tracking.BoxWidth * tracking.BoxHeight)),
-                InkObjectMotion.Evaluate(tracking, start).Rotation) : new(start, box.X, box.Y);
+                initialRotation) : new(start, box.X, box.Y);
         using var cancellation = new CancellationTokenSource();
         _inkTrackingCancellation = cancellation;
         UpdateInkTrackingControls();
@@ -341,7 +436,7 @@ public sealed partial class MainWindow
         {
             double aspect = InkSurface.ActualWidth / Math.Max(1, InkSurface.ActualHeight);
             InkTrackingResult result = await Task.Run(() => InkObjectTracker.Analyse(snapshot, tracking.SourceClipId,
-                start, end, box, initial, aspect, progress, cancellation.Token, original, tracking.Perspective, tracking.Deformable));
+                start, end, box, initial, aspect, progress, cancellation.Token, original, tracking.Perspective, tracking.Deformable, limb));
             bool targetStillCurrent = targetIndex switch
             {
                 1 => textFrame is not null && text is not null && _frames.Contains(textFrame) &&
@@ -363,6 +458,11 @@ public sealed partial class MainWindow
             tracking.Keys.RemoveAll(key => key.Seconds >= start);
             tracking.Keys.AddRange(result.Keys);
             tracking.LostSeconds = result.LostSeconds;
+            if (limb is not null)
+            {
+                tracking.Bone = result.Bone ?? tracking.Bone;
+                tracking.PoseJoints = result.PoseJoints ?? tracking.PoseJoints;
+            }
             tracking.Enabled = true;
             switch (targetIndex)
             {
@@ -384,7 +484,8 @@ public sealed partial class MainWindow
             StatusText.Text = "Object tracking cancelled; previous motion was preserved.";
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException or
-            System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+            System.Runtime.InteropServices.COMException or UnauthorizedAccessException or
+            PlatformNotSupportedException or Microsoft.ML.OnnxRuntime.OnnxRuntimeException)
         {
             StatusText.Text = $"Could not track this object: {ex.Message}";
         }
