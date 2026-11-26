@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using NAudio.Wave;
 
 namespace InkMotion;
@@ -10,7 +11,7 @@ public sealed class AudioVst3PluginProject
     public string ModulePath { get; set; } = string.Empty;
     public string ClassId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
     public Dictionary<uint, double> ParameterValues { get; set; } = [];
 
     public static AudioVst3PluginProject Clone(AudioVst3PluginProject plugin)
@@ -44,6 +45,62 @@ public static class AudioVst3Plugins
             plugin.ParameterValues is not null &&
             plugin.ParameterValues.Values.All(value => double.IsFinite(value) && value is >= 0 and <= 1)) &&
         plugins.Select(plugin => plugin.Id).Distinct(StringComparer.Ordinal).Count() == plugins.Count;
+}
+
+public static class Vst3PluginTrustStore
+{
+    private static readonly object Sync = new();
+    private static HashSet<string>? _trustedPlugins;
+
+    public static bool IsTrusted(Vst3PluginDescription plugin)
+    {
+        ArgumentNullException.ThrowIfNull(plugin);
+        lock (Sync)
+        {
+            return GetTrustedPlugins().Contains(GetKey(plugin));
+        }
+    }
+
+    public static void Trust(Vst3PluginDescription plugin)
+    {
+        ArgumentNullException.ThrowIfNull(plugin);
+        lock (Sync)
+        {
+            HashSet<string> trusted = GetTrustedPlugins();
+            if (trusted.Add(GetKey(plugin)))
+            {
+                string path = GetStorePath();
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                string temporaryPath = path + ".new";
+                File.WriteAllText(temporaryPath, JsonSerializer.Serialize(trusted.Order(StringComparer.Ordinal)));
+                File.Move(temporaryPath, path, overwrite: true);
+            }
+        }
+    }
+
+    private static HashSet<string> GetTrustedPlugins()
+    {
+        if (_trustedPlugins is not null)
+        {
+            return _trustedPlugins;
+        }
+
+        string path = GetStorePath();
+        _trustedPlugins = File.Exists(path)
+            ? JsonSerializer.Deserialize<HashSet<string>>(File.ReadAllText(path), new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = false,
+            }) ?? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+        return _trustedPlugins;
+    }
+
+    private static string GetStorePath() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "InkMotion", "vst3-trusted-plugins.json");
+
+    private static string GetKey(Vst3PluginDescription plugin) =>
+        $"{Path.GetFullPath(plugin.ModulePath).ToUpperInvariant()}|{plugin.ClassId.ToUpperInvariant()}";
 }
 
 public sealed class Vst3InsertChainSampleProvider : ISampleProvider, IDisposable
@@ -124,6 +181,14 @@ public sealed class Vst3InsertChainSampleProvider : ISampleProvider, IDisposable
                 Vst3HostedSampleProvider? host = null;
                 if (plugin.Enabled)
                 {
+                    if (!Vst3PluginTrustStore.IsTrusted(plugin.GetDescription()))
+                    {
+                        _creationError = JoinFailure(_creationError,
+                            $"{plugin.Name}: this plug-in has not been approved on this device. Review it in the insert controls before enabling it.");
+                        _hosts.Add(null);
+                        continue;
+                    }
+
                     try
                     {
                         host = Vst3Host.CreateEffect(
@@ -156,12 +221,17 @@ public sealed class Vst3InsertChainSampleProvider : ISampleProvider, IDisposable
         lock (_sync)
         {
             int index = _settings.ToList().FindIndex(plugin => plugin.Id == pluginId);
-            if (index < 0 || _hosts[index] is not Vst3HostedSampleProvider host)
+            if (index < 0)
             {
                 throw new InvalidOperationException("The selected VST3 insert is not active.");
             }
 
-            return host.GetParameters();
+            if (_hosts[index] is Vst3HostedSampleProvider host)
+            {
+                return host.GetParameters();
+            }
+
+            return Vst3Host.GetParameters(_settings[index].GetDescription());
         }
     }
 
@@ -244,4 +314,18 @@ public sealed class Vst3InsertChainSampleProvider : ISampleProvider, IDisposable
 
     private static string JoinFailure(string? first, string next) =>
         string.IsNullOrWhiteSpace(first) ? next : $"{first}{Environment.NewLine}{next}";
+}
+
+internal sealed class SilenceSampleProvider : ISampleProvider
+{
+    public SilenceSampleProvider(int sampleRate, int channels) =>
+        WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+
+    public WaveFormat WaveFormat { get; }
+
+    public int Read(float[] buffer, int offset, int count)
+    {
+        Array.Clear(buffer, offset, count);
+        return count;
+    }
 }

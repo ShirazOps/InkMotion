@@ -117,6 +117,26 @@ public sealed class AudioBusTests
     }
 
     [Fact]
+    public void UnapprovedSavedVst3InsertIsBypassedWithoutLoadingItsModule()
+    {
+        var source = new ConstantSampleProvider(0.25f, 48000, 2);
+        var plugin = new AudioVst3PluginProject
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ModulePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.vst3"),
+            ClassId = Guid.NewGuid().ToString("N"),
+            Name = "Unapproved test effect",
+            Enabled = true,
+        };
+        using var chain = new Vst3InsertChainSampleProvider(source, [plugin]);
+        var samples = new float[16];
+
+        Assert.Contains("not been approved", chain.FailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(samples.Length, chain.Read(samples, 0, samples.Length));
+        Assert.All(samples, sample => Assert.Equal(0.25f, sample));
+    }
+
+    [Fact]
     public void ValidationRejectsInvalidBusesAndRoutes()
     {
         var bus = new AudioBusProject();
@@ -157,6 +177,17 @@ public sealed class AudioBusTests
         }));
         Assert.Throws<InvalidDataException>(() => EditorProjectSerialiser.Deserialise(
             """{"Version":80,"AudioTracks":[{"BusId":"missing"}]}"""));
+    }
+
+    private sealed class ConstantSampleProvider(float value, int sampleRate, int channels) : ISampleProvider
+    {
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            Array.Fill(buffer, value, offset, count);
+            return count;
+        }
     }
 
     [Fact]

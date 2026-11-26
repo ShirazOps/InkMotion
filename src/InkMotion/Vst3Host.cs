@@ -27,6 +27,36 @@ public static class Vst3Host
 {
     private static readonly TimeSpan ScanTimeout = TimeSpan.FromSeconds(20);
 
+    public static string ResolveModulePath(string moduleOrBundlePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(moduleOrBundlePath);
+        string path = Path.GetFullPath(moduleOrBundlePath);
+        if (File.Exists(path))
+        {
+            return string.Equals(Path.GetExtension(path), ".vst3", StringComparison.OrdinalIgnoreCase)
+                ? path
+                : throw new InvalidDataException("Select a VST3 module or plug-in bundle.");
+        }
+
+        string architectureDirectory = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X86 => "x86-win",
+            Architecture.X64 => "x86_64-win",
+            Architecture.Arm64 when OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) => "arm64-win",
+            Architecture.Arm64 => throw new PlatformNotSupportedException(
+                "ARM64 VST3 hosting requires Windows 11; existing audio effects remain available."),
+            _ => throw new PlatformNotSupportedException(
+                $"VST3 hosting is not available for {RuntimeInformation.ProcessArchitecture}."),
+        };
+        string moduleDirectory = Path.Combine(path, "Contents", architectureDirectory);
+        string? module = Directory.Exists(moduleDirectory)
+            ? Directory.EnumerateFiles(moduleDirectory, "*.vst3", SearchOption.TopDirectoryOnly).FirstOrDefault()
+            : null;
+        return module ?? throw new FileNotFoundException(
+            $"No VST3 module for {RuntimeInformation.ProcessArchitecture} was found in the selected bundle.",
+            moduleDirectory);
+    }
+
     public static IReadOnlyList<Vst3PluginDescription> ScanModule(string modulePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modulePath);
@@ -75,6 +105,13 @@ public static class Vst3Host
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(plugin);
         return new Vst3HostedSampleProvider(source, plugin, parameterValues, preserveTail);
+    }
+
+    public static IReadOnlyList<Vst3Parameter> GetParameters(Vst3PluginDescription plugin)
+    {
+        ArgumentNullException.ThrowIfNull(plugin);
+        using var provider = CreateEffect(new SilenceSampleProvider(48000, 2), plugin);
+        return provider.GetParameters();
     }
 
     internal static string GetWorkerPath()

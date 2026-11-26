@@ -1212,6 +1212,13 @@
                                 <NumberBox x:Name="AudioLimiterReleaseBox" Header="Limiter release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <TextBlock Text="Instant linked gain reduction at the end of this track's chain. No look-ahead or inter-sample/true-peak protection. Downmix, resampling and summed tracks can still exceed full scale." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
+                                <Border Style="{StaticResource DividerStyle}" />
+                                <TextBlock Text="VST3 PLUG-IN INSERTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock Text="Plug-ins run in separate processes, but are not security sandboxes. Only load plug-ins you trust. Audio-track inserts currently support mono and stereo; bus inserts require a mono or stereo bus layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button x:Name="AddVst3PluginButton" Content="Add VST3 plug-in" Click="AddVst3Plugin_Click" />
+                                <TextBlock x:Name="Vst3PluginStatusText" Text="Choose a plug-in bundle to scan installed VST3 effects." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel x:Name="Vst3PluginsPanel" Spacing="6" />
+                                <StackPanel x:Name="Vst3PluginControlsPanel" Spacing="6" />
                             </StackPanel>
                         </UserControl>
                         <Border Style="{StaticResource DividerStyle}" />

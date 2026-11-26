@@ -177,6 +177,9 @@ public sealed class AudioClipPlayer : IDisposable
 
     public string? Vst3FailureMessage => _vst3.FailureMessage;
 
+    public IReadOnlyList<Vst3Parameter> GetVst3Parameters(string pluginId) =>
+        _vst3.GetParameters(pluginId);
+
     public bool IsPlaying => !_disposed && _previewInput.IsEnabled && _previewBus.IsPlaying;
 
     public AudioMeterReading TakeMeterReading(bool resetClip = false) => _meter.TakeReading(resetClip);

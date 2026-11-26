@@ -75,6 +75,7 @@ public sealed partial class MainWindow
         AudioReverbDecayBox.Value = settings.ReverbDecaySeconds;
         AudioReverbDampingBox.Value = settings.ReverbDamping;
         AudioReverbWetBox.Value = settings.ReverbWetGain;
+        UpdateVst3PluginInspector(track);
     }
 
     private void AudioEffectsChanged(object sender, RoutedEventArgs e) => ApplyAudioEffects();

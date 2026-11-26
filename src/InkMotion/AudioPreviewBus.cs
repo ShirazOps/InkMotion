@@ -271,6 +271,11 @@ public sealed class AudioPreviewSubmix : IDisposable
 
     public WaveFormat WaveFormat { get; }
 
+    public string? Vst3FailureMessage => _vst3.FailureMessage;
+
+    public IReadOnlyList<Vst3Parameter> GetVst3Parameters(string pluginId) =>
+        _vst3.GetParameters(pluginId);
+
     public AudioPreviewInput AddInput(ISampleProvider source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -293,6 +298,16 @@ public sealed class AudioPreviewSubmix : IDisposable
     public void Update(AudioEffectSettings effects, double gainDecibels)
     {
         _effects.Update(effects);
+        SetGain(gainDecibels);
+    }
+
+    public void Update(
+        AudioEffectSettings effects,
+        double gainDecibels,
+        IReadOnlyList<AudioVst3PluginProject> vst3Plugins)
+    {
+        _effects.Update(effects);
+        _vst3.Update(vst3Plugins);
         SetGain(gainDecibels);
     }
 
