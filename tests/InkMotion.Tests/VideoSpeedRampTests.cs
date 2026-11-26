@@ -55,10 +55,11 @@ public sealed class VideoSpeedRampTests
     }
 
     [Fact]
-    public void Split_ReversedRamp_PreservesSourceTimingAndCannotBeJoined()
+    public void Split_ReversedRamp_PreservesSourceTimingAndRejoinsToTheOriginalMap()
     {
         (TimelineTrackProject track, TimelineClipProject clip) = RampedTrack();
         clip.IsReversed = true;
+        TimelineClipProject original = VideoTimelineEditing.Clone(clip);
         double before = VideoTimelineEditing.GetSourceBoundarySeconds(clip, 4, Fps);
 
         TimelineClipProject? right = VideoTimelineEditing.Split(track, clip, playheadFrame: 61, Fps);
@@ -69,8 +70,17 @@ public sealed class VideoSpeedRampTests
         Assert.Equal(2.5, VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video), 9);
         Assert.Equal(2.5, VideoTimelineEditing.GetDurationSeconds(right, TimelineTrackKind.Video), 9);
         Assert.Equal(before, VideoTimelineEditing.GetSourceBoundarySeconds(right, 4, Fps), 9);
-        Assert.Throws<InvalidOperationException>(() => VideoClipJoining.Join(track, clip, right, Fps));
         Assert.Null(VideoTimelineEditing.Validate([track], Fps));
+
+        TimelineClipProject joined = VideoClipJoining.Join(track, clip, right, Fps);
+
+        Assert.Equal(0, joined.SourceInSeconds, 9);
+        Assert.Equal(10, joined.SourceOutSeconds!.Value, 9);
+        foreach (double seconds in new[] { 0.5, 2.5, 3.1, 4.9 })
+        {
+            Assert.Equal(VideoTimelineEditing.GetSourceBoundarySeconds(original, seconds, Fps),
+                VideoTimelineEditing.GetSourceBoundarySeconds(joined, seconds, Fps), 9);
+        }
     }
 
     [Fact]
@@ -132,11 +142,14 @@ public sealed class VideoSpeedRampTests
     }
 
     [Fact]
-    public void ConstantSpeedNeighbourEdits_RefuseRampedClips()
+    public void RippleTrimEnd_LengthensARampedClipByHoldingItsEndSpeed()
     {
         (TimelineTrackProject track, TimelineClipProject clip) = RampedTrack(sourceDuration: 20);
 
-        Assert.False(VideoEditTools.RippleTrimEnd(track, clip, 12, Fps));
+        Assert.True(VideoEditTools.RippleTrimEnd(track, clip, 12, Fps));
+
+        Assert.Equal(11.5, clip.SourceOutSeconds!.Value, 9);
+        Assert.Equal(3.75, VideoTimelineEditing.GetSourceBoundarySeconds(clip, 2.5, Fps), 9);
     }
 
     [Fact]

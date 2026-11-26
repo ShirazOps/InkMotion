@@ -39,8 +39,7 @@ public static class VideoClipJoining
         double rightDuration = VideoTimelineEditing.GetDurationSeconds(right, track.Kind);
         if (left.SourceDurationSeconds <= 0 || right.SourceDurationSeconds <= 0 ||
             left.SourceDurationSeconds != right.SourceDurationSeconds ||
-            left.PlaybackSpeed != right.PlaybackSpeed || left.IsReversed != right.IsReversed ||
-            VideoSpeedRamp.IsRamped(left) || VideoSpeedRamp.IsRamped(right) ||
+            left.IsReversed != right.IsReversed ||
             left.ReverseEmbeddedAudio != right.ReverseEmbeddedAudio ||
             (left.IsReversed
                 ? Math.Abs(left.SourceInSeconds - rightEnd) > 1e-7
@@ -48,7 +47,24 @@ public static class VideoClipJoining
             Math.Abs(VideoTimelineEditing.GetEndSeconds(left, track.Kind, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(right, frameRate)) > 1e-7)
         {
-            throw new InvalidOperationException("Clips must have matching probed source lengths, constant speeds without speed ramps and touch in timeline and source order, with no gap, overlap or repeated section.");
+            throw new InvalidOperationException("Clips must have matching probed source lengths and playback direction and touch in timeline and source order, with no gap, overlap or repeated section.");
+        }
+
+        bool ramped = VideoSpeedRamp.IsRamped(left) || VideoSpeedRamp.IsRamped(right);
+        if (!ramped && left.PlaybackSpeed != right.PlaybackSpeed)
+        {
+            throw new InvalidOperationException("Clips must have the same constant speed before joining.");
+        }
+
+        List<VideoSpeedRampPoint>? joinedRamp = null;
+        if (ramped)
+        {
+            double leftSpeed = VideoSpeedRamp.GetEndSpeed(left);
+            double rightSpeed = VideoSpeedRamp.GetStartSpeed(right);
+            joinedRamp = VideoSpeedRamp.Concatenate(left, right) ?? throw new InvalidOperationException(
+                Math.Abs(leftSpeed - rightSpeed) > 1e-9 * Math.Max(1, leftSpeed)
+                    ? $"The speed jumps from {leftSpeed:0.###}x to {rightSpeed:0.###}x at the join, which one speed ramp cannot represent. Match the speeds at the boundary before joining."
+                    : $"The joined speed ramp would need more than {VideoSpeedRamp.MaximumPoints} points. Remove some ramp points before joining.");
         }
 
         if (left.FadeOutSeconds != 0 || right.FadeInSeconds != 0 ||
@@ -194,6 +210,7 @@ public static class VideoClipJoining
             joined.SourceOutSeconds = rightEnd;
         }
         joined.FadeOutSeconds = right.FadeOutSeconds;
+        VideoSpeedRamp.Apply(joined, joinedRamp);
         joined.RollingShutterProfile = left.RollingShutterProfile
             .Concat(right.RollingShutterProfile)
             .GroupBy(keyframe => keyframe.SourceSeconds)

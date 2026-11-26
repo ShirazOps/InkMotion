@@ -238,19 +238,17 @@ public static class VideoEditTools
     private static bool RippleTrim(TimelineTrackProject track, TimelineClipProject clip, int frames,
         double frameRate, bool trimStart)
     {
-        if (VideoSpeedRamp.IsRamped(clip) ||
-            !TryGetNeighbours(track, clip, frames, frameRate, out _, out _) ||
+        if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out _) ||
             VideoTimelineEditing.Validate([track], frameRate) is not null)
         {
             return false;
         }
 
-        double sourceDelta = frames / frameRate * clip.PlaybackSpeed;
-        double start = clip.SourceInSeconds +
-            (trimStart ? (clip.IsReversed ? 0 : sourceDelta) : (clip.IsReversed ? -sourceDelta : 0));
-        double end = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) +
-            (trimStart ? (clip.IsReversed ? -sourceDelta : 0) : (clip.IsReversed ? 0 : sourceDelta));
-        if (!CanUseRange(clip, start, end, frameRate))
+        // A positive ripple start shortens the clip from its start; a positive ripple end lengthens it.
+        double change = frames / frameRate;
+        EdgePlan? plan = PlanEdge(clip, trimStart ? TimelineTrimEdge.Start : TimelineTrimEdge.End,
+            trimStart ? -change : change, frameRate);
+        if (plan is null)
         {
             return false;
         }
@@ -262,8 +260,7 @@ public static class VideoEditTools
             return false;
         }
 
-        clip.SourceInSeconds = Math.Max(0, start);
-        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, end);
+        ApplyPlan(clip, plan);
         foreach (TimelineClipProject candidate in following)
         {
             candidate.StartFrame = (int)(candidate.StartFrame + shift);
@@ -274,47 +271,22 @@ public static class VideoEditTools
     public static bool RollEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate)
     {
         if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out TimelineClipProject? next) ||
-            next is null || !AreAdjacent(clip, next, frameRate) ||
-            VideoSpeedRamp.IsRamped(clip) || VideoSpeedRamp.IsRamped(next))
+            next is null || !AreAdjacent(clip, next, frameRate))
         {
             return false;
         }
 
-        double delta = frames / frameRate;
-        double clipDelta = delta * clip.PlaybackSpeed;
-        double nextDelta = delta * next.PlaybackSpeed;
-        double clipBoundary = clip.IsReversed
-            ? clip.SourceInSeconds - clipDelta
-            : (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) + clipDelta;
-        double nextBoundary = next.IsReversed
-            ? (next.SourceOutSeconds ?? next.SourceDurationSeconds) - nextDelta
-            : next.SourceInSeconds + nextDelta;
+        double change = frames / frameRate;
         long nextStartFrame = (long)next.StartFrame + frames;
-        if (nextStartFrame < 1 || nextStartFrame > int.MaxValue ||
-            !CanUseRange(clip, clip.IsReversed ? clipBoundary : clip.SourceInSeconds,
-                clip.IsReversed ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) : clipBoundary, frameRate) ||
-            !CanUseRange(next, next.IsReversed ? next.SourceInSeconds : nextBoundary,
-                next.IsReversed ? nextBoundary : (next.SourceOutSeconds ?? next.SourceDurationSeconds), frameRate))
+        EdgePlan? clipPlan = PlanEdge(clip, TimelineTrimEdge.End, change, frameRate);
+        EdgePlan? nextPlan = PlanEdge(next, TimelineTrimEdge.Start, -change, frameRate);
+        if (nextStartFrame < 1 || nextStartFrame > int.MaxValue || clipPlan is null || nextPlan is null)
         {
             return false;
         }
 
-        if (clip.IsReversed)
-        {
-            clip.SourceInSeconds = Math.Max(0, clipBoundary);
-        }
-        else
-        {
-            clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, clipBoundary);
-        }
-        if (next.IsReversed)
-        {
-            next.SourceOutSeconds = Math.Max(0, nextBoundary);
-        }
-        else
-        {
-            next.SourceInSeconds = Math.Max(0, nextBoundary);
-        }
+        ApplyPlan(clip, clipPlan);
+        ApplyPlan(next, nextPlan);
         next.StartFrame = (int)nextStartFrame;
         return true;
     }
@@ -324,51 +296,105 @@ public static class VideoEditTools
         if (!TryGetNeighbours(track, clip, frames, frameRate, out TimelineClipProject? previous, out TimelineClipProject? next) ||
             previous is null || next is null || !AreAdjacent(previous, clip, frameRate) ||
             !AreAdjacent(clip, next, frameRate) ||
-            VideoSpeedRamp.IsRamped(previous) || VideoSpeedRamp.IsRamped(next) ||
             !CanUseRange(clip, clip.SourceInSeconds, clip.SourceOutSeconds ?? clip.SourceDurationSeconds, frameRate))
         {
             return false;
         }
 
-        double delta = frames / frameRate;
-        double previousDelta = delta * previous.PlaybackSpeed;
-        double nextDelta = delta * next.PlaybackSpeed;
-        double previousBoundary = previous.IsReversed
-            ? previous.SourceInSeconds - previousDelta
-            : (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) + previousDelta;
-        double nextBoundary = next.IsReversed
-            ? (next.SourceOutSeconds ?? next.SourceDurationSeconds) - nextDelta
-            : next.SourceInSeconds + nextDelta;
+        double change = frames / frameRate;
         long start = (long)clip.StartFrame + frames;
         long nextStart = (long)next.StartFrame + frames;
+        EdgePlan? previousPlan = PlanEdge(previous, TimelineTrimEdge.End, change, frameRate);
+        EdgePlan? nextPlan = PlanEdge(next, TimelineTrimEdge.Start, -change, frameRate);
         if (start < 1 || start > int.MaxValue || nextStart < 1 || nextStart > int.MaxValue ||
-            !CanUseRange(previous, previous.IsReversed ? previousBoundary : previous.SourceInSeconds,
-                previous.IsReversed ? (previous.SourceOutSeconds ?? previous.SourceDurationSeconds) : previousBoundary, frameRate) ||
-            !CanUseRange(next, next.IsReversed ? next.SourceInSeconds : nextBoundary,
-                next.IsReversed ? nextBoundary : (next.SourceOutSeconds ?? next.SourceDurationSeconds), frameRate))
+            previousPlan is null || nextPlan is null)
         {
             return false;
         }
 
-        if (previous.IsReversed)
-        {
-            previous.SourceInSeconds = Math.Max(0, previousBoundary);
-        }
-        else
-        {
-            previous.SourceOutSeconds = Math.Min(previous.SourceDurationSeconds, previousBoundary);
-        }
+        ApplyPlan(previous, previousPlan);
         clip.StartFrame = (int)start;
-        if (next.IsReversed)
-        {
-            next.SourceOutSeconds = Math.Max(0, nextBoundary);
-        }
-        else
-        {
-            next.SourceInSeconds = Math.Max(0, nextBoundary);
-        }
+        ApplyPlan(next, nextPlan);
         next.StartFrame = (int)nextStart;
         return true;
+    }
+
+    private sealed record EdgePlan(double SourceIn, double SourceOut, List<VideoSpeedRampPoint>? Ramp);
+
+    /// <summary>
+    /// Plans moving one edge of a video clip by <paramref name="change"/> timeline seconds (positive lengthens).
+    /// Ramped clips keep their source-time map: shortening slices the ramp and lengthening holds the edge speed.
+    /// Returns null when the result leaves the source, drops below one frame, cannot hold the fades or the ramp.
+    /// </summary>
+    private static EdgePlan? PlanEdge(TimelineClipProject clip, TimelineTrimEdge edge, double change, double frameRate)
+    {
+        bool atStart = edge == TimelineTrimEdge.Start;
+        // The source in point is the leading source edge for forward clips and the trailing one for reversed clips.
+        bool movesIn = atStart != clip.IsReversed;
+        double sourceIn = clip.SourceInSeconds;
+        double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
+        if (!VideoSpeedRamp.IsRamped(clip))
+        {
+            double sourceDelta = change * clip.PlaybackSpeed;
+            if (movesIn) sourceIn -= sourceDelta;
+            else sourceOut += sourceDelta;
+            return CanUseRange(clip, sourceIn, sourceOut, frameRate) ? new EdgePlan(sourceIn, sourceOut, null) : null;
+        }
+
+        double duration = VideoTimelineEditing.GetDurationSeconds(clip, TimelineTrackKind.Video);
+        List<VideoSpeedRampPoint> ramp;
+        if (change >= 0)
+        {
+            double sourceDelta = change * (atStart ? VideoSpeedRamp.GetStartSpeed(clip) : VideoSpeedRamp.GetEndSpeed(clip));
+            ramp = VideoSpeedRamp.Extend(clip, atStart ? change : 0, atStart ? 0 : change);
+            if (movesIn) sourceIn -= sourceDelta;
+            else sourceOut += sourceDelta;
+        }
+        else
+        {
+            double removed = -change;
+            double kept = duration - removed;
+            if (!double.IsFinite(kept) || kept <= 0)
+            {
+                return null;
+            }
+
+            if (atStart)
+            {
+                double sourceRemoved = VideoSpeedRamp.GetSourceElapsed(clip, removed);
+                ramp = VideoSpeedRamp.Slice(clip, removed, duration)!;
+                if (movesIn) sourceIn += sourceRemoved;
+                else sourceOut -= sourceRemoved;
+            }
+            else
+            {
+                double sourceKept = VideoSpeedRamp.GetSourceElapsed(clip, kept);
+                ramp = VideoSpeedRamp.Slice(clip, 0, kept)!;
+                if (movesIn) sourceIn = sourceOut - sourceKept;
+                else sourceOut = sourceIn + sourceKept;
+            }
+        }
+
+        if (VideoSpeedRamp.ValidatePoints(ramp) is not null)
+        {
+            return null;
+        }
+
+        double newDuration = (sourceOut - sourceIn) / VideoSpeedRamp.GetAverageSpeed(ramp);
+        return double.IsFinite(sourceIn) && double.IsFinite(sourceOut) &&
+            double.IsFinite(clip.SourceDurationSeconds) &&
+            sourceIn >= -1e-8 && sourceOut <= clip.SourceDurationSeconds + 1e-8 &&
+            double.IsFinite(newDuration) && newDuration >= 1 / frameRate - 1e-8 &&
+            newDuration >= clip.FadeInSeconds + clip.FadeOutSeconds - 1e-8
+            ? new EdgePlan(sourceIn, sourceOut, ramp)
+            : null;
+    }
+
+    private static void ApplyPlan(TimelineClipProject clip, EdgePlan plan)
+    {
+        clip.SourceInSeconds = Math.Max(0, plan.SourceIn);
+        clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, plan.SourceOut);
+        VideoSpeedRamp.Apply(clip, plan.Ramp);
     }
 
     private static bool TryGetNeighbours(TimelineTrackProject track, TimelineClipProject clip, int frames,
