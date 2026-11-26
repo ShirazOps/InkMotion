@@ -536,6 +536,7 @@ public sealed partial class MainWindow
             CloseButtonText = "Cancel",
         };
         bool finished = false;
+        bool dialogShown = false;
         dialog.Closing += (_, _) =>
         {
             if (!finished) cancellation.Cancel();
@@ -544,9 +545,10 @@ public sealed partial class MainWindow
         GenerateOpticalFlowProxyButton.IsEnabled = false;
         GenerateVideoProxyButton.IsEnabled = false;
         StatusText.Text = "Generating an optical-flow proxy; this may take a while…";
-        _ = dialog.ShowAsync();
         try
         {
+            _ = dialog.ShowAsync();
+            dialogShown = true;
             VideoProxyResult proxy = await Task.Run(() =>
                 VideoOpticalFlowProxy.Generate(sourcePath, duration, frameRate, executable, directory, cancellation.Token));
             if (_opticalFlowClosed || cancellation.IsCancellationRequested)
@@ -582,7 +584,7 @@ public sealed partial class MainWindow
         {
             if (!_opticalFlowClosed) StatusText.Text = "Optical-flow proxy generation was cancelled.";
         }
-        catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or
+        catch (Exception ex) when (ex is COMException or System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException or
             InvalidOperationException or NotSupportedException or ArgumentException)
         {
             if (!_opticalFlowClosed) StatusText.Text = $"Could not generate the optical-flow proxy: {ex.Message}";
@@ -590,7 +592,7 @@ public sealed partial class MainWindow
         finally
         {
             finished = true;
-            if (!_opticalFlowClosed) dialog.Hide();
+            if (!_opticalFlowClosed && dialogShown) dialog.Hide();
             _opticalFlowCancellation = null;
             _isOpticalFlowProxyRunning = false;
             if (!_opticalFlowClosed) UpdateVideoInspector();
