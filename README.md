@@ -4,6 +4,12 @@ A native Windows video, audio and animation editor built with C#, .NET 10, WinUI
 
 **InkMotion is actively developed and is not yet at full professional-editor feature parity.** See the [roadmap](plan.md#expanded-editor-delivery-sequence) for implementation details and remaining work.
 
+## Platforms and project sharing
+
+InkMotion is a Windows desktop application built with WinUI 3 and the Windows App SDK. It requires Windows 10 version 2004 (build 19041) or later. Release downloads are currently x64 and x86; the project also defines an ARM64 build target. There are no macOS, Linux, Android or iOS clients.
+
+InkMotion has no in-app cloud synchronisation, live co-editing, presence, or merge/conflict resolution. A `.inkmotion` project is saved as a single file, and its media and LUTs remain externally linked. You can keep project files in a network or cloud-synchronised folder, but that is file storage rather than collaboration. Do not edit the same project in multiple InkMotion instances at once; close it elsewhere and let synchronisation finish before reopening it. Keep a backup and share the linked media separately.
+
 ## Get started
 
 Download an x64 or x86 ZIP from [Releases](https://github.com/ShirazOps/InkMotion/releases), extract it and run `InkMotion.exe`. Release builds are self-contained; no separate .NET or Windows App SDK installation is needed. Builds are currently unsigned.
