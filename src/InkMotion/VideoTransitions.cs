@@ -129,8 +129,8 @@ public static class VideoTransitions
     {
         ArgumentNullException.ThrowIfNull(clip);
         double sourceEnd = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
-        double incomingHandle = transition.InSeconds / 2 * clip.PlaybackSpeed;
-        double outgoingHandle = transition.OutSeconds / 2 * clip.PlaybackSpeed;
+        double incomingHandle = transition.InSeconds / 2 * VideoSpeedRamp.GetStartSpeed(clip);
+        double outgoingHandle = transition.OutSeconds / 2 * VideoSpeedRamp.GetEndSpeed(clip);
         double start = clip.IsReversed
             ? clip.SourceInSeconds - outgoingHandle
             : clip.SourceInSeconds - incomingHandle;
@@ -249,8 +249,8 @@ public static class VideoTransitions
         double outgoingHandle = outgoing.IsReversed
             ? outgoing.SourceInSeconds
             : outgoing.SourceDurationSeconds - outgoingEnd;
-        return incomingHandle + Tolerance >= durationSeconds / 2 * incoming.PlaybackSpeed &&
-            outgoingHandle + Tolerance >= durationSeconds / 2 * outgoing.PlaybackSpeed &&
+        return incomingHandle + Tolerance >= durationSeconds / 2 * VideoSpeedRamp.GetStartSpeed(incoming) &&
+            outgoingHandle + Tolerance >= durationSeconds / 2 * VideoSpeedRamp.GetEndSpeed(outgoing) &&
             Math.Abs(
                 VideoTimelineEditing.GetEndSeconds(outgoing, TimelineTrackKind.Video, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(incoming, frameRate)) <= Tolerance;
