@@ -51,6 +51,15 @@ public sealed class InkCompositeGraphTests
         return InkColourSampling.FromPremultipliedBgra(pixel[0], pixel[1], pixel[2], pixel[3]);
     }
 
+    private static byte[] Render(EditorProject project, double seconds)
+    {
+        using var device = new CanvasDevice(true);
+        using var backdrop = new CanvasRenderTarget(device, 100, 100, 96);
+        using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+            device, backdrop, 100, 100, project, 0, 100, 100, 1, seconds);
+        return composite.GetPixelBytes();
+    }
+
     private static InkCompositeGraph LinearGraph(params InkCompositeNode[] nodes)
     {
         var graph = new InkCompositeGraph { Enabled = true, Nodes = [.. nodes] };
@@ -295,5 +304,63 @@ public sealed class InkCompositeGraphTests
         project.CompositeGraph.Nodes[^1].Inputs[0] = scene.Id;
         project.CompositeGraph.Enabled = false;
         Assert.Equal(0, ExportPlanning.GetInkDurationSeconds(project));
+    }
+
+    [Fact]
+    public void ParticlesMoveFadeAndMatchColourSamplingWhenSeeking()
+    {
+        InkCompositeNode node = Node(InkCompositeNodeKind.Particles, "particles");
+        node.Particles = new InkCompositeParticleSettings
+        {
+            EmitterX = 0.5, EmitterY = 0.75, Rate = 1, Lifetime = 2,
+            Direction = 0, Spread = 0, Speed = 0.2, Gravity = 0, Size = 0.08, Colour = 0xFFFF0000,
+        };
+        var project = new EditorProject { CompositeGraph = LinearGraph(node) };
+
+        Assert.Equal(0xFFFF0000u, Sample(project, 50, 75, seconds: 0));
+        uint moving = Sample(project, 50, 65, seconds: 0.5);
+        Assert.InRange(moving >> 24, 189u, 192u);
+        Assert.Equal(0u, Sample(project, 50, 65, seconds: 1));
+        Assert.Equal(moving, Sample(project, 50, 65, seconds: 0.5));
+        using var device = new CanvasDevice(true);
+        Assert.Equal(moving, InkColourSampling.Sample(device, project, 0, 100, 100, 50, 65, 0.5));
+        Assert.Equal(0u, Sample(project, 50, 35, seconds: 2));
+    }
+
+    [Fact]
+    public void ParticleSeedIsRepeatableAndSettingsPersistAndValidate()
+    {
+        InkCompositeNode node = Node(InkCompositeNodeKind.Particles, "particles");
+        node.Particles!.Spread = 180;
+        node.Particles.Seed = 42;
+        var project = new EditorProject
+        {
+            Frames = [new() { ExposureFrames = 48 }],
+            CompositeGraph = LinearGraph(node),
+        };
+        byte[] first = Render(project, 1.5);
+        _ = Render(project, 0.5);
+        Assert.Equal(first, Render(project, 1.5));
+        InkCompositeGraph clone = InkCompositeGraphs.Clone(project.CompositeGraph);
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        EditorProject legacy = EditorProjectSerialiser.Deserialise("""{"Version":84}""");
+        Assert.Equal(42, restored.CompositeGraph!.Nodes[0].Particles!.Seed);
+        Assert.Equal(EditorProject.CurrentVersion, legacy.Version);
+        clone.Nodes[0].Particles!.Seed = 7;
+        Assert.Equal(42, node.Particles.Seed);
+        node.Particles.Seed = 7;
+        Assert.False(first.SequenceEqual(Render(project, 1.5)));
+        Assert.Equal(2, ExportPlanning.GetInkDurationSeconds(project));
+        project.CompositeGraph.Nodes[^1].Inputs[0] = null;
+        Assert.Equal(0, ExportPlanning.GetInkDurationSeconds(project));
+        project.CompositeGraph.Nodes[^1].Inputs[0] = node.Id;
+        project.CompositeGraph.Enabled = false;
+        Assert.Equal(0, ExportPlanning.GetInkDurationSeconds(project));
+        project.CompositeGraph.Enabled = true;
+        node.Particles.Lifetime = double.NaN;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+        node.Particles.Lifetime = 2;
+        node.Particles.Rate = 201;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
     }
 }

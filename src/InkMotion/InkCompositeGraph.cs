@@ -20,6 +20,7 @@ public enum InkCompositeNodeKind
     Mask,
     Output,
     Scene3D,
+    Particles,
 }
 
 /// <summary>A node in the optional ink compositing graph; parameters not used by its kind are ignored.</summary>
@@ -47,6 +48,8 @@ public sealed class InkCompositeNode
     public bool Invert { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InkCompositeScene3D? Scene3D { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InkCompositeParticleSettings? Particles { get; set; }
 }
 
 /// <summary>
@@ -68,7 +71,7 @@ public static class InkCompositeGraphs
     public static int GetInputCount(InkCompositeNodeKind kind) => kind switch
     {
         InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text or
-            InkCompositeNodeKind.Scene3D => 0,
+            InkCompositeNodeKind.Scene3D or InkCompositeNodeKind.Particles => 0,
         InkCompositeNodeKind.Merge or InkCompositeNodeKind.Mask => 2,
         _ => 1,
     };
@@ -79,7 +82,7 @@ public static class InkCompositeGraphs
         InkCompositeNodeKind.Mask => ["Image", "Matte"],
         InkCompositeNodeKind.Output => ["Result"],
         InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text or
-            InkCompositeNodeKind.Scene3D => [],
+            InkCompositeNodeKind.Scene3D or InkCompositeNodeKind.Particles => [],
         _ => ["Image"],
     };
 
@@ -98,6 +101,7 @@ public static class InkCompositeGraphs
         if (kind == InkCompositeNodeKind.Pixelate) node.Radius = 8;
         if (kind == InkCompositeNodeKind.Glow) node.Radius = 16;
         if (kind == InkCompositeNodeKind.Scene3D) node.Scene3D = new InkCompositeScene3D();
+        if (kind == InkCompositeNodeKind.Particles) node.Particles = new InkCompositeParticleSettings();
         return node;
     }
 
@@ -122,6 +126,7 @@ public static class InkCompositeGraphs
                 Intensity = node.Intensity, Colour = node.Colour, Brightness = node.Brightness,
                 Contrast = node.Contrast, Saturation = node.Saturation, Hue = node.Hue, Invert = node.Invert,
                 Scene3D = node.Scene3D?.Clone(),
+                Particles = node.Particles?.Clone(),
             }).ToList(),
         };
 
@@ -149,6 +154,8 @@ public static class InkCompositeGraphs
                 return "An ink layer node must name a layer.";
             if (node.Kind == InkCompositeNodeKind.Scene3D && !InkCompositeScenes3D.IsValid(node.Scene3D))
                 return "A 3D scene has an invalid camera, light or object setting.";
+            if (node.Kind == InkCompositeNodeKind.Particles && !InkCompositeParticles.IsValid(node.Particles))
+                return "A particle emitter has an invalid setting.";
             if (!InRange(node.Opacity, 0, 1) || !InRange(node.Radius, 0, MaxBlurRadius) ||
                 !InRange(node.Intensity, 0, InkLayerEffects.MaxGlowIntensity) || !InRange(node.Brightness, -1, 1) ||
                 !InRange(node.Contrast, 0, 2) || !InRange(node.Saturation, 0, 2) || !InRange(node.Hue, -180, 180) ||
@@ -200,6 +207,7 @@ public static class InkCompositeGraphs
             if (!seen.Add(id) || !lookup.TryGetValue(id, out InkCompositeNode? node)) continue;
             if (node.Kind == InkCompositeNodeKind.Scene3D &&
                 node.Scene3D?.Objects.Any(item => item.Visible) == true) return true;
+            if (node.Kind == InkCompositeNodeKind.Particles && node.Particles is not null) return true;
             foreach (string? input in node.Inputs)
                 if (input is not null) pending.Push(input);
         }

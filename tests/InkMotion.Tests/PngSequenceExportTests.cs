@@ -1,3 +1,4 @@
+using Microsoft.Graphics.Canvas;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -7,6 +8,59 @@ namespace InkMotion.Tests;
 
 public sealed class PngSequenceExportTests
 {
+    [Fact]
+    public async Task Export_ParticleFramesMatchPreviewAtTheSameTimes()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion particles {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        InkCompositeNode particles = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Particles, "particles", 0, 0);
+        particles.Particles!.Rate = 1;
+        particles.Particles.Speed = 2;
+        particles.Particles.Spread = 0;
+        particles.Particles.Size = 0.15;
+        InkCompositeNode result = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
+        result.Inputs[0] = particles.Id;
+        var project = new EditorProject
+        {
+            Frames = [new() { ExposureFrames = 2 }],
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [particles, result] },
+        };
+
+        try
+        {
+            PngSequenceExportResult exported = await PngSequenceExporter.ExportAsync(
+                project, new(VideoExportProfile.Create(32, 32, 24), 32), output, null, CancellationToken.None);
+            Assert.Equal(2, exported.FrameCount);
+            using var device = new CanvasDevice();
+            using var backdrop = new CanvasRenderTarget(device, 32, 32, 96);
+            for (int index = 0; index < 2; index++)
+            {
+                StorageFile frame = await StorageFile.GetFileFromPathAsync(
+                    Path.Combine(output, $"frame_{index + 1:000000}.png"));
+                using IRandomAccessStream stream = await frame.OpenAsync(FileAccessMode.Read);
+                BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+                byte[] pixels = (await decoder.GetPixelDataAsync(
+                    BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, new BitmapTransform(),
+                    ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage)).DetachPixelData();
+                using CanvasRenderTarget preview = TimelineCompositor.CompositeInkFrame(
+                    device, backdrop, 32, 32, project, 0, 32, 32, 1, index / 24d);
+                byte[] expected = preview.GetPixelBytes();
+                Assert.Equal(expected.Length, pixels.Length);
+                for (int offset = 0; offset < pixels.Length; offset++)
+                    Assert.True(Math.Abs(expected[offset] - pixels[offset]) <= 1,
+                        $"Frame {index + 1}, pixel {offset / 4}, channel {offset % 4}: preview {expected[offset]}, export {pixels[offset]}.");
+            }
+        }
+        finally
+        {
+            foreach (string file in Directory.Exists(output) ? Directory.GetFiles(output) : [])
+                File.Delete(file);
+            if (Directory.Exists(output)) Directory.Delete(output);
+            Directory.Delete(root);
+        }
+    }
+
     [Fact]
     public async Task Export_SceneOnlyGraphWritesThePreviewedPixels()
     {

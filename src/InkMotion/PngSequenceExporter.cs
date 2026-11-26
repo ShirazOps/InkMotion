@@ -38,14 +38,14 @@ public static class PngSequenceExporter
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         if (!ExportPlanning.HasInk(project))
         {
-            throw new InvalidOperationException("Nothing to export: add ink, cel text or a visible 3D scene first.");
+            throw new InvalidOperationException("Nothing to export: add ink, cel text or a connected scene or particle node first.");
         }
 
         double duration = ExportPlanning.GetInkDurationSeconds(project);
         int frameCount = ExportPlanning.GetFrameCount(duration, settings.Profile.FrameRate);
         if (frameCount == 0)
         {
-            throw new InvalidOperationException("Nothing to export: add ink, cel text or a visible 3D scene first.");
+            throw new InvalidOperationException("Nothing to export: add ink, cel text or a connected scene or particle node first.");
         }
 
         string fullOutputDirectory = Path.GetFullPath(outputDirectory);

@@ -45,6 +45,8 @@ public static partial class TimelineCompositor
                     width, height, sizeScale, seconds, drawingTransform),
                 InkCompositeNodeKind.Scene3D => DrawGraphScene3D(device, node, targetWidth, targetHeight,
                     width, height, seconds, drawingTransform),
+                InkCompositeNodeKind.Particles => DrawGraphParticles(device, node, targetWidth, targetHeight,
+                    width, height, seconds, drawingTransform),
                 InkCompositeNodeKind.Merge => MergeGraphImages(device, Input(node, 0), Input(node, 1), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Blur => BlurGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
                 InkCompositeNodeKind.Glow => Input(node, 0) is CanvasRenderTarget glowSource
@@ -154,6 +156,18 @@ public static partial class TimelineCompositor
             device, pixels, pixelWidth, pixelHeight,
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
         return DrawGraphTarget(device, targetWidth, targetHeight, session => session.DrawImage(image));
+    }
+
+    private static CanvasRenderTarget DrawGraphParticles(ICanvasResourceCreator device, InkCompositeNode node,
+        float targetWidth, float targetHeight, float width, float height, double seconds, Matrix3x2 drawingTransform)
+    {
+        InkCompositeParticleSettings particles = node.Particles ??
+            throw new InvalidOperationException("The particle emitter settings are missing.");
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            session.Transform = drawingTransform;
+            InkCompositeParticleRenderer.Draw(session, particles, width, height, seconds);
+        });
     }
 
     private static CanvasRenderTarget? MergeGraphImages(ICanvasResourceCreator device, CanvasRenderTarget? background,

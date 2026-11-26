@@ -541,7 +541,7 @@ public sealed partial class MainWindow
         if (!ExportPlanning.HasInk(snapshot))
         {
             ExportStatusText.Visibility = Visibility.Visible;
-            ExportStatusText.Text = "Nothing to export: add ink, cel text or a visible 3D scene first.";
+            ExportStatusText.Text = "Nothing to export: add ink, cel text or a connected scene or particle node first.";
             return;
         }
 
@@ -589,7 +589,7 @@ public sealed partial class MainWindow
         if (!ExportPlanning.HasInk(snapshot))
         {
             ExportStatusText.Visibility = Visibility.Visible;
-            ExportStatusText.Text = "Nothing to export: add ink, cel text or a visible 3D scene first.";
+            ExportStatusText.Text = "Nothing to export: add ink, cel text or a connected scene or particle node first.";
             return;
         }
 

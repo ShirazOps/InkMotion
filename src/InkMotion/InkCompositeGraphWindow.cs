@@ -385,6 +385,7 @@ public sealed partial class InkCompositeGraphWindow : Window
         InkCompositeNodeKind.Picture => "Video, images and titles",
         InkCompositeNodeKind.Text => "Cel text overlays",
         InkCompositeNodeKind.Scene3D => $"{node.Scene3D?.Objects.Count ?? 0} object(s)",
+        InkCompositeNodeKind.Particles => $"{node.Particles?.Rate ?? 0} particles/s",
         _ => "Final composite",
     };
 
@@ -614,6 +615,9 @@ public sealed partial class InkCompositeGraphWindow : Window
                 break;
             case InkCompositeNodeKind.Scene3D:
                 ShowScene3DProperties(node);
+                break;
+            case InkCompositeNodeKind.Particles:
+                ShowParticleProperties(node);
                 break;
             case InkCompositeNodeKind.Mask:
                 var invert = new ToggleSwitch { Header = "Keep", OffContent = "Inside the matte", OnContent = "Outside the matte", IsOn = node.Invert };
