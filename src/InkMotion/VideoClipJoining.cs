@@ -40,6 +40,7 @@ public static class VideoClipJoining
         if (left.SourceDurationSeconds <= 0 || right.SourceDurationSeconds <= 0 ||
             left.SourceDurationSeconds != right.SourceDurationSeconds ||
             left.PlaybackSpeed != right.PlaybackSpeed || left.IsReversed != right.IsReversed ||
+            VideoSpeedRamp.IsRamped(left) || VideoSpeedRamp.IsRamped(right) ||
             left.ReverseEmbeddedAudio != right.ReverseEmbeddedAudio ||
             (left.IsReversed
                 ? Math.Abs(left.SourceInSeconds - rightEnd) > 1e-7
@@ -47,7 +48,7 @@ public static class VideoClipJoining
             Math.Abs(VideoTimelineEditing.GetEndSeconds(left, track.Kind, frameRate) -
                 VideoTimelineEditing.GetStartSeconds(right, frameRate)) > 1e-7)
         {
-            throw new InvalidOperationException("Clips must have matching probed source lengths and touch in timeline and source order, with no gap, overlap or repeated section.");
+            throw new InvalidOperationException("Clips must have matching probed source lengths, constant speeds without speed ramps and touch in timeline and source order, with no gap, overlap or repeated section.");
         }
 
         if (left.FadeOutSeconds != 0 || right.FadeInSeconds != 0 ||

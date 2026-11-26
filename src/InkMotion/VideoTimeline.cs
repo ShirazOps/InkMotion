@@ -168,6 +168,8 @@ public sealed class TimelineClipProject
     public double SourceDurationSeconds { get; set; }
     public double PlaybackSpeed { get; set; } = 1;
     public bool IsReversed { get; set; }
+    /// <summary>Animated speed points; empty for constant speed. <see cref="PlaybackSpeed"/> holds their average.</summary>
+    public List<VideoSpeedRampPoint> SpeedRamp { get; set; } = [];
     public bool ReverseEmbeddedAudio { get; set; } = true;
     /// <summary>Timeline length of image, title, and subtitle clips.</summary>
     public double DurationSeconds { get; set; } = VideoTimelineEditing.DefaultStillDurationSeconds;
@@ -456,7 +458,9 @@ public static class VideoTimelineEditing
 
         if (track.Kind == TimelineTrackKind.Video)
         {
-            double sourceOffset = offset * clip.PlaybackSpeed;
+            double sourceOffset = VideoSpeedRamp.GetSourceElapsed(clip, offset);
+            List<VideoSpeedRampPoint>? ramp = VideoSpeedRamp.Slice(
+                clip, offset, GetDurationSeconds(clip, track.Kind));
             if (clip.IsReversed)
             {
                 clip.SourceOutSeconds = (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceOffset;
@@ -465,6 +469,7 @@ public static class VideoTimelineEditing
             {
                 clip.SourceInSeconds += sourceOffset;
             }
+            VideoSpeedRamp.Apply(clip, ramp);
         }
         else
         {
@@ -504,7 +509,9 @@ public static class VideoTimelineEditing
 
         if (track.Kind == TimelineTrackKind.Video)
         {
-            double sourceOffset = offset * clip.PlaybackSpeed;
+            double sourceOffset = VideoSpeedRamp.GetSourceElapsed(clip, offset);
+            List<VideoSpeedRampPoint>? ramp = VideoSpeedRamp.Slice(clip, 0, offset);
+            VideoSpeedRamp.Apply(clip, ramp);
             clip.SourceOutSeconds = clip.IsReversed
                 ? clip.SourceOutSeconds ?? clip.SourceDurationSeconds
                 : clip.SourceInSeconds + sourceOffset;
@@ -575,6 +582,9 @@ public static class VideoTimelineEditing
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceSplit = GetSourceBoundarySeconds(clip, FrameToSeconds(playheadFrame, frameRate), frameRate);
+            double duration = GetDurationSeconds(clip, track.Kind);
+            List<VideoSpeedRampPoint>? leftRamp = VideoSpeedRamp.Slice(clip, 0, offset);
+            List<VideoSpeedRampPoint>? rightRamp = VideoSpeedRamp.Slice(clip, offset, duration);
             if (clip.IsReversed)
             {
                 right.SourceOutSeconds = sourceSplit;
@@ -585,6 +595,8 @@ public static class VideoTimelineEditing
                 right.SourceInSeconds = sourceSplit;
                 clip.SourceOutSeconds = sourceSplit;
             }
+            VideoSpeedRamp.Apply(clip, leftRamp);
+            VideoSpeedRamp.Apply(right, rightRamp);
         }
         else
         {
@@ -754,22 +766,83 @@ public static class VideoTimelineEditing
             : layers;
     }
 
-    public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate) =>
-        GetSourceBoundarySeconds(clip, timelineSeconds, frameRate) -
-            (clip.IsReversed ? clip.PlaybackSpeed / frameRate : 0);
+    public static double GetSourceSeconds(TimelineClipProject clip, double timelineSeconds, double frameRate)
+    {
+        if (!clip.IsReversed)
+        {
+            return GetSourceBoundarySeconds(clip, timelineSeconds, frameRate);
+        }
+
+        // A reversed frame shows the source just before its boundary, one project frame's worth of source earlier.
+        return VideoSpeedRamp.IsRamped(clip)
+            ? GetSourceBoundarySeconds(clip, timelineSeconds + (1 / frameRate), frameRate)
+            : GetSourceBoundarySeconds(clip, timelineSeconds, frameRate) - (clip.PlaybackSpeed / frameRate);
+    }
 
     public static double GetSourceBoundarySeconds(TimelineClipProject clip, double timelineSeconds, double frameRate)
     {
-        double elapsed = timelineSeconds - GetStartSeconds(clip, frameRate);
+        double elapsed = VideoSpeedRamp.GetSourceElapsed(clip, timelineSeconds - GetStartSeconds(clip, frameRate));
         return clip.IsReversed
-            ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - elapsed * clip.PlaybackSpeed
-            : clip.SourceInSeconds + elapsed * clip.PlaybackSpeed;
+            ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - elapsed
+            : clip.SourceInSeconds + elapsed;
+    }
+
+    /// <summary>Timeline time at which a clip reaches a source time, following its speed ramp if it has one.</summary>
+    public static double GetTimelineSecondsForSource(TimelineClipProject clip, double sourceSeconds, double frameRate)
+    {
+        double sourceElapsed = clip.IsReversed
+            ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceSeconds
+            : sourceSeconds - clip.SourceInSeconds;
+        return GetStartSeconds(clip, frameRate) + VideoSpeedRamp.GetTimelineElapsed(clip, sourceElapsed);
     }
 
     public static bool TrySetPlaybackSpeed(
         TimelineTrackProject track,
         TimelineClipProject clip,
         double speed,
+        double frameRate)
+    {
+        if (!double.IsFinite(speed) || speed is < MinimumPlaybackSpeed or > MaximumPlaybackSpeed)
+        {
+            return false;
+        }
+
+        List<VideoSpeedRampPoint>? ramp = null;
+        if (VideoSpeedRamp.IsRamped(clip))
+        {
+            // Changing the speed of a ramped clip rescales the ramp so its shape is kept.
+            ramp = VideoSpeedRamp.Rescale(clip.SpeedRamp, speed);
+            if (ramp is null)
+            {
+                return false;
+            }
+        }
+
+        return TryApplyTiming(track, clip, speed, ramp, frameRate);
+    }
+
+    /// <summary>Replaces a video clip's speed ramp; an empty list keeps its current average as a constant speed.</summary>
+    public static bool TrySetSpeedRamp(
+        TimelineTrackProject track,
+        TimelineClipProject clip,
+        IReadOnlyList<VideoSpeedRampPoint> points,
+        double frameRate)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        if (VideoSpeedRamp.ValidatePoints(points) is not null)
+        {
+            return false;
+        }
+
+        double speed = points.Count == 0 ? clip.PlaybackSpeed : VideoSpeedRamp.GetAverageSpeed(points);
+        return TryApplyTiming(track, clip, speed, points.ToList(), frameRate);
+    }
+
+    private static bool TryApplyTiming(
+        TimelineTrackProject track,
+        TimelineClipProject clip,
+        double speed,
+        List<VideoSpeedRampPoint>? ramp,
         double frameRate)
     {
         if (track.IsLocked || track.Kind != TimelineTrackKind.Video || !track.Clips.Contains(clip) ||
@@ -783,6 +856,10 @@ public static class VideoTimelineEditing
 
         double previousDuration = GetDurationSeconds(clip, track.Kind);
         clip.PlaybackSpeed = speed;
+        if (ramp is not null)
+        {
+            VideoSpeedRamp.Apply(clip, ramp);
+        }
         double newDuration = GetDurationSeconds(clip, track.Kind);
         ClampFades(clip, track.Kind);
         if (newDuration < previousDuration - Tolerance)
@@ -1022,6 +1099,7 @@ public static class VideoTimelineEditing
         SourceDurationSeconds = clip.SourceDurationSeconds,
         PlaybackSpeed = clip.PlaybackSpeed,
         IsReversed = clip.IsReversed,
+        SpeedRamp = clip.SpeedRamp?.ToList() ?? [],
         ReverseEmbeddedAudio = clip.ReverseEmbeddedAudio,
         DurationSeconds = clip.DurationSeconds,
         Opacity = clip.Opacity,
@@ -1310,6 +1388,7 @@ public static class VideoTimelineEditing
                     IsFiniteNonNegative(clip.SourceDurationSeconds) &&
                     double.IsFinite(clip.PlaybackSpeed) &&
                     clip.PlaybackSpeed is >= MinimumPlaybackSpeed and <= MaximumPlaybackSpeed &&
+                    VideoSpeedRamp.IsValid(clip) &&
                     double.IsFinite(sourceEnd) &&
                     // An unprobed source with no out point is allowed; its length is resolved when the media opens.
                     ((clip.SourceOutSeconds is null && clip.SourceDurationSeconds == 0) || sourceEnd > clip.SourceInSeconds) &&

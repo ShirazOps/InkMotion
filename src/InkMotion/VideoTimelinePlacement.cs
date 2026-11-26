@@ -122,6 +122,7 @@ public static class VideoTimelinePlacement
                 {
                     left.SourceOutSeconds = sourceBoundary;
                 }
+                VideoSpeedRamp.Apply(left, VideoSpeedRamp.Slice(clip, 0, overwriteStart - clipStart));
                 VideoTransformKeyframes.TrimEnd(
                     left,
                     (int)Math.Round((overwriteStart - clipStart) * frameRate));
@@ -164,6 +165,7 @@ public static class VideoTimelinePlacement
                 {
                     right.SourceInSeconds = sourceBoundary;
                 }
+                VideoSpeedRamp.Apply(right, VideoSpeedRamp.Slice(clip, overwriteEnd - clipStart, clipEnd - clipStart));
                 VideoTransformKeyframes.TrimStart(
                     right,
                     (int)Math.Round((overwriteEnd - clipStart) * frameRate));
@@ -206,6 +208,7 @@ public static class VideoTimelinePlacement
                 existing.SourceInSeconds = candidate.SourceInSeconds;
                 existing.SourceOutSeconds = candidate.SourceOutSeconds;
                 existing.PlaybackSpeed = candidate.PlaybackSpeed;
+                existing.SpeedRamp = candidate.SpeedRamp?.ToList() ?? [];
                 existing.IsReversed = candidate.IsReversed;
                 existing.ReverseEmbeddedAudio = candidate.ReverseEmbeddedAudio;
                 existing.DurationSeconds = candidate.DurationSeconds;

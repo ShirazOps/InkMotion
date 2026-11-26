@@ -61,25 +61,35 @@ public static class VideoEditTools
 
         if (track.Kind == TimelineTrackKind.Video)
         {
-            double delta = (requested - (edge == TimelineTrimEdge.Start ? start : end)) * clip.PlaybackSpeed;
+            double added = Math.Abs(requested - (edge == TimelineTrimEdge.Start ? start : end));
+            // Lengthening a ramped clip holds its edge speed over the added time.
+            double delta = added * (edge == TimelineTrimEdge.Start
+                ? VideoSpeedRamp.GetStartSpeed(clip)
+                : VideoSpeedRamp.GetEndSpeed(clip));
+            List<VideoSpeedRampPoint>? ramp = VideoSpeedRamp.IsRamped(clip)
+                ? VideoSpeedRamp.Extend(
+                    clip, edge == TimelineTrimEdge.Start ? added : 0, edge == TimelineTrimEdge.End ? added : 0)
+                : null;
             double sourceIn = clip.SourceInSeconds;
             double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
             if (edge == TimelineTrimEdge.Start)
             {
-                if (clip.IsReversed) sourceOut -= delta;
-                else sourceIn += delta;
+                if (clip.IsReversed) sourceOut += delta;
+                else sourceIn -= delta;
             }
             else
             {
                 if (clip.IsReversed) sourceIn -= delta;
                 else sourceOut += delta;
             }
-            if (!CanUseRange(clip, sourceIn, sourceOut, frameRate))
+            if (!CanUseRange(clip, sourceIn, sourceOut, frameRate) ||
+                (ramp is not null && VideoSpeedRamp.ValidatePoints(ramp) is not null))
             {
                 return false;
             }
             clip.SourceInSeconds = Math.Max(0, sourceIn);
             clip.SourceOutSeconds = Math.Min(clip.SourceDurationSeconds, sourceOut);
+            VideoSpeedRamp.Apply(clip, ramp);
         }
         else
         {
@@ -218,7 +228,8 @@ public static class VideoEditTools
     private static bool RippleTrim(TimelineTrackProject track, TimelineClipProject clip, int frames,
         double frameRate, bool trimStart)
     {
-        if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out _) ||
+        if (VideoSpeedRamp.IsRamped(clip) ||
+            !TryGetNeighbours(track, clip, frames, frameRate, out _, out _) ||
             VideoTimelineEditing.Validate([track], frameRate) is not null)
         {
             return false;
@@ -253,7 +264,8 @@ public static class VideoEditTools
     public static bool RollEnd(TimelineTrackProject track, TimelineClipProject clip, int frames, double frameRate)
     {
         if (!TryGetNeighbours(track, clip, frames, frameRate, out _, out TimelineClipProject? next) ||
-            next is null || !AreAdjacent(clip, next, frameRate))
+            next is null || !AreAdjacent(clip, next, frameRate) ||
+            VideoSpeedRamp.IsRamped(clip) || VideoSpeedRamp.IsRamped(next))
         {
             return false;
         }
@@ -302,6 +314,7 @@ public static class VideoEditTools
         if (!TryGetNeighbours(track, clip, frames, frameRate, out TimelineClipProject? previous, out TimelineClipProject? next) ||
             previous is null || next is null || !AreAdjacent(previous, clip, frameRate) ||
             !AreAdjacent(clip, next, frameRate) ||
+            VideoSpeedRamp.IsRamped(previous) || VideoSpeedRamp.IsRamped(next) ||
             !CanUseRange(clip, clip.SourceInSeconds, clip.SourceOutSeconds ?? clip.SourceDurationSeconds, frameRate))
         {
             return false;

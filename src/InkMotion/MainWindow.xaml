@@ -572,6 +572,14 @@
                                 <Button x:Name="RemoveClipVolumeKeyframeButton" Content="Remove volume keyframe" Click="RemoveClipVolumeKeyframe_Click" />
                             </StackPanel>
                             <NumberBox x:Name="ClipPlaybackSpeedBox" Header="Playback speed (0.25x–4x)" Minimum="0.25" Maximum="4" SmallChange="0.25" SpinButtonPlacementMode="Compact" ValueChanged="ClipPlaybackSpeed_Changed" />
+                            <StackPanel x:Name="ClipSpeedRampPanel" Spacing="6">
+                                <NumberBox x:Name="ClipSpeedRampBox" Header="Ramp speed at playhead (0.25x–4x)" Minimum="0.25" Maximum="4" Value="1" SmallChange="0.25" SpinButtonPlacementMode="Compact" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="SetClipSpeedRampPointButton" Content="Set ramp point at playhead" Click="SetClipSpeedRampPoint_Click" />
+                                    <Button x:Name="ClearClipSpeedRampButton" Content="Clear speed ramp" Click="ClearClipSpeedRamp_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="ClipSpeedRampText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                            </StackPanel>
                             <CheckBox x:Name="ClipReverseVideoCheck" Content="Reverse video" Click="ClipPlaybackOption_Click" />
                             <CheckBox x:Name="ClipReverseAudioCheck" Content="Reverse embedded audio (when reversed)" Click="ClipPlaybackOption_Click" />
                             <TextBlock x:Name="ClipPlaybackHintText" Text="Reverse audio is included in exports when enabled; embedded audio is muted during reverse preview." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />

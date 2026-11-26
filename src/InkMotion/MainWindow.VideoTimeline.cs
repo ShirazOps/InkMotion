@@ -53,6 +53,7 @@ public sealed partial class MainWindow
         double FadeInSeconds,
         double FadeOutSeconds,
         double PlaybackSpeed,
+        string SpeedRamp,
         bool IsReversed,
         double SourceInSeconds,
         double SourceOutSeconds,
@@ -823,11 +824,12 @@ public sealed partial class MainWindow
         _previewMediaPlayer.IsMuted = clip.IsReversed || videoAudioRouted ||
             (!IsOriginalPreview && (active.Track.IsMuted || HasSoloAudio ||
                 !AudioBuses.IsAudible(_audioBuses, active.Track.AudioBusId)));
-        _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clip.PlaybackSpeed;
+        double clipSpeed = VideoSpeedRamp.GetSpeedAtElapsed(clip, seconds - VideoTimelineEditing.GetStartSeconds(clip, _frameRate));
+        _previewMediaPlayer.PlaybackSession.PlaybackRate = clip.IsReversed ? 1 : clipSpeed;
         PreviewPlayer.Opacity = IsOriginalPreview ? 1 : 0;
         double tolerance = forceSeek || !_isPlaying
             ? 0.001
-            : clip.IsReversed ? Math.Max(0.001, clip.PlaybackSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
+            : clip.IsReversed ? Math.Max(0.001, clipSpeed / _frameRate / 2) : PreviewDriftToleranceSeconds;
         if (Math.Abs(session.Position.TotalSeconds - sourceSeconds) > tolerance)
         {
             session.Position = TimeSpan.FromSeconds(sourceSeconds);
@@ -866,6 +868,15 @@ public sealed partial class MainWindow
         AudioTrackProject project = VideoTimelineEditing.CreatePreviewAudioProject(active, IsOriginalPreview, HasSoloAudio, _audioBuses);
         Func<double, double>? gainEnvelope = null;
         VideoAudioEnvelopeKey? envelopeKey = null;
+        if (VideoSpeedRamp.IsRamped(clip))
+        {
+            // Preview time-stretches at the local ramp speed in 5% steps, so the player only rebuilds as the speed moves.
+            double sourceElapsed = clip.IsReversed
+                ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceSeconds
+                : sourceSeconds - clip.SourceInSeconds;
+            double localSpeed = VideoSpeedRamp.GetSpeedAtElapsed(clip, VideoSpeedRamp.GetTimelineElapsed(clip, sourceElapsed));
+            project.TempoPercent = Math.Round(localSpeed * 20) * 5;
+        }
         if (!IsOriginalPreview)
         {
             VideoAudioTransition audioTransition = transition ?? default;
@@ -882,15 +893,17 @@ public sealed partial class MainWindow
             double sourceOut = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
             double playbackSpeed = clip.PlaybackSpeed;
             bool reversed = clip.IsReversed;
-            double clipElapsedAtPosition = reversed
-                ? (sourceOut - sourceSeconds) / playbackSpeed
-                : (sourceSeconds - sourceIn) / playbackSpeed;
+            bool ramped = VideoSpeedRamp.IsRamped(clip);
+            double ClipElapsedAt(double sourcePosition) => VideoSpeedRamp.GetTimelineElapsed(
+                clip, reversed ? sourceOut - sourcePosition : sourcePosition - sourceIn);
+            double clipElapsedAtPosition = ClipElapsedAt(sourceSeconds);
             project.Balance = VideoClipBalanceKeyframes.GetValue(clip, clipElapsedAtPosition * _frameRate);
             envelopeKey = new VideoAudioEnvelopeKey(
                 clip.Volume,
                 clip.FadeInSeconds,
                 clip.FadeOutSeconds,
                 playbackSpeed,
+                VideoSpeedRamp.Signature(clip),
                 reversed,
                 sourceIn,
                 sourceOut,
@@ -898,9 +911,11 @@ public sealed partial class MainWindow
                 string.Join(';', clip.VolumeKeyframes.Select(key => $"{key.FrameOffset}:{key.Volume:R}")));
             gainEnvelope = sourcePosition =>
             {
-                double clipElapsed = reversed
-                    ? (sourceOut - sourcePosition) / playbackSpeed
-                    : (sourcePosition - sourceIn) / playbackSpeed;
+                double clipElapsed = ramped
+                    ? ClipElapsedAt(sourcePosition)
+                    : reversed
+                        ? (sourceOut - sourcePosition) / playbackSpeed
+                        : (sourcePosition - sourceIn) / playbackSpeed;
                 return ExportPlanning.GetVideoClipAudioGain(clip, clipElapsed, audioTransition, _frameRate);
             };
         }
@@ -2169,6 +2184,7 @@ public sealed partial class MainWindow
         destination.SourceInSeconds = source.SourceInSeconds;
         destination.SourceOutSeconds = source.SourceOutSeconds;
         destination.PlaybackSpeed = source.PlaybackSpeed;
+        destination.SpeedRamp = source.SpeedRamp?.ToList() ?? [];
         destination.IsReversed = source.IsReversed;
         destination.ReverseEmbeddedAudio = source.ReverseEmbeddedAudio;
         destination.DurationSeconds = source.DurationSeconds;
@@ -3195,6 +3211,7 @@ public sealed partial class MainWindow
         ClipAudioBalanceKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipVolumeKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackSpeedBox.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipSpeedRampPanel.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseVideoCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipReverseAudioCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackHintText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -3257,6 +3274,19 @@ public sealed partial class MainWindow
             ? "No balance keyframes. Balance applies to the whole clip."
             : $"{clip.EmbeddedAudioBalanceKeyframes.Count} balance keyframe(s); values interpolate at the playhead.";
         ClipPlaybackSpeedBox.Value = clip.PlaybackSpeed;
+        ClipPlaybackSpeedBox.Header = VideoSpeedRamp.IsRamped(clip)
+            ? "Average playback speed (scales the ramp)"
+            : "Playback speed (0.25x–4x)";
+        double rampElapsed = CurrentPlaybackSeconds - VideoTimelineEditing.GetStartSeconds(clip, _frameRate);
+        bool rampPlayheadInside = isVideo && rampElapsed >= 0 &&
+            rampElapsed < VideoTimelineEditing.GetDurationSeconds(clip, location.Track.Kind);
+        SetClipSpeedRampPointButton.IsEnabled = rampPlayheadInside && !location.Track.IsLocked;
+        ClearClipSpeedRampButton.IsEnabled = isVideo && VideoSpeedRamp.IsRamped(clip) && !location.Track.IsLocked;
+        ClipSpeedRampText.Text = isVideo
+            ? VideoSpeedRamp.Describe(clip) + (rampPlayheadInside
+                ? $" Speed at playhead: {VideoSpeedRamp.GetSpeedAtElapsed(clip, rampElapsed):0.##}x."
+                : string.Empty)
+            : string.Empty;
         ClipReverseVideoCheck.IsChecked = clip.IsReversed;
         ClipReverseAudioCheck.IsChecked = clip.ReverseEmbeddedAudio;
         ClipReverseAudioCheck.IsEnabled = isVideo && clip.IsReversed && !location.Track.IsLocked;
@@ -5934,13 +5964,85 @@ public sealed partial class MainWindow
         {
             CommitEdit();
             UpdateVideoInspector();
-            StatusText.Text = "That playback speed would overlap another clip on this track.";
+            StatusText.Text = VideoSpeedRamp.IsRamped(location.Clip)
+                ? "That average speed would push a ramp point outside 0.25x–4x or overlap another clip on this track."
+                : "That playback speed would overlap another clip on this track.";
             return;
         }
 
         ApplyClipPreview();
         CommitEdit();
         UpdateVideoInspector();
+    }
+
+    private void SetClipSpeedRampPoint_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            selected.Track.IsLocked)
+        {
+            return;
+        }
+
+        double speed = ClipSpeedRampBox.Value;
+        double duration = VideoTimelineEditing.GetDurationSeconds(selected.Clip, selected.Track.Kind);
+        double elapsed = CurrentPlaybackSeconds - VideoTimelineEditing.GetStartSeconds(selected.Clip, _frameRate);
+        if (!double.IsFinite(speed) ||
+            speed is < VideoTimelineEditing.MinimumPlaybackSpeed or > VideoTimelineEditing.MaximumPlaybackSpeed)
+        {
+            StatusText.Text = "Choose a ramp speed from 0.25x to 4x.";
+            return;
+        }
+
+        if (duration <= 0 || elapsed < 0 || elapsed >= duration)
+        {
+            StatusText.Text = "Move the playhead inside the selected video clip to set a speed-ramp point.";
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        List<VideoSpeedRampPoint> points = VideoSpeedRamp.WithPoint(
+            selected.Clip, elapsed / duration, speed, 1 / (duration * _frameRate));
+        bool set = VideoTimelineEditing.TrySetSpeedRamp(selected.Track, selected.Clip, points, _frameRate);
+        if (set)
+        {
+            MarkEditChanged();
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = set
+            ? $"Speed-ramp point set to {speed:0.##}x. {VideoSpeedRamp.Describe(selected.Clip)}"
+            : "That ramp would overlap another clip, exceed the source media or use more than 64 points.";
+    }
+
+    private void ClearClipSpeedRamp_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedTimelineClip is not TimelineClipLocation selected ||
+            selected.Track.Kind != TimelineTrackKind.Video ||
+            selected.Track.IsLocked || !VideoSpeedRamp.IsRamped(selected.Clip))
+        {
+            return;
+        }
+
+        PausePlayback();
+        FinishActiveEdit();
+        BeginEdit();
+        bool cleared = VideoTimelineEditing.TrySetSpeedRamp(selected.Track, selected.Clip, [], _frameRate);
+        if (cleared)
+        {
+            MarkEditChanged();
+            ApplyClipPreview();
+        }
+
+        CommitEdit();
+        UpdateVideoInspector();
+        StatusText.Text = cleared
+            ? $"Speed ramp cleared; the clip keeps its {selected.Clip.PlaybackSpeed:0.##}x average speed."
+            : "The speed ramp could not be cleared.";
     }
 
     private void ClipPlaybackOption_Click(object sender, RoutedEventArgs e)

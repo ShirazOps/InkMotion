@@ -214,14 +214,22 @@ public sealed class ExportAudioMixer : IDisposable
         double sourceStart = Math.Clamp(sourceRange.StartSeconds, 0, sourceDuration);
         double sourceEnd = Math.Clamp(sourceRange.EndSeconds, sourceStart, sourceDuration);
         duration = (sourceEnd - sourceStart) / clip.PlaybackSpeed;
+        double sourceElapsedAtStart = clip.IsReversed
+            ? (clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceEnd
+            : sourceStart - clip.SourceInSeconds;
+        double clipElapsedAtSourceStart = sourceElapsedAtStart / clip.PlaybackSpeed;
+        bool ramped = VideoSpeedRamp.IsRamped(clip);
+        if (ramped)
+        {
+            clipElapsedAtSourceStart = VideoSpeedRamp.GetTimelineElapsed(clip, sourceElapsedAtStart);
+            duration = VideoSpeedRamp.GetTimelineElapsed(clip, sourceElapsedAtStart + (sourceEnd - sourceStart)) -
+                clipElapsedAtSourceStart;
+        }
         if (duration <= 0)
         {
             return;
         }
         double clipStart = VideoTimelineEditing.GetStartSeconds(clip, _frameRate);
-        double clipElapsedAtSourceStart = clip.IsReversed
-            ? ((clip.SourceOutSeconds ?? clip.SourceDurationSeconds) - sourceEnd) / clip.PlaybackSpeed
-            : (sourceStart - clip.SourceInSeconds) / clip.PlaybackSpeed;
         double timelineStart = clipStart + clipElapsedAtSourceStart;
 
         ISampleProvider source = reader.ToSampleProvider();
@@ -238,7 +246,11 @@ public sealed class ExportAudioMixer : IDisposable
             reader.CurrentTime = TimeSpan.FromSeconds(sourceStart);
         }
 
-        source = new PlaybackSpeedSampleProvider(source, clip.PlaybackSpeed);
+        source = ramped
+            ? new VariableSpeedSampleProvider(
+                source,
+                elapsed => VideoSpeedRamp.GetSourceElapsed(clip, clipElapsedAtSourceStart + elapsed) - sourceElapsedAtStart)
+            : new PlaybackSpeedSampleProvider(source, clip.PlaybackSpeed);
 
         ISampleProvider envelope = new GainEnvelopeSampleProvider(
             source,
