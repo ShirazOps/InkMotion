@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 87;
+    public const int CurrentVersion = 90;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -28,6 +28,7 @@ public sealed class EditorProject
     /// <summary>Submix buses; tracks routed to none of them feed the master mix directly.</summary>
     public List<AudioBusProject> AudioBuses { get; set; } = [];
     public List<InkLayerProject> InkLayers { get; set; } = [new()];
+    public InkCharacterRig? CharacterRig { get; set; }
     public string ActiveInkLayerId { get; set; } = "ink-1";
     /// <summary>Optional node graph that replaces the layer stack while enabled; null in older projects.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -51,6 +52,7 @@ public sealed class InkLayerProject
     public string Name { get; set; } = "Ink 1";
     public bool IsVisible { get; set; } = true;
     public bool IsLocked { get; set; }
+    public bool AlphaLock { get; set; }
     public double Opacity { get; set; } = 1;
     public InkLayerBlendMode BlendMode { get; set; }
     /// <summary>Glow spread in preview pixels before output scaling; zero disables the glow.</summary>
@@ -69,6 +71,8 @@ public sealed class InkLayerProject
     /// <summary>Holdout layers only: an automatically generated occlusion matte drawn with the painted one.</summary>
     public InkAutoMatte? AutoMatte { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
+    public InkRigBinding? RigBinding { get; set; }
+    public InkLipSync? LipSync { get; set; }
 }
 
 public sealed class AudioTrackProject
@@ -359,6 +363,8 @@ public sealed class InkPoint
     public double BrushWidth { get; set; } = 4;
     public InkBrushTexture BrushTexture { get; set; }
     public bool IsFilled { get; set; }
+    /// <summary>Recolour preceding drawing alpha without extending it; saved per stroke, independently of the layer toggle.</summary>
+    public bool AlphaLocked { get; set; }
     [JsonPropertyName("BrushColor")]
     public uint BrushColour { get; set; } = 0xFFFFA500;
 }
@@ -734,6 +740,18 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 87)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 88)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 89)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -963,6 +981,7 @@ public static class InkAnimation
                     BrushColour = first[pointIndex].BrushColour,
                     BrushTexture = first[pointIndex].BrushTexture,
                     IsFilled = first[pointIndex].IsFilled,
+                    AlphaLocked = first[pointIndex].AlphaLocked,
                 });
             }
 
@@ -1052,7 +1071,8 @@ public static class InkAnimation
         startStrokes.Count == endStrokes.Count &&
         startStrokes.All(stroke => stroke.Count > 0) &&
         endStrokes.All(stroke => stroke.Count > 0) &&
-        startStrokes.Select((stroke, index) => stroke[0].IsFilled == endStrokes[index][0].IsFilled).All(match => match);
+        startStrokes.Select((stroke, index) => stroke[0].IsFilled == endStrokes[index][0].IsFilled &&
+            stroke[0].AlphaLocked == endStrokes[index][0].AlphaLocked).All(match => match);
 
     private static double ApplyInterpolation(double progress, InkInterpolationMode mode) =>
         mode switch
@@ -1088,6 +1108,7 @@ public static class InkAnimation
                     BrushColour = stroke[0].BrushColour,
                     BrushTexture = stroke[0].BrushTexture,
                     IsFilled = stroke[0].IsFilled,
+                    AlphaLocked = stroke[0].AlphaLocked,
                 })
                 .ToList();
         }
@@ -1113,6 +1134,7 @@ public static class InkAnimation
                     BrushColour = stroke[0].BrushColour,
                     BrushTexture = stroke[0].BrushTexture,
                     IsFilled = stroke[0].IsFilled,
+                    AlphaLocked = stroke[0].AlphaLocked,
                 })
                 .ToList();
         }
@@ -1138,6 +1160,7 @@ public static class InkAnimation
                 BrushColour = stroke[segment - 1].BrushColour,
                 BrushTexture = stroke[segment - 1].BrushTexture,
                 IsFilled = stroke[segment - 1].IsFilled,
+                AlphaLocked = stroke[segment - 1].AlphaLocked,
             });
         }
 
@@ -1288,6 +1311,14 @@ internal static class EditorProjectValidation
         {
             throw new InvalidDataException(graphError);
         }
+        if (InkCharacterRigs.Validate(project.CharacterRig, project.InkLayers) is string rigError)
+        {
+            throw new InvalidDataException(rigError);
+        }
+        foreach (InkLipSync sync in project.InkLayers.Select(layer => layer.LipSync).OfType<InkLipSync>())
+        {
+            InkLipSyncs.Validate(sync);
+        }
 
         if (project.Frames is null || project.Frames.Count == 0)
         {
@@ -1371,7 +1402,7 @@ internal static class EditorProjectValidation
         }
     }
 
-    private static void ValidateStroke(List<InkPoint>? stroke)
+    internal static void ValidateStroke(List<InkPoint>? stroke)
     {
         if (stroke is null || stroke.Any(point =>
                     point is null ||
@@ -1388,7 +1419,8 @@ internal static class EditorProjectValidation
             throw new InvalidDataException("The project contains invalid ink coordinates or brush settings.");
         }
 
-        if (stroke.Count > 0 && (stroke.Any(point => point.IsFilled != stroke[0].IsFilled) ||
+        if (stroke.Count > 0 && (stroke.Any(point => point.IsFilled != stroke[0].IsFilled ||
+            point.AlphaLocked != stroke[0].AlphaLocked) ||
             (stroke[0].IsFilled && stroke.Count < 3)))
         {
             throw new InvalidDataException("A filled ink shape needs at least three points with a consistent fill setting.");

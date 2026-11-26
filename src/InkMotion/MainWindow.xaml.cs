@@ -163,6 +163,8 @@ public sealed partial class MainWindow : Window
         InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
         InkLayerLockButton.IsChecked = CurrentInkLayer.IsLocked;
         InkLayerLockButton.Content = CurrentInkLayer.IsLocked ? "Unlock drawing" : "Lock drawing";
+        InkAlphaLockToggle.IsChecked = CurrentInkLayer.AlphaLock;
+        UpdateLipSyncReadout();
         InkLayerNameBox.Text = CurrentInkLayer.Name;
         if (InkTrackNameText is not null)
         {
@@ -501,10 +503,13 @@ public sealed partial class MainWindow : Window
         if (InkCompositeGraphs.HasProceduralContent(_compositeGraph)) return true;
         int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
         double seconds = _playheadFramePosition / _frameRate;
+        var inkProject = new EditorProject { Frames = _frames, FrameRate = _frameRate,
+            CharacterRig = _characterRig, AudioTracks = _audioTracks.Select(track => track.Project).ToList() };
         if (_inkLayers.Any(layer => layer.IsVisible &&
             InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) &&
             InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks) &&
-            InkObjectMotion.Strokes(_frames, frameIndex, layer, _frameRate).Any(stroke => stroke.Count > 0)))
+            InkCharacterRigs.Strokes(inkProject, frameIndex, layer, seconds,
+                (float)Math.Max(1, InkSurface.ActualWidth), (float)Math.Max(1, InkSurface.ActualHeight)).Any(stroke => stroke.Count > 0)))
         {
             return true;
         }
@@ -1950,6 +1955,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (CurrentInkLayer.AlphaLock && !_isEraser &&
+            !GetDisplayedLayerStrokes(_selectedFrameIndex, _activeInkLayerId).Any(stroke =>
+                stroke.Any(point => !point.AlphaLocked && (point.BrushColour >> 24) > 0)))
+        {
+            StatusText.Text = "Alpha lock needs existing artwork on this cel. Turn it off to draw the first marks.";
+            e.Handled = true;
+            return;
+        }
+
         ClearInkSelection();
         BeginEdit();
         PromoteInterpolatedFrameForEditing();
@@ -2121,6 +2135,7 @@ public sealed partial class MainWindow : Window
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
             BrushTexture = _inkModifierTool ?? (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
+            AlphaLocked = CurrentInkLayer.AlphaLock,
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
@@ -2173,6 +2188,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
+        UpdateLipSyncReadout();
         RefreshInkTextSelection();
         InkSurface.Invalidate();
         CompositionSurface.Invalidate();
@@ -2203,9 +2219,10 @@ public sealed partial class MainWindow : Window
 
                 InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
                     TimelineCompositor.DrawInkStrokes(drawing,
-                        InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate),
-                        point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
-                            layer.Opacity * guide.Opacity), width, height, 1));
+                        InkCharacterRigs.Strokes(new EditorProject { Frames = _frames, FrameRate = _frameRate,
+                            CharacterRig = _characterRig, AudioTracks = _audioTracks.Select(track => track.Project).ToList() }, guide.FrameIndex, layer,
+                            InkTimeline.GetStartFramePosition(_frames, guide.FrameIndex) / _frameRate, width, height),
+                        point => ToColour(colour ?? point.BrushColour), width, height, 1, layer.Opacity * guide.Opacity));
             }
 
             if (OnionTextToggle?.IsChecked != false)
@@ -2233,6 +2250,7 @@ public sealed partial class MainWindow : Window
         DrawSelectedInkText(args.DrawingSession, width, height);
         DrawInkRulers(args.DrawingSession, width, height);
         DrawInkTrackingBox(args.DrawingSession, width, height);
+        DrawCharacterBones(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
@@ -2300,6 +2318,7 @@ public sealed partial class MainWindow : Window
         foreach (InkPoint shapePoint in points)
         {
             shapePoint.BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex;
+            shapePoint.AlphaLocked = CurrentInkLayer.AlphaLock;
         }
         _activeStroke.Clear();
         _activeStroke.AddRange(points);
@@ -2514,6 +2533,7 @@ public sealed partial class MainWindow : Window
             AudioMixLayout = _audioMixLayout,
             AudioBuses = _audioBuses.Select(AudioBuses.Clone).ToList(),
             InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
+            CharacterRig = _characterRig is null ? null : InkCharacterRigs.Clone(_characterRig),
             ActiveInkLayerId = _activeInkLayerId,
             CompositeGraph = _compositeGraph is null ? null : InkCompositeGraphs.Clone(_compositeGraph),
             SelectedFrameIndex = _selectedFrameIndex,
@@ -2552,6 +2572,7 @@ public sealed partial class MainWindow : Window
         _inkLayers.Clear();
         _inkLayers.AddRange(project.InkLayers.Select(CloneInkLayer));
         _activeInkLayerId = project.ActiveInkLayerId;
+        _characterRig = project.CharacterRig is null ? null : InkCharacterRigs.Clone(project.CharacterRig);
         _compositeGraph = project.CompositeGraph is null ? null : InkCompositeGraphs.Clone(project.CompositeGraph);
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
@@ -2866,6 +2887,7 @@ public sealed partial class MainWindow : Window
                     BrushColour = point.BrushColour,
                     BrushTexture = point.BrushTexture,
                     IsFilled = point.IsFilled,
+                    AlphaLocked = point.AlphaLocked,
                 }).ToList())
                 .ToList());
         }

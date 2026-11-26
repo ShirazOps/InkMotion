@@ -24,7 +24,9 @@ public sealed partial class MainWindow
         _isEraser = false;
         _inkShape = null;
         InkSurface.Invalidate();
-        StatusText.Text = "Click an empty enclosed area on the active ink layer. Open boundaries reaching the canvas edge are rejected; other layers, text and media are ignored.";
+        StatusText.Text = CurrentInkLayer.AlphaLock
+            ? "Alpha-locked fill: click existing artwork to recolour its connected alpha region. Other layers, text and media are ignored."
+            : "Click an empty enclosed area on the active ink layer. Open boundaries reaching the canvas edge are rejected; other layers, text and media are ignored.";
     }
 
     private void FillInkAtCoordinates_Click(object sender, RoutedEventArgs e) =>
@@ -59,15 +61,18 @@ public sealed partial class MainWindow
 
             List<InkPoint> fill = InkBucketFill.Create(InkSurface,
                 GetDisplayedLayerStrokes(_selectedFrameIndex, _activeInkLayerId),
-                InkSurface.ActualWidth, InkSurface.ActualHeight, point.X, point.Y, _brushColour);
+                InkSurface.ActualWidth, InkSurface.ActualHeight, point.X, point.Y, _brushColour, CurrentInkLayer.AlphaLock);
             ClearInkSelection();
             BeginEdit();
             PromoteInterpolatedFrameForEditing();
-            CurrentStrokes.Insert(0, fill);
+            if (CurrentInkLayer.AlphaLock) CurrentStrokes.Add(fill);
+            else CurrentStrokes.Insert(0, fill);
             MarkEditChanged();
             CommitEdit();
             RenderCurrentInk();
-            StatusText.Text = "Enclosed area filled beneath the active layer's strokes. Undo restores the drawing. Pen selected.";
+            StatusText.Text = CurrentInkLayer.AlphaLock
+                ? "Existing connected artwork recoloured without extending its alpha. Undo restores the drawing. Pen selected."
+                : "Enclosed area filled beneath the active layer's strokes. Undo restores the drawing. Pen selected.";
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
             System.Runtime.InteropServices.COMException)

@@ -21,6 +21,7 @@ public static class InkStrokeEditing
             BrushColour = point.BrushColour,
             BrushTexture = point.BrushTexture,
             IsFilled = point.IsFilled,
+            AlphaLocked = point.AlphaLocked,
         };
     }
 
@@ -208,6 +209,7 @@ public static class InkStrokeEditing
         BrushColour = t < 1 ? a.BrushColour : b.BrushColour,
         BrushTexture = t < 1 ? a.BrushTexture : b.BrushTexture,
         IsFilled = a.IsFilled,
+        AlphaLocked = a.AlphaLocked,
     };
 
     public static InkPoint Stabilise(InkPoint input, InkPoint? previous, double amount)
@@ -226,6 +228,7 @@ public static class InkStrokeEditing
             BrushColour = input.BrushColour,
             BrushTexture = input.BrushTexture,
             IsFilled = input.IsFilled,
+            AlphaLocked = input.AlphaLocked,
         };
     }
 }

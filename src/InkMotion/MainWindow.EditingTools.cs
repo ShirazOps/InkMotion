@@ -5,8 +5,34 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private void InkAlphaLock_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentInkLayer.IsLocked)
+        {
+            InkAlphaLockToggle.IsChecked = CurrentInkLayer.AlphaLock;
+            StatusText.Text = "Unlock the drawing layer before changing alpha lock.";
+            return;
+        }
+        PausePlayback(); FinishActiveEdit(); BeginEdit();
+        CurrentInkLayer.AlphaLock = InkAlphaLockToggle.IsChecked == true;
+        MarkEditChanged(); CommitEdit();
+        StatusText.Text = CurrentInkLayer.AlphaLock
+            ? "Alpha lock on: new painting recolours existing alpha. Erase and selection still edit original paths."
+            : "Alpha lock off: new painting can extend artwork. Existing alpha-locked strokes retain their restriction.";
+    }
+
     private bool EnsureInkLayerEditable()
     {
+        if (CurrentInkLayer.LipSync is { Enabled: true })
+        {
+            StatusText.Text = "Turn lip-sync preview off before editing the layer drawing, or use Edit selected mouth in Lip-sync.";
+            return false;
+        }
+        if (_characterRig is { Enabled: true } && CurrentInkLayer.RigBinding is not null)
+        {
+            StatusText.Text = "Turn animated rig preview off in Character rig before editing the original drawing; re-enable it to review poses.";
+            return false;
+        }
         if (CurrentInkLayer.ObjectTracking is { Enabled: true })
         {
             StatusText.Text = "Turn off Follow object before editing the original layer drawing; re-enable it to review the attached motion.";

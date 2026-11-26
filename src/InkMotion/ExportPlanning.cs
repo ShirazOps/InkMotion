@@ -128,7 +128,9 @@ public static class ExportPlanning
     public static bool HasInk(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        return InkCompositeGraphs.HasProceduralContent(project.CompositeGraph) || project.Frames.Any(frame =>
+        return project.InkLayers.Any(layer => layer.IsVisible && layer.LipSync is { Enabled: true } sync &&
+            InkLipSyncs.IsSourceCurrent(sync, project) && sync.Mouths.Values.Any(drawing => drawing.Any(stroke => stroke.Count > 0))) ||
+            InkCompositeGraphs.HasProceduralContent(project.CompositeGraph) || project.Frames.Any(frame =>
             frame.TextOverlays.Any(overlay => !string.IsNullOrWhiteSpace(overlay.Text)) ||
             project.InkLayers.Any(layer => layer.IsVisible && GetLayerStrokes(frame, layer.Id).Any(stroke => stroke.Count > 0)));
     }
@@ -136,7 +138,12 @@ public static class ExportPlanning
     public static double GetInkDurationSeconds(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        return HasInk(project) ? InkTimeline.GetTotalExposureFrames(project.Frames) / project.FrameRate : 0;
+        if (!HasInk(project)) return 0;
+        double mouthEnd = project.InkLayers.Where(layer => layer.IsVisible)
+            .Select(layer => layer.LipSync).OfType<InkLipSync>()
+            .Where(sync => sync.Enabled && InkLipSyncs.IsSourceCurrent(sync, project))
+            .Select(sync => sync.EndSeconds).DefaultIfEmpty(0).Max();
+        return Math.Max(InkTimeline.GetTotalExposureFrames(project.Frames) / project.FrameRate, mouthEnd);
     }
 
     /// <summary>Ink drawing shown at an output frame; the last drawing holds once the animation ends, as in preview.</summary>

@@ -194,6 +194,10 @@
                     <AppBarElementContainer><Button x:Name="PasteCelButton" Content="Paste cel" Click="PasteCel_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><Button Content="Add ink layer" Click="AddInkLayer_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Character rig…" Click="CharacterRig_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Lip-sync…" Click="LipSync_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><ToggleButton x:Name="InkAlphaLockToggle" Content="Alpha lock" Click="InkAlphaLock_Click" ToolTipService.ToolTip="New painting recolours existing artwork without extending its alpha; erasing and selection remain available" /></AppBarElementContainer>
+                    <AppBarElementContainer><ToggleButton x:Name="CharacterBonesToggle" Content="Show bones" Click="CharacterBones_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" /></AppBarElementContainer>
                     <AppBarSeparator />
@@ -1283,6 +1287,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Padding="18" Spacing="12">
                         <TextBlock Text="Ink Editor" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock x:Name="InkLipSyncReadout" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Click="SelectPen_Click" ToolTipService.ToolTip="Draw with the pen" AutomationProperties.Name="Pen">
                                 <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xEE56;" FontSize="14" /><TextBlock Text="Pen" /></StackPanel>
