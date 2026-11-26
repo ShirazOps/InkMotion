@@ -38,9 +38,13 @@ public sealed partial class MainWindow
         if (VideoAudioRateSelector is null || VideoAudioBitRateSelector is null ||
             VideoAudioDepthSelector is null || ExportHardwareToggle is null ||
             MatroskaExportOption is null || VideoPcmOption is null || VideoFlacOption is null || VideoOpusOption is null ||
-            WmvExportOption is null || Av1ExportOption is null || AsfExportOption is null || VideoWmaOption is null)
+            WmvExportOption is null || Av1ExportOption is null || AsfExportOption is null || VideoWmaOption is null ||
+            Hdr10PlusMetadataPanel is null)
             return;
         bool ffmpeg = VideoBackendSelector.SelectedIndex > 0;
+        bool hdr10PlusAvailable = ffmpeg && VideoBackendSelector.SelectedIndex == 1 &&
+            ExportCodecSelector.SelectedIndex == 1;
+        Hdr10PlusMetadataPanel.Visibility = hdr10PlusAvailable ? Visibility.Visible : Visibility.Collapsed;
         WmvExportOption.IsEnabled = VideoBackendSelector.SelectedIndex == 1;
         Av1ExportOption.IsEnabled = ffmpeg;
         if ((!ffmpeg && GetSelectedExportCodec() is VideoExportCodec.Wmv or VideoExportCodec.Av1) ||
@@ -85,7 +89,18 @@ public sealed partial class MainWindow
         return new(path, (FFmpegVideoEncoder)(VideoBackendSelector.SelectedIndex - 1),
             (FFmpegVideoContainer)VideoContainerSelector.SelectedIndex,
             (FFmpegVideoAudioCodec)VideoAudioCodecSelector.SelectedIndex,
-            VideoAudioDepthSelector.SelectedIndex == 0 ? 16 : 24);
+            VideoAudioDepthSelector.SelectedIndex == 0 ? 16 : 24,
+            Hdr10PlusMetadataPathBox.Text.Trim() is { Length: > 0 } metadataPath ? metadataPath : null);
+    }
+
+    private async void ChooseHdr10PlusMetadata_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".json");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        StorageFile? file = await picker.PickSingleFileAsync();
+        if (file is not null)
+            Hdr10PlusMetadataPathBox.Text = file.Path;
     }
 
     private async void ChooseFFmpeg_Click(object sender, RoutedEventArgs e)

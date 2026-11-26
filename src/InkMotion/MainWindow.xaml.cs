@@ -6,6 +6,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.Graphics.Canvas.Text;
+using Microsoft.Graphics.Display;
 using System.Diagnostics;
 using System.IO;
 using System.Numerics;
@@ -41,6 +42,9 @@ public sealed partial class MainWindow : Window
     private double _frameRate = FramesPerSecond;
     private ProjectCanvasSize? _projectCanvasSize;
     private ProjectColourSettings? _projectColour;
+    private DisplayInformation? _hdrDisplayInformation;
+    private bool _hdrDisplayActive;
+    private string? _hdrPreviewIssue;
     private string _activeInkLayerId = BaseInkLayerId;
     private uint _brushColour = 0xFFFFA500;
     private double _brushWidth = 4;
@@ -91,6 +95,7 @@ public sealed partial class MainWindow : Window
         InitialiseQuickStartGuide();
         UpdateProjectCanvasControls();
         UpdateProjectColourControls();
+        InitialiseHdrPreviewDisplayInformation();
     }
 
     private EditorFrame CurrentFrame => _frames[_selectedFrameIndex];
@@ -378,6 +383,7 @@ public sealed partial class MainWindow : Window
             FinishActiveEdit();
         }
         _workspace = workspace;
+        UpdateHdrPreviewSurfaceVisibility();
         SetPageButtonState(VideoWorkspaceButton, workspace == "Video");
         SetPageButtonState(AudioWorkspaceButton, workspace == "Audio");
         SetPageButtonState(InkWorkspaceButton, workspace == "Ink");
@@ -438,6 +444,7 @@ public sealed partial class MainWindow : Window
     private void UpdatePreviewMode()
     {
         CompositionSurface.Visibility = IsOriginalPreview ? Visibility.Collapsed : Visibility.Visible;
+        UpdateHdrPreviewSurfaceVisibility();
         if (IsOriginalPreview)
         {
             DisposePreviewVideoFrameSources();
@@ -2889,6 +2896,12 @@ public sealed partial class MainWindow : Window
         _audioSpectrumCancellation = null;
         _playbackTimer.Stop();
         DisposeAudioTracks();
+        if (_hdrDisplayInformation is not null)
+        {
+            _hdrDisplayInformation.AdvancedColorInfoChanged -= HdrDisplayInformation_AdvancedColorInfoChanged;
+            _hdrDisplayInformation.Dispose();
+            _hdrDisplayInformation = null;
+        }
         DisposeVideoTimeline();
         _audioPreviewBus.PlaybackStopped -= AudioPreviewBus_PlaybackStopped;
         DisposePreviewSubmixes();

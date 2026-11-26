@@ -63,6 +63,28 @@ public sealed class HdrColourTests
     }
 
     [Fact]
+    public void ScRgbDisplayConversionUsesReferenceWhiteAndPreservesExtendedRange()
+    {
+        Half[] working =
+        [
+            (Half)1, (Half)1, (Half)1, (Half)1,
+            (Half)2, (Half)0.5, (Half)(-0.25), (Half)1,
+            (Half)0.5, (Half)0.25, (Half)0.125, (Half)0.5,
+            (Half)0, (Half)0, (Half)0, (Half)0,
+        ];
+
+        byte[] converted = HdrColour.ConvertWorkingFrameToScRgb(
+            MemoryMarshal.AsBytes(working.AsSpan()).ToArray(), 203);
+        Half[] pixels = MemoryMarshal.Cast<byte, Half>(converted).ToArray();
+
+        Assert.Equal(203 / 80.0, (double)pixels[0], 2);
+        Assert.Equal(HdrColour.SrgbToLinear(2) * 203 / 80.0, (double)pixels[4], 3);
+        Assert.Equal(203 / 80.0 * 0.5, (double)pixels[8], 2);
+        Assert.Equal((Half)0.5, pixels[11]);
+        Assert.Equal((Half)0, pixels[15]);
+    }
+
+    [Fact]
     public void ProbeParsesHdrTransferAndIgnoresCoverArt()
     {
         const string diagnostic = """

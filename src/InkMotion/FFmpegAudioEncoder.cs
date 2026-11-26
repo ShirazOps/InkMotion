@@ -125,12 +125,14 @@ public static class FFmpegAudioEncoder
         return Path.GetFullPath(path);
     }
 
-    internal static Process Start(string executable, IEnumerable<string> arguments, bool redirectInput = false)
+    internal static Process Start(string executable, IEnumerable<string> arguments, bool redirectInput = false,
+        string? workingDirectory = null)
     {
         var info = new ProcessStartInfo(executable)
         {
             UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true,
             RedirectStandardInput = redirectInput, RedirectStandardOutput = !redirectInput,
+            WorkingDirectory = workingDirectory ?? string.Empty,
         };
         foreach (string argument in arguments) info.ArgumentList.Add(argument);
         return Process.Start(info) ?? throw new InvalidOperationException("Could not start FFmpeg.");
