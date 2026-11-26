@@ -347,13 +347,29 @@ public sealed partial class MainWindow
 
     private void AudioExportCodec_Changed(object sender, SelectionChangedEventArgs e) => UpdateAudioExportOptions();
 
+    private void AudioStemExport_Toggled(object sender, RoutedEventArgs e) => UpdateAudioExportOptions();
+
+    private void AudioTruePeakLimiter_Changed(object sender, RoutedEventArgs e)
+    {
+        AudioTruePeakCeilingBox.IsEnabled = AudioTruePeakLimiterToggle.IsChecked == true;
+    }
+
     private void UpdateAudioExportOptions()
     {
-        if (AudioExportRateSelector is null || AudioExportDepthSelector is null || AudioExportBitRateSelector is null)
+        if (AudioExportRateSelector is null || AudioExportDepthSelector is null || AudioExportBitRateSelector is null ||
+            AudioStemExportToggle is null || AudioTruePeakLimiterToggle is null || AudioTruePeakCeilingBox is null)
         {
             return;
         }
 
+        AudioTruePeakCeilingBox.IsEnabled = AudioTruePeakLimiterToggle.IsChecked == true;
+        bool stems = AudioStemExportToggle.IsOn;
+        if (stems && AudioExportCodecSelector.SelectedIndex > 1)
+        {
+            AudioExportCodecSelector.SelectedIndex = 0;
+        }
+
+        AudioExportCodecSelector.IsEnabled = !stems;
         bool wave = AudioExportCodecSelector.SelectedIndex < 2;
         bool flac = AudioExportCodecSelector.SelectedIndex == (int)AudioExportCodec.Flac;
         bool opus = AudioExportCodecSelector.SelectedIndex == (int)AudioExportCodec.Opus;
@@ -361,10 +377,10 @@ public sealed partial class MainWindow
         AudioExportRateSelector.ItemsSource = wave || flac ? AudioExportSettings.SampleRates :
             opus ? new[] { 48000 } : new[] { 44100, 48000 };
         AudioExportRateSelector.SelectedItem = 48000;
-        AudioExportDepthSelector.IsEnabled = (wave && !floatingPoint) || flac;
+        AudioExportDepthSelector.IsEnabled = !floatingPoint && (wave || flac);
         ((ComboBoxItem)AudioExportDepthSelector.Items[2]).IsEnabled = !flac;
         AudioExportDepthSelector.SelectedIndex = floatingPoint ? 2 : 1;
-        AudioExportBitRateSelector.IsEnabled = !wave && !flac;
+        AudioExportBitRateSelector.IsEnabled = !stems && !wave && !flac;
     }
 
     private async void ExportAudio_Click(object sender, RoutedEventArgs e)
@@ -387,7 +403,16 @@ public sealed partial class MainWindow
         }
 
         var settings = new AudioExportSettings((AudioExportCodec)AudioExportCodecSelector.SelectedIndex, rate,
-            int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim());
+            int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim(), AudioStemExportToggle.IsOn,
+            AudioTruePeakLimiterToggle.IsChecked == true, AudioTruePeakCeilingBox.Value);
+        if (!double.IsFinite(settings.TruePeakCeilingDecibels) ||
+            settings.TruePeakCeilingDecibels is < -24 or > 0)
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Choose a true-peak ceiling between -24 and 0 dBTP.";
+            return;
+        }
+
         if (settings.UsesFFmpeg && (_ffmpegCapabilities is null ||
             !string.Equals(settings.FFmpegPath, _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase)))
         {
@@ -397,10 +422,11 @@ public sealed partial class MainWindow
         }
         var picker = new FileSavePicker
         {
-            SuggestedFileName = _projectFile is null ? "Untitled mix" : Path.GetFileNameWithoutExtension(_projectFile.Name),
+            SuggestedFileName = (_projectFile is null ? "Untitled" : Path.GetFileNameWithoutExtension(_projectFile.Name)) +
+                (settings.ExportStems ? " stems" : " mix"),
             DefaultFileExtension = settings.Extension,
         };
-        picker.FileTypeChoices.Add("Audio mix", [settings.Extension]);
+        picker.FileTypeChoices.Add(settings.ExportStems ? "Audio stems archive" : "Audio mix", [settings.Extension]);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null)

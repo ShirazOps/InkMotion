@@ -972,10 +972,18 @@
                         <TextBlock x:Name="FFmpegCapabilitiesText" Text="Optional: select a trusted local FFmpeg build for FLAC, Opus, WMA, WMV and AV1. Compatibility imports create retained WAV/H.264 editing copies; originals stay unchanged. AV1 detection needs sibling ffprobe.exe. No download or installation is performed."
                                    TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Border Style="{StaticResource DividerStyle}" />
-                        <TextBlock Text="AUDIO MIX FILE" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <TextBlock Text="AUDIO EXPORT" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBlock Text="WAV preserves the project channel layout. FLAC preserves up to 8 channels; MP3, AAC, Opus and WMA use mono/stereo. FLAC/Opus/WMA require optional local FFmpeg." Style="{StaticResource HintTextStyle}" />
                         <UserControl x:Name="AudioExportOptions">
                             <StackPanel Spacing="10">
+                                <ToggleSwitch x:Name="AudioStemExportToggle" Header="Export aligned bus stems as a ZIP of WAV files"
+                                              Toggled="AudioStemExport_Toggled"
+                                              ToolTipService.ToolTip="Includes a direct-master stem and one solo stem per bus. Parent stems include their child buses; bus mutes and track solos are honoured, while bus solo states are ignored so every bus is exported." />
+                                <CheckBox x:Name="AudioTruePeakLimiterToggle" Content="Apply a 4× true-peak limiter to exported audio"
+                                          Checked="AudioTruePeakLimiter_Changed" Unchecked="AudioTruePeakLimiter_Changed"
+                                          ToolTipService.ToolTip="Output-only limiter, off by default. Uses linked channels, 4× 12-tap windowed-sinc detection, seven frames of look-ahead and a 100 ms release." />
+                                <NumberBox x:Name="AudioTruePeakCeilingBox" Header="True-peak ceiling (dBTP)" Value="-1"
+                                           Minimum="-24" Maximum="0" SmallChange="0.1" IsEnabled="False" />
                                 <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
                                     <ComboBoxItem Content="PCM · WAV" />
                                     <ComboBoxItem Content="32-bit float · WAV" />
@@ -1047,6 +1055,7 @@
                         <UserControl x:Name="AudioBusControls" IsEnabled="False">
                             <StackPanel Spacing="8">
                                 <TextBox x:Name="AudioBusNameBox" Header="Bus name" MaxLength="64" LostFocus="AudioBusName_LostFocus" />
+                                <ComboBox x:Name="AudioBusParentSelector" Header="Parent bus" SelectionChanged="AudioBusParent_SelectionChanged" />
                                 <NumberBox x:Name="AudioBusGainBox" Header="Bus gain (dB, -60 to +12)" Minimum="-60" Maximum="12" Value="0" SmallChange="0.5" LargeChange="6" SpinButtonPlacementMode="Compact" ValueChanged="AudioBusGain_ValueChanged" />
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <ToggleButton x:Name="AudioBusMuteButton" Content="Mute bus" Click="AudioBusMute_Click" />
@@ -1055,7 +1064,11 @@
                             </StackPanel>
                         </UserControl>
                         <ComboBox x:Name="AudioClipBusSelector" Header="Selected audio clip output" SelectionChanged="AudioClipBus_SelectionChanged" HorizontalAlignment="Stretch" IsEnabled="False" />
-                        <TextBlock Text="A bus sums the clips and video tracks routed to it in the project channel layout, runs its own effect chain and gain, then feeds the master. Route a video track's embedded audio from its track properties. Bus mute silences its sources; while any bus is soloed, only sources on soloed buses are heard. Edit bus effects by choosing the bus as the effects target below; spectral noise reduction is clip-only. Buses are single-level, with no sends or stem export. The MediaPlayer fallback used when a video source cannot be decoded for routed preview plays without bus effects or gain." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="POST-FADER AUX SENDS" Style="{StaticResource SectionHeaderTextStyle}" />
+                        <StackPanel x:Name="AudioAuxSendsPanel" Spacing="6" />
+                        <Button x:Name="AddAudioAuxSendButton" Content="Add send" Click="AddAudioAuxSend_Click" IsEnabled="False" />
+                        <TextBlock Text="Sends duplicate the processed audio track to another bus after its volume, effects and pan controls." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="A bus sums the clips and video tracks routed to it in the project channel layout, runs its own effect chain and gain, then feeds its parent bus or the master. Route a video track's embedded audio from its track properties. Bus mute silences its sources and descendants; while any bus is soloed, only routes passing through a soloed bus are heard. Edit bus effects by choosing the bus as the effects target below; spectral noise reduction is clip-only. The MediaPlayer fallback used when a video source cannot be decoded for routed preview plays without bus effects or gain." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <TextBlock Text="LIVE PREVIEW MASTER" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ProgressBar x:Name="MasterAudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Live preview master peak level" />
                         <TextBlock x:Name="MasterAudioMeterText" Text="Preview master: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
@@ -1199,6 +1212,14 @@
                                 <NumberBox x:Name="AudioLimiterReleaseBox" Header="Limiter release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <TextBlock Text="Instant linked gain reduction at the end of this track's chain. No look-ahead or inter-sample/true-peak protection. Downmix, resampling and summed tracks can still exceed full scale." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
+                                <Border Style="{StaticResource DividerStyle}" />
+                                <TextBlock Text="VST3 PLUG-IN INSERTS" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock Text="Plug-ins run in separate processes, but are not security sandboxes. Only load plug-ins you trust. Use the native editor where supported; its parameter changes synchronise with the insert and are saved in the project. Audio-track inserts currently support mono and stereo; bus inserts require a mono or stereo bus layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <Button x:Name="AddVst3PluginButton" Content="Add VST3 plug-in" Click="AddVst3Plugin_Click" />
+                                <Button x:Name="OpenVst3PluginEditorButton" Content="Open plug-in editor" Click="OpenVst3PluginEditor_Click" IsEnabled="False" />
+                                <TextBlock x:Name="Vst3PluginStatusText" Text="Choose a plug-in bundle to scan installed VST3 effects." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <StackPanel x:Name="Vst3PluginsPanel" Spacing="6" />
+                                <StackPanel x:Name="Vst3PluginControlsPanel" Spacing="6" />
                             </StackPanel>
                         </UserControl>
                         <Border Style="{StaticResource DividerStyle}" />

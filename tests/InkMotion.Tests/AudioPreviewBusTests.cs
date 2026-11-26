@@ -44,6 +44,22 @@ public sealed class AudioPreviewBusTests : IDisposable
     }
 
     [Fact]
+    public void NestedSubmixRoutesThroughParentGain()
+    {
+        using var bus = new AudioPreviewBus();
+        using AudioPreviewSubmix parent = bus.CreateSubmix(
+            AudioChannelLayout.Stereo, new AudioEffectSettings(), -6.0206);
+        using AudioPreviewSubmix child = bus.CreateSubmix(
+            AudioChannelLayout.Stereo, new AudioEffectSettings(), -6.0206, parent);
+        using AudioPreviewInput source = child.AddInput(new ConstantSamples(0.25f));
+        source.SetEnabled(true);
+
+        float[] output = new float[8];
+        Assert.Equal(output.Length, bus.Read(output, 0, output.Length));
+        Assert.All(output, sample => Assert.Equal(0.0625f, sample, 4));
+    }
+
+    [Fact]
     public void BusMeasuresPhaseCancellationAndDisabledInputsAsSilence()
     {
         using var bus = new AudioPreviewBus();
@@ -132,6 +148,20 @@ public sealed class AudioPreviewBusTests : IDisposable
         bus.Read(output, 0, output.Length);
         Assert.All(output, sample => Assert.Equal(0.5f, sample, 4));
         Assert.Equal(0.5f, bus.TakeMasterReading().Peak, 4);
+    }
+
+    [Fact]
+    public void AudioClipPlayerAppliesPostFaderSendGain()
+    {
+        string path = WriteStereoSource(0.5f, 0.5f);
+        using var bus = new AudioPreviewBus();
+        using var player = new AudioClipPlayer(path, new AudioTrackProject { AudioPath = path },
+            AudioChannelLayout.Stereo, bus, outputGain: 0.5);
+        player.Play();
+
+        float[] output = new float[8];
+        bus.Read(output, 0, output.Length);
+        Assert.All(output, sample => Assert.Equal(0.25f, sample, 4));
     }
 
     [Fact]

@@ -8,14 +8,18 @@ namespace InkMotion;
 /// Offline mix of every audible source in a project, rendered at the requested rate in the project's channel layout.
 /// Audio tracks keep their trim, gain, fades, tempo, pitch, speaker balance and mono spatial pan. Solo isolates marked audio
 /// tracks; otherwise video clips contribute their sound with clip volume and fades applied. Sources routed to a submix bus are
-/// summed in the project layout, processed by the bus effects and gain, and then mixed into the master.
+/// summed in the project layout, processed by the bus effects and gain, and routed through parent buses to the master.
 /// </summary>
 public sealed class ExportAudioMixer : IDisposable
 {
     private readonly List<IDisposable> _readers = [];
     private readonly List<string> _warnings = [];
+    private readonly List<Vst3InsertChainSampleProvider> _vst3Providers = [];
     private readonly MixingSampleProvider _mixer;
     private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _busEndSeconds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, double> _busVst3TailDurationSeconds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _buildingBusMixers = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<AudioBusProject> _buses;
     private readonly double _frameRate;
     private readonly bool _reportVideoReadFailures;
@@ -45,7 +49,15 @@ public sealed class ExportAudioMixer : IDisposable
             bool hasSolo = project.AudioTracks.Any(track => track.Solo);
             foreach (AudioTrackProject track in project.AudioTracks)
             {
-                AddAudioTrack(track, suppressed: (hasSolo && !track.Solo) || !AudioBuses.IsAudible(_buses, track.BusId));
+                bool trackSuppressed = hasSolo && !track.Solo;
+                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId),
+                    track.BusId, outputGain: 1);
+                foreach (AudioAuxSendProject send in track.AuxSends ?? [])
+                {
+                    AddAudioTrack(track,
+                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId),
+                        send.BusId, AudioClipEditing.DecibelsToLinear(send.GainDecibels));
+                }
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
@@ -56,6 +68,14 @@ public sealed class ExportAudioMixer : IDisposable
                 {
                     VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
                     AddVideoClipAudio(clip, transition, track.AudioBusId);
+                }
+            }
+
+            foreach (AudioBusProject bus in _buses.Where(bus => bus.ParentBusId is null))
+            {
+                if (GetBusOutputEndSeconds(bus) is double busEndSeconds)
+                {
+                    DurationSeconds = Math.Max(DurationSeconds, busEndSeconds);
                 }
             }
         }
@@ -77,7 +97,10 @@ public sealed class ExportAudioMixer : IDisposable
     /// <summary>Timeline time at which the last included source ends, including muted audio segments.</summary>
     public double DurationSeconds { get; private set; }
 
-    public IReadOnlyList<string> Warnings => _warnings;
+    public IReadOnlyList<string> Warnings => _warnings
+        .Concat(_vst3Providers.Select(provider => provider.FailureMessage).OfType<string>())
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
 
     /// <summary>Reads interleaved float samples; silence is returned once every source has finished.</summary>
     public int Read(float[] buffer, int offset, int count) => _mixer.Read(buffer, offset, count);
@@ -92,7 +115,7 @@ public sealed class ExportAudioMixer : IDisposable
         _readers.Clear();
     }
 
-    private void AddAudioTrack(AudioTrackProject track, bool suppressed)
+    private void AddAudioTrack(AudioTrackProject track, bool suppressed, string? outputBusId, double outputGain)
     {
         if (string.IsNullOrWhiteSpace(track.AudioPath))
         {
@@ -143,9 +166,17 @@ public sealed class ExportAudioMixer : IDisposable
             _warnings.Add($"Spectral noise reduction was bypassed for {Path.GetFileName(path)} because its saved profile does not match this source.");
         }
 
-        var effects = new AudioEffectsSampleProvider(stretch, effectsSettings);
-        AddSource(effects, AudioClipEditing.GetClipStartSeconds(track, _frameRate), timelineDuration,
-            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, track.BusId);
+        var finiteSource = new FiniteSampleProvider(stretch, timelineDuration);
+        var effects = new AudioEffectsSampleProvider(finiteSource, effectsSettings);
+        var vst3 = new Vst3InsertChainSampleProvider(effects, track.Vst3Plugins, preservePluginTails: true);
+        _readers.Add(vst3);
+        _vst3Providers.Add(vst3);
+        ISampleProvider output = outputGain == 1
+            ? vst3
+            : new VolumeSampleProvider(vst3) { Volume = (float)outputGain };
+        AddSource(output, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
+            timelineDuration + effects.TailDurationSeconds + vst3.TailDurationSeconds,
+            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition, string? busId)
@@ -246,6 +277,12 @@ public sealed class ExportAudioMixer : IDisposable
             DelayBy = TimeSpan.FromSeconds(start),
             Take = TimeSpan.FromSeconds(durationSeconds),
         });
+        if (AudioBuses.Find(_buses, busId) is AudioBusProject bus)
+        {
+            _busEndSeconds[bus.Id] = Math.Max(
+                _busEndSeconds.GetValueOrDefault(bus.Id), start + durationSeconds);
+        }
+
         SourceCount++;
         DurationSeconds = Math.Max(DurationSeconds, start + durationSeconds);
     }
@@ -254,24 +291,77 @@ public sealed class ExportAudioMixer : IDisposable
     {
         if (AudioBuses.Find(_buses, busId) is not AudioBusProject bus)
         {
+            if (busId is not null)
+            {
+                throw new InvalidDataException("An audio source or bus is routed to a missing bus.");
+            }
+
             return _mixer;
         }
 
-        if (!_busMixers.TryGetValue(bus.Id, out MixingSampleProvider? busMixer))
+        if (_buildingBusMixers.Contains(bus.Id))
         {
-            // ReadFully keeps the bus running after its sources end so delay and reverb tails decay naturally.
-            busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
-            var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
-            _mixer.AddMixerInput(new VolumeSampleProvider(effects) { Volume = AudioBuses.GetLinearGain(bus) });
-            _busMixers.Add(bus.Id, busMixer);
+            throw new InvalidDataException("Audio bus parent routes must not contain a cycle.");
         }
 
+        if (_busMixers.TryGetValue(bus.Id, out MixingSampleProvider? existing))
+        {
+            return existing;
+        }
+
+        _buildingBusMixers.Add(bus.Id);
+        // ReadFully keeps the bus running after its sources end so delay and reverb tails decay naturally.
+        var busMixer = new MixingSampleProvider(_mixer.WaveFormat) { ReadFully = true };
+        _busMixers.Add(bus.Id, busMixer);
+        var effects = new AudioEffectsSampleProvider(busMixer, bus.Effects);
+        var vst3 = new Vst3InsertChainSampleProvider(effects, bus.Vst3Plugins, preservePluginTails: true);
+        _readers.Add(vst3);
+        _vst3Providers.Add(vst3);
+        _busVst3TailDurationSeconds[bus.Id] = vst3.TailDurationSeconds;
+        GetBusMixer(bus.ParentBusId).AddMixerInput(
+            new VolumeSampleProvider(vst3) { Volume = AudioBuses.GetLinearGain(bus) });
+        _buildingBusMixers.Remove(bus.Id);
         return busMixer;
     }
+
+    private double? GetBusOutputEndSeconds(AudioBusProject bus)
+    {
+        double? inputEnd = _busEndSeconds.TryGetValue(bus.Id, out double directEnd) ? directEnd : null;
+        foreach (AudioBusProject child in _buses.Where(candidate => candidate.ParentBusId == bus.Id))
+        {
+            if (GetBusOutputEndSeconds(child) is double childEnd)
+            {
+                inputEnd = Math.Max(inputEnd ?? 0, childEnd);
+            }
+        }
+
+        return inputEnd is double end
+            ? end + bus.Effects.TailDurationSeconds + GetBusVst3TailDuration(bus.Id)
+            : null;
+    }
+
+    private double GetBusVst3TailDuration(string busId) =>
+        _busVst3TailDurationSeconds.GetValueOrDefault(busId);
 
     private static bool IsReadFailure(Exception ex) =>
         ex is IOException or UnauthorizedAccessException or InvalidOperationException or COMException or
             FormatException or ArgumentException or NotSupportedException;
+
+    private sealed class FiniteSampleProvider(ISampleProvider source, double durationSeconds) : ISampleProvider
+    {
+        private long _remainingSamples = Math.Max(0,
+            (long)Math.Round(durationSeconds * source.WaveFormat.SampleRate) * source.WaveFormat.Channels);
+
+        public WaveFormat WaveFormat => source.WaveFormat;
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int requested = count - count % WaveFormat.Channels;
+            int read = source.Read(buffer, offset, (int)Math.Min(requested, _remainingSamples));
+            _remainingSamples -= read;
+            return read;
+        }
+    }
 
     /// <summary>Applies a time-varying gain, with time measured from the first sample read.</summary>
     private sealed class GainEnvelopeSampleProvider(ISampleProvider source, Func<double, double> gainAtSeconds) : ISampleProvider
@@ -357,8 +447,12 @@ public sealed class MultichannelWaveWriter : IDisposable
 {
     private readonly int _headerSize;
     private static readonly Guid PcmSubFormat = new("00000001-0000-0010-8000-00aa00389b71");
-    private readonly FileStream _stream;
+    private readonly Stream _stream;
+    private readonly bool _leaveOpen;
+    private readonly long? _expectedDataBytes;
     private readonly int _channels;
+    private readonly int _sampleRate;
+    private readonly int _channelMask;
     private readonly int _bytesPerSample;
     private readonly bool _floatingPoint;
     private readonly Random _dither = new(0);
@@ -377,32 +471,47 @@ public sealed class MultichannelWaveWriter : IDisposable
         }
 
         _channels = channels;
+        _sampleRate = sampleRate;
+        _channelMask = channelMask;
         _headerSize = channels > 2 ? 68 : 44;
         _bytesPerSample = bitsPerSample / 8;
         _floatingPoint = floatingPoint;
         _stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var header = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
-        int blockAlign = channels * _bytesPerSample;
-        header.Write("RIFF"u8);
-        header.Write(0u);
-        header.Write("WAVE"u8);
-        header.Write("fmt "u8);
-        header.Write(channels > 2 ? 40 : 16);
-        header.Write((ushort)(channels > 2 ? 0xFFFE : floatingPoint ? 3 : 1));
-        header.Write((ushort)channels);
-        header.Write(sampleRate);
-        header.Write(sampleRate * blockAlign);
-        header.Write((ushort)blockAlign);
-        header.Write((ushort)bitsPerSample);
-        if (channels > 2)
+        WriteHeader(0, 0);
+    }
+
+    public MultichannelWaveWriter(Stream stream, int sampleRate, int channels, int channelMask, long expectedFrames,
+        int bitsPerSample = 24, bool floatingPoint = false, bool leaveOpen = false)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentOutOfRangeException.ThrowIfLessThan(channels, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(sampleRate, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(expectedFrames);
+        if (!stream.CanWrite)
         {
-            header.Write((ushort)22);
-            header.Write((ushort)bitsPerSample);
-            header.Write(channelMask);
-            header.Write((floatingPoint ? new Guid("00000003-0000-0010-8000-00aa00389b71") : PcmSubFormat).ToByteArray());
+            throw new ArgumentException("The WAV destination must be writable.", nameof(stream));
         }
-        header.Write("data"u8);
-        header.Write(0u);
+        if (bitsPerSample is not (16 or 24 or 32) || (floatingPoint && bitsPerSample != 32))
+        {
+            throw new ArgumentOutOfRangeException(nameof(bitsPerSample));
+        }
+
+        _channels = channels;
+        _sampleRate = sampleRate;
+        _channelMask = channelMask;
+        _headerSize = channels > 2 ? 68 : 44;
+        _bytesPerSample = bitsPerSample / 8;
+        _floatingPoint = floatingPoint;
+        _stream = stream;
+        _leaveOpen = leaveOpen;
+        _expectedDataBytes = checked(expectedFrames * channels * _bytesPerSample);
+        long paddedDataBytes = _expectedDataBytes.Value + (_expectedDataBytes.Value % 2);
+        if (paddedDataBytes > uint.MaxValue - _headerSize + 8L)
+        {
+            throw new InvalidOperationException("This WAV would exceed the 4 GB RIFF limit.");
+        }
+
+        WriteHeader((uint)(_headerSize - 8 + paddedDataBytes), (uint)_expectedDataBytes.Value);
     }
 
     public bool Truncated { get; private set; }
@@ -417,7 +526,7 @@ public sealed class MultichannelWaveWriter : IDisposable
 
         int frames = count / _channels;
         int bytes = frames * _channels * _bytesPerSample;
-        if (_dataBytes + bytes > uint.MaxValue - _headerSize)
+        if (_dataBytes + bytes > uint.MaxValue - _headerSize || _expectedDataBytes is long expected && _dataBytes + bytes > expected)
         {
             Truncated = true;
             return;
@@ -462,14 +571,44 @@ public sealed class MultichannelWaveWriter : IDisposable
             _stream.WriteByte(0);
         }
 
-        _stream.Position = 4;
-        using (var writer = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true))
+        if (_expectedDataBytes is null)
         {
+            _stream.Position = 4;
+            using var writer = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
             writer.Write((uint)(_headerSize - 8 + _dataBytes + (_dataBytes % 2)));
             _stream.Position = _headerSize - 4;
             writer.Write((uint)_dataBytes);
         }
 
-        _stream.Dispose();
+        if (!_leaveOpen)
+        {
+            _stream.Dispose();
+        }
+    }
+
+    private void WriteHeader(uint riffSize, uint dataSize)
+    {
+        using var header = new BinaryWriter(_stream, System.Text.Encoding.ASCII, leaveOpen: true);
+        int blockAlign = _channels * _bytesPerSample;
+        header.Write("RIFF"u8);
+        header.Write(riffSize);
+        header.Write("WAVE"u8);
+        header.Write("fmt "u8);
+        header.Write(_channels > 2 ? 40 : 16);
+        header.Write((ushort)(_channels > 2 ? 0xFFFE : _floatingPoint ? 3 : 1));
+        header.Write((ushort)_channels);
+        header.Write(_sampleRate);
+        header.Write(_sampleRate * blockAlign);
+        header.Write((ushort)blockAlign);
+        header.Write((ushort)(_bytesPerSample * 8));
+        if (_channels > 2)
+        {
+            header.Write((ushort)22);
+            header.Write((ushort)(_bytesPerSample * 8));
+            header.Write(_channelMask);
+            header.Write((_floatingPoint ? new Guid("00000003-0000-0010-8000-00aa00389b71") : PcmSubFormat).ToByteArray());
+        }
+        header.Write("data"u8);
+        header.Write(dataSize);
     }
 }

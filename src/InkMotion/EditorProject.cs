@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 81;
+    public const int CurrentVersion = 83;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -85,7 +85,9 @@ public sealed class AudioTrackProject
     /// <summary>Submix bus id, or null to feed the master mix directly.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? BusId { get; set; }
+    public List<AudioAuxSendProject> AuxSends { get; set; } = [];
     public AudioEffectSettings Effects { get; set; } = new();
+    public List<AudioVst3PluginProject> Vst3Plugins { get; set; } = [];
     public double SourceInSeconds { get; set; }
     public double? SourceOutSeconds { get; set; }
     public double FadeInSeconds { get; set; }
@@ -101,6 +103,13 @@ public sealed class AudioTrackProject
     public uint Year { get; set; }
     [JsonPropertyName("TagsInitialized")]
     public bool TagsInitialised { get; set; }
+}
+
+public sealed class AudioAuxSendProject
+{
+    public string Id { get; set; } = $"send-{Guid.NewGuid():N}"[..16];
+    public string BusId { get; set; } = string.Empty;
+    public double GainDecibels { get; set; } = -6;
 }
 
 public sealed class EditorFrame
@@ -698,6 +707,14 @@ public static class EditorProjectSerialiser
             project.Version = EditorProject.CurrentVersion;
         }
         if (project.Version == 80)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 81)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 82)
         {
             project.Version = EditorProject.CurrentVersion;
         }

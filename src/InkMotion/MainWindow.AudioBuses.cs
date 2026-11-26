@@ -15,39 +15,40 @@ public sealed partial class MainWindow
         busId is not null && _previewSubmixes.TryGetValue(busId, out AudioPreviewSubmix? submix) ? submix : null;
 
     /// <summary>
-    /// Keeps one preview submix per bus in the project layout and reroutes every preview player. Replaced submixes are
-    /// disposed only after their players have moved, so playback continues without a gap.
+    /// Rebuilds the bus tree and reroutes preview players. Bus edits pause playback before this is called.
     /// </summary>
     private void SyncPreviewSubmixes()
     {
-        var stale = new List<AudioPreviewSubmix>();
-        var current = new HashSet<string>(StringComparer.Ordinal);
-        foreach (AudioBusProject bus in _audioBuses)
+        DisposePreviewSubmixes();
+        AudioPreviewSubmix? CreateSubmix(string? busId)
         {
-            current.Add(bus.Id);
-            if (_previewSubmixes.TryGetValue(bus.Id, out AudioPreviewSubmix? existing) && existing.Layout == _audioMixLayout)
+            AudioBusProject? bus = AudioBuses.Find(_audioBuses, busId);
+            if (bus is null)
             {
-                existing.Update(bus.Effects, bus.GainDecibels);
-                continue;
+                return null;
             }
 
-            if (existing is not null)
+            if (_previewSubmixes.TryGetValue(bus.Id, out AudioPreviewSubmix? existing))
             {
-                stale.Add(existing);
+                return existing;
             }
 
-            _previewSubmixes[bus.Id] = _audioPreviewBus.CreateSubmix(_audioMixLayout, bus.Effects, bus.GainDecibels);
+            AudioPreviewSubmix? parent = CreateSubmix(bus.ParentBusId);
+            var submix = _audioPreviewBus.CreateSubmix(
+                _audioMixLayout, bus.Effects, bus.GainDecibels, parent, bus.Vst3Plugins);
+            _previewSubmixes.Add(bus.Id, submix);
+            return submix;
         }
 
-        foreach (string id in _previewSubmixes.Keys.Where(id => !current.Contains(id)).ToArray())
+        foreach (AudioBusProject bus in _audioBuses)
         {
-            stale.Add(_previewSubmixes[id]);
-            _previewSubmixes.Remove(id);
+            CreateSubmix(bus.Id);
         }
 
         foreach (AudioTrackRuntime track in _audioTracks)
         {
             track.Player?.SetRoute(GetPreviewSubmix(track.Project.BusId), track.Project, _audioMixLayout);
+            SyncAuxiliarySendPlayers(track);
         }
 
         foreach (VideoAudioPreviewState state in new[] { _videoAudioPreview, _transitionVideoAudioPreview })
@@ -58,10 +59,6 @@ public sealed partial class MainWindow
             }
         }
 
-        foreach (AudioPreviewSubmix submix in stale)
-        {
-            submix.Dispose();
-        }
     }
 
     private void DisposePreviewSubmixes()
@@ -93,6 +90,7 @@ public sealed partial class MainWindow
         SyncPreviewSubmixes();
         SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         SyncVideoPreview(CurrentPlaybackSeconds, forceSeek: true);
+        UpdateAudioBusControls();
         UpdateSelectedAudioTrack();
     }
 
@@ -125,12 +123,14 @@ public sealed partial class MainWindow
         AudioBusGainBox.Value = selected?.GainDecibels ?? 0;
         AudioBusMuteButton.IsChecked = selected?.Muted == true;
         AudioBusSoloButton.IsChecked = selected?.Solo == true;
+        PopulateParentBusSelector(selected);
 
         bool hasTrack = _selectedAudioTrackIndex >= 0 && _selectedAudioTrackIndex < _audioTracks.Count;
         PopulateBusOutputSelector(AudioClipBusSelector, "Master (direct)");
         AudioClipBusSelector.SelectedItem = FindBusItem(
             AudioClipBusSelector, hasTrack ? _audioTracks[_selectedAudioTrackIndex].Project.BusId ?? string.Empty : string.Empty);
         AudioClipBusSelector.IsEnabled = hasTrack && _audioBuses.Count > 0;
+        PopulateAuxiliarySends(hasTrack ? _audioTracks[_selectedAudioTrackIndex] : null);
 
         AudioEffectsTargetSelector.Items.Clear();
         AudioEffectsTargetSelector.Items.Add(new ComboBoxItem { Content = "Selected audio clip", Tag = string.Empty });
@@ -152,6 +152,136 @@ public sealed partial class MainWindow
         {
             selector.Items.Add(new ComboBoxItem { Content = bus.Name, Tag = bus.Id });
         }
+    }
+
+    private void PopulateParentBusSelector(AudioBusProject? selected)
+    {
+        AudioBusParentSelector.Items.Clear();
+        AudioBusParentSelector.Items.Add(new ComboBoxItem { Content = "Master", Tag = string.Empty });
+        foreach (AudioBusProject bus in _audioBuses.Where(bus => selected is not null &&
+            !AudioBuses.WouldCreateCycle(_audioBuses, selected.Id, bus.Id)))
+        {
+            AudioBusParentSelector.Items.Add(new ComboBoxItem { Content = bus.Name, Tag = bus.Id });
+        }
+
+        AudioBusParentSelector.SelectedItem = FindBusItem(AudioBusParentSelector, selected?.ParentBusId ?? string.Empty);
+        AudioBusParentSelector.IsEnabled = selected is not null;
+    }
+
+    private void PopulateAuxiliarySends(AudioTrackRuntime? track)
+    {
+        AudioAuxSendsPanel.Children.Clear();
+        AddAudioAuxSendButton.IsEnabled = track?.HasSource == true && _audioBuses.Count > 0;
+        if (track is null)
+        {
+            return;
+        }
+
+        foreach (AudioAuxSendProject send in track.Project.AuxSends ?? [])
+        {
+            var selector = new ComboBox
+            {
+                Header = "Send to bus",
+                Tag = send,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsEnabled = track.HasSource,
+            };
+            foreach (AudioBusProject bus in _audioBuses)
+            {
+                selector.Items.Add(new ComboBoxItem { Content = bus.Name, Tag = bus.Id });
+            }
+
+            selector.SelectedItem = FindBusItem(selector, send.BusId);
+            selector.SelectionChanged += AudioAuxSendBus_SelectionChanged;
+            var gain = new NumberBox
+            {
+                Header = "Send level (dB)",
+                Tag = send,
+                Minimum = AudioBuses.MinimumSendGainDecibels,
+                Maximum = AudioBuses.MaximumSendGainDecibels,
+                Value = send.GainDecibels,
+                SmallChange = 0.5,
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+                Width = 170,
+                IsEnabled = track.HasSource,
+            };
+            gain.ValueChanged += AudioAuxSendGain_ValueChanged;
+            var remove = new Button
+            {
+                Content = "Remove send",
+                Tag = send,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                IsEnabled = track.HasSource,
+            };
+            remove.Click += RemoveAudioAuxSend_Click;
+            var controls = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            controls.Children.Add(gain);
+            controls.Children.Add(remove);
+            var row = new StackPanel { Spacing = 4 };
+            row.Children.Add(selector);
+            row.Children.Add(controls);
+            AudioAuxSendsPanel.Children.Add(row);
+        }
+    }
+
+    private void SyncAuxiliarySendPlayers(AudioTrackRuntime track)
+    {
+        string? path = track.Project.AudioPath;
+        if (track.Player is null || string.IsNullOrWhiteSpace(path))
+        {
+            foreach (AudioClipPlayer player in track.AuxiliaryPlayers.Values)
+            {
+                player.Dispose();
+            }
+
+            track.AuxiliaryPlayers.Clear();
+            return;
+        }
+
+        var activeIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (AudioAuxSendProject send in track.Project.AuxSends ?? [])
+        {
+            if (AudioBuses.Find(_audioBuses, send.BusId) is null ||
+                GetPreviewSubmix(send.BusId) is not AudioPreviewSubmix destination)
+            {
+                throw new InvalidDataException("An auxiliary send must target an existing bus.");
+            }
+
+            activeIds.Add(send.Id);
+            if (!track.AuxiliaryPlayers.TryGetValue(send.Id, out AudioClipPlayer? player))
+            {
+                try
+                {
+                    player = new AudioClipPlayer(path, track.Project, _audioMixLayout, _audioPreviewBus,
+                        submix: destination, outputGain: AudioClipEditing.DecibelsToLinear(send.GainDecibels));
+                    track.AuxiliaryPlayers.Add(send.Id, player);
+                }
+                catch (Exception ex) when (
+                    IsFileAccessException(ex) ||
+                    ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
+                {
+                    StatusText.Text = $"Auxiliary send preview could not open {Path.GetFileName(path)}: {ex.Message}";
+                }
+            }
+            else
+            {
+                player.Update(track.Project, _audioMixLayout);
+                player.SetOutputGain(AudioClipEditing.DecibelsToLinear(send.GainDecibels));
+                player.SetRoute(destination, track.Project, _audioMixLayout);
+            }
+        }
+
+        foreach (string id in track.AuxiliaryPlayers.Keys.Where(id => !activeIds.Contains(id)).ToArray())
+        {
+            track.AuxiliaryPlayers[id].Dispose();
+            track.AuxiliaryPlayers.Remove(id);
+        }
+    }
+
+    private void UpdateAudioTrackPlayers(AudioTrackRuntime track)
+    {
+        track.Player?.Update(track.Project, _audioMixLayout);
+        SyncAuxiliarySendPlayers(track);
     }
 
     private static ComboBoxItem? FindBusItem(ComboBox selector, string tag) =>
@@ -180,9 +310,11 @@ public sealed partial class MainWindow
         ApplyAudioBusEdit(() =>
         {
             AudioBuses.ClearRoutes(_audioTracks.Select(track => track.Project), _videoTracks, bus.Id);
+            AudioBuses.ReparentChildren(_audioBuses, bus.Id, bus.ParentBusId);
+            AudioBuses.ReparentSends(_audioTracks.Select(track => track.Project), bus.Id, bus.ParentBusId);
             _audioBuses.Remove(bus);
             return true;
-        }, $"{bus.Name} removed; its sources now feed the master directly.", "Could not remove the bus.");
+        }, $"{bus.Name} removed; its sources and child buses now feed the previous output.", "Could not remove the bus.");
     }
 
     private void AudioBusSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -194,6 +326,109 @@ public sealed partial class MainWindow
 
         _selectedAudioBusId = id;
         UpdateAudioBusControls();
+    }
+
+    private void AudioBusParent_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            AudioBusParentSelector.SelectedItem is not ComboBoxItem { Tag: string parentId } ||
+            SelectedAudioBus is not AudioBusProject bus)
+        {
+            return;
+        }
+
+        string? newParentId = string.IsNullOrEmpty(parentId) ? null : parentId;
+        if (AudioBuses.WouldCreateCycle(_audioBuses, bus.Id, newParentId))
+        {
+            StatusText.Text = "A bus cannot be routed to itself or one of its child buses.";
+            UpdateAudioBusControls();
+            return;
+        }
+
+        if (bus.ParentBusId == newParentId)
+        {
+            return;
+        }
+
+        ApplyAudioBusEdit(() =>
+        {
+            bus.ParentBusId = newParentId;
+            return true;
+        }, newParentId is null ? $"{bus.Name} now feeds the master." :
+            $"{bus.Name} now feeds {AudioBuses.Find(_audioBuses, newParentId)?.Name}.",
+            "Could not change the bus parent.");
+    }
+
+    private void AddAudioAuxSend_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetSelectedAudioClip(out AudioTrackRuntime? track) || _audioBuses.Count == 0)
+        {
+            return;
+        }
+
+        var send = new AudioAuxSendProject { BusId = _audioBuses[0].Id };
+        ApplyAudioClipEdit(runtime =>
+        {
+            runtime.Project.AuxSends.Add(send);
+            return true;
+        }, $"Post-fader send added to {_audioBuses[0].Name}.", "Could not add an auxiliary send.");
+    }
+
+    private void RemoveAudioAuxSend_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: AudioAuxSendProject send } ||
+            !TryGetSelectedAudioClip(out AudioTrackRuntime? track) ||
+            !track.Project.AuxSends.Contains(send))
+        {
+            return;
+        }
+
+        ApplyAudioClipEdit(runtime => runtime.Project.AuxSends.Remove(send),
+            "Auxiliary send removed.", "Could not remove the auxiliary send.");
+    }
+
+    private void AudioAuxSendBus_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            sender is not ComboBox { Tag: AudioAuxSendProject send, SelectedItem: ComboBoxItem { Tag: string busId } } ||
+            !TryGetSelectedAudioClip(out AudioTrackRuntime? track) ||
+            !track.Project.AuxSends.Contains(send) || send.BusId == busId)
+        {
+            return;
+        }
+
+        ApplyAudioClipEdit(_ =>
+        {
+            send.BusId = busId;
+            return true;
+        }, $"Auxiliary send routed to {AudioBuses.Find(_audioBuses, busId)?.Name}.",
+            "Could not change the auxiliary send route.");
+    }
+
+    private void AudioAuxSendGain_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_isInitialising || _isRestoringProject ||
+            sender.Tag is not AudioAuxSendProject send ||
+            !TryGetSelectedAudioClip(out AudioTrackRuntime? track) ||
+            !track.Project.AuxSends.Contains(send))
+        {
+            return;
+        }
+
+        double gain = double.IsFinite(args.NewValue)
+            ? Math.Clamp(args.NewValue, AudioBuses.MinimumSendGainDecibels, AudioBuses.MaximumSendGainDecibels)
+            : send.GainDecibels;
+        if (gain == send.GainDecibels)
+        {
+            return;
+        }
+
+        ApplyAudioClipEdit(_ =>
+        {
+            send.GainDecibels = gain;
+            return true;
+        }, $"Auxiliary send level set to {gain:+0.0;-0.0;0.0} dB.",
+            "Could not change the auxiliary send level.");
     }
 
     private void AudioBusName_LostFocus(object sender, RoutedEventArgs e)

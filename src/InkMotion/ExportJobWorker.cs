@@ -84,8 +84,13 @@ public static class ExportJobWorker
                 if (request.Audio is { } audio)
                 {
                     AudioExportResult result = AudioExporter.Export(project, audio, request.OutputPath,
-                        new InlineProgress<double>(fraction => Report(fraction, $"Rendering audio mix · {fraction:P0}")), cancellation.Token);
-                    summary = $"Exported {result.SampleRate:N0} Hz · {result.Channels} channels";
+                        new InlineProgress<double>(fraction => Report(fraction,
+                            audio.ExportStems
+                                ? $"Rendering audio stems · {fraction:P0}"
+                                : $"Rendering audio mix · {fraction:P0}")), cancellation.Token);
+                    summary = audio.ExportStems
+                        ? $"Exported {result.StemCount:N0} aligned WAV stems · {result.SampleRate:N0} Hz · {result.Channels} channels"
+                        : $"Exported {result.SampleRate:N0} Hz · {result.Channels} channels";
                     warnings = result.Warnings;
                 }
                 else if (request.PngSequence is { } sequence)

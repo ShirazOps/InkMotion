@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly Dictionary<AudioVst3PluginProject, Vst3PluginEditor> _vst3Editors = [];
     private readonly AudioPreviewBus _audioPreviewBus = new();
     private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
     private readonly DispatcherQueueTimer _playbackTimer;
@@ -837,6 +838,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ApplyAudioTrackEdit(track, edit, successMessage, failureMessage);
+    }
+
+    private void ApplyAudioTrackEdit(
+        AudioTrackRuntime track,
+        Func<AudioTrackRuntime, bool> edit,
+        string successMessage,
+        string failureMessage)
+    {
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
@@ -851,7 +861,7 @@ public sealed partial class MainWindow : Window
         }
 
         CommitEdit();
-        track.Player?.Update(track.Project, _audioMixLayout);
+        UpdateAudioTrackPlayers(track);
         SyncAudioTracks(TimeSpan.FromSeconds(_playheadFramePosition / _frameRate), startPlayback: false);
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
@@ -1066,7 +1076,7 @@ public sealed partial class MainWindow : Window
         CommitEdit();
         foreach (AudioTrackRuntime track in _audioTracks)
         {
-            track.Player?.Update(track.Project, _audioMixLayout);
+            UpdateAudioTrackPlayers(track);
         }
 
         SyncPreviewSubmixes();
@@ -1495,11 +1505,16 @@ public sealed partial class MainWindow : Window
         {
             track.Player = new AudioClipPlayer(
                 path, track.Project, _audioMixLayout, _audioPreviewBus, submix: GetPreviewSubmix(track.Project.BusId));
+            if (!_isRestoringProject)
+            {
+                SyncAuxiliarySendPlayers(track);
+            }
         }
         catch (Exception ex) when (
             IsFileAccessException(ex) ||
             ex is InvalidDataException or NotSupportedException or InvalidOperationException or NAudio.MmException)
         {
+            track.Dispose();
             track.LoadError = $"source audio is unavailable: {ex.Message}";
         }
     }
@@ -2343,9 +2358,23 @@ public sealed partial class MainWindow : Window
             }
 
             player.SetSoloSuppressed((hasSolo && !track.Project.Solo) || !AudioBuses.IsAudible(_audioBuses, track.Project.BusId));
+            foreach (AudioAuxSendProject send in track.Project.AuxSends ?? [])
+            {
+                if (track.AuxiliaryPlayers.TryGetValue(send.Id, out AudioClipPlayer? sendPlayer))
+                {
+                    sendPlayer.SetSoloSuppressed((hasSolo && !track.Project.Solo) ||
+                        !AudioBuses.IsAudible(_audioBuses, send.BusId));
+                }
+            }
+
             if (IsOriginalPreview)
             {
                 player.Pause();
+                foreach (AudioClipPlayer sendPlayer in track.AuxiliaryPlayers.Values)
+                {
+                    sendPlayer.Pause();
+                }
+
                 continue;
             }
 
@@ -2354,9 +2383,18 @@ public sealed partial class MainWindow : Window
             if (clipOffset < 0 || clipOffset >= clipDuration)
             {
                 player.Pause();
+                foreach (AudioClipPlayer sendPlayer in track.AuxiliaryPlayers.Values)
+                {
+                    sendPlayer.Pause();
+                }
+
                 if (clipOffset < 0)
                 {
                     player.Seek(track.Project.SourceInSeconds);
+                    foreach (AudioClipPlayer sendPlayer in track.AuxiliaryPlayers.Values)
+                    {
+                        sendPlayer.Seek(track.Project.SourceInSeconds);
+                    }
                 }
 
                 continue;
@@ -2371,11 +2409,25 @@ public sealed partial class MainWindow : Window
                 }
 
                 player.Play();
+                foreach (AudioClipPlayer sendPlayer in track.AuxiliaryPlayers.Values)
+                {
+                    if (!sendPlayer.IsPlaying || Math.Abs(sendPlayer.AudiblePositionSeconds - sourcePosition) > 0.25)
+                    {
+                        sendPlayer.Seek(sourcePosition);
+                    }
+
+                    sendPlayer.Play();
+                }
             }
             else
             {
                 player.Pause();
                 player.Seek(sourcePosition);
+                foreach (AudioClipPlayer sendPlayer in track.AuxiliaryPlayers.Values)
+                {
+                    sendPlayer.Pause();
+                    sendPlayer.Seek(sourcePosition);
+                }
             }
         }
     }
@@ -2446,6 +2498,7 @@ public sealed partial class MainWindow : Window
     {
         ClearAudioMasterAnalysis();
         PausePlayback();
+        DisposeVst3Editors();
         _isRestoringProject = true;
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
@@ -2501,6 +2554,12 @@ public sealed partial class MainWindow : Window
                 AudioTrackRuntime reused = previousTracks[index];
                 reused.Project = CloneAudioTrack(project);
                 reused.Player?.Update(reused.Project, _audioMixLayout);
+                foreach (AudioClipPlayer player in reused.AuxiliaryPlayers.Values)
+                {
+                    player.Dispose();
+                }
+
+                reused.AuxiliaryPlayers.Clear();
                 restoredTracks.Add(reused);
             }
             else
@@ -2788,7 +2847,7 @@ public sealed partial class MainWindow : Window
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Volume = e.NewValue;
         ClearAudioMasterAnalysis();
-        track.Player?.Update(track.Project, _audioMixLayout);
+        UpdateAudioTrackPlayers(track);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
@@ -2804,12 +2863,13 @@ public sealed partial class MainWindow : Window
         AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
         track.Project.Muted = AudioMuteButton.IsChecked == true;
         ClearAudioMasterAnalysis();
-        track.Player?.Update(track.Project, _audioMixLayout);
+        UpdateAudioTrackPlayers(track);
         UnsavedIndicator.Visibility = Visibility.Visible;
     }
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        DisposeVst3Editors();
         CloseQuickStartGuide();
         _inkTrackingCancellation?.Cancel();
         StopAudioRecordingForClose();
@@ -2838,6 +2898,7 @@ public sealed partial class MainWindow : Window
     {
         public AudioTrackProject Project { get; set; } = project;
         public AudioClipPlayer? Player { get; set; }
+        public Dictionary<string, AudioClipPlayer> AuxiliaryPlayers { get; } = new(StringComparer.Ordinal);
         public bool HasSource => Player is not null;
         public double SourceDurationSeconds => Player?.DurationSeconds ?? 0;
         public string? LoadError { get; set; }
@@ -2847,6 +2908,12 @@ public sealed partial class MainWindow : Window
 
         public void Dispose()
         {
+            foreach (AudioClipPlayer player in AuxiliaryPlayers.Values)
+            {
+                player.Dispose();
+            }
+
+            AuxiliaryPlayers.Clear();
             Player?.Dispose();
             Player = null;
         }

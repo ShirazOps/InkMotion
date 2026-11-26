@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Text.Json.Nodes;
 using NAudio.Wave;
 using Xunit;
@@ -159,6 +160,29 @@ public sealed class ExportJobsTests : IDisposable
         Assert.InRange(samples.Max(Math.Abs), 0.1f, 0.3f);
         ExportJobStatus recovered = Assert.Single(new ExportJobStore(Path.Combine(_root, "jobs")).Scan().Jobs);
         Assert.Equal(result, recovered);
+    }
+
+    [Fact]
+    public async Task AudioStemExport_PersistsSettingsAndRunsInRealWorker()
+    {
+        string input = WriteTone();
+        var bus = new AudioBusProject { Name = "Dialogue" };
+        var project = new EditorProject
+        {
+            AudioBuses = [bus],
+            AudioTracks = [new() { AudioPath = input, BusId = bus.Id }],
+        };
+        string output = Path.Combine(_root, "stems.zip");
+        var settings = new AudioExportSettings(AudioExportCodec.PcmWave, 44100, 16, ExportStems: true,
+            TruePeakLimiterEnabled: true, TruePeakCeilingDecibels: -6);
+        ExportJobStatus job = _store.Launch(project, output, settings, null, WorkerExecutable);
+
+        Assert.Equal(settings, _store.ReadRequest(job.Id).Audio);
+        ExportJobStatus result = await WaitForTerminal(job.Id);
+        Assert.Equal(ExportJobPhase.Completed, result.Phase);
+        Assert.Contains("2 aligned WAV stems", result.Message);
+        using var archive = ZipFile.OpenRead(output);
+        Assert.Equal(2, archive.Entries.Count);
     }
 
     [Fact]

@@ -49,13 +49,14 @@ public sealed class AudioPreviewBus : ISampleProvider, IDisposable
     public int Read(float[] buffer, int offset, int count) => _meter.Read(buffer, offset, count);
 
     /// <summary>
-    /// Creates a submix that sums inputs in <paramref name="layout"/>, applies bus effects and gain, folds the result to
-    /// stereo and feeds it to the master, so bus processing in preview matches the export mix before the stereo fold-down.
+    /// Creates a submix that sums inputs in <paramref name="layout"/>, applies bus effects and gain, then routes to its
+    /// parent or folds the result to stereo for the master mix.
     /// </summary>
-    public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    public AudioPreviewSubmix CreateSubmix(AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels,
+        AudioPreviewSubmix? parent = null, IReadOnlyList<AudioVst3PluginProject>? vst3Plugins = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new AudioPreviewSubmix(this, layout, effects, gainDecibels);
+        return new AudioPreviewSubmix(this, layout, effects, gainDecibels, parent, vst3Plugins);
     }
 
     public AudioMeterReading TakeMasterReading(bool resetClip = false) => _meter.TakeReading(resetClip);
@@ -244,28 +245,36 @@ public sealed class AudioPreviewSubmix : IDisposable
 {
     private readonly MixingSampleProvider _mixer;
     private readonly AudioEffectsSampleProvider _effects;
+    private readonly Vst3InsertChainSampleProvider _vst3;
     private readonly VolumeSampleProvider _gain;
-    private readonly AudioPreviewInput _masterInput;
+    private readonly AudioPreviewInput _outputInput;
     private readonly List<AudioPreviewInput> _inputs = [];
     private readonly object _sync = new();
     private bool _disposed;
 
-    internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects, double gainDecibels)
+    internal AudioPreviewSubmix(AudioPreviewBus bus, AudioChannelLayout layout, AudioEffectSettings effects,
+        double gainDecibels, AudioPreviewSubmix? parent, IReadOnlyList<AudioVst3PluginProject>? vst3Plugins)
     {
         Layout = layout;
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(AudioPreviewBus.SampleRate, AudioChannelLayouts.Get(layout).ChannelCount);
         _mixer = new MixingSampleProvider(WaveFormat) { ReadFully = true };
         _effects = new AudioEffectsSampleProvider(_mixer, effects);
-        _gain = new VolumeSampleProvider(_effects);
+        _vst3 = new Vst3InsertChainSampleProvider(_effects, vst3Plugins);
+        _gain = new VolumeSampleProvider(_vst3);
         SetGain(gainDecibels);
         var fold = new ChannelMixingSampleProvider(_gain, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
-        _masterInput = bus.AddInput(fold);
-        _masterInput.SetEnabled(true);
+        _outputInput = parent?.AddInput(_gain) ?? bus.AddInput(fold);
+        _outputInput.SetEnabled(true);
     }
 
     public AudioChannelLayout Layout { get; }
 
     public WaveFormat WaveFormat { get; }
+
+    public string? Vst3FailureMessage => _vst3.FailureMessage;
+
+    public IReadOnlyList<Vst3Parameter> GetVst3Parameters(string pluginId) =>
+        _vst3.GetParameters(pluginId);
 
     public AudioPreviewInput AddInput(ISampleProvider source)
     {
@@ -292,6 +301,16 @@ public sealed class AudioPreviewSubmix : IDisposable
         SetGain(gainDecibels);
     }
 
+    public void Update(
+        AudioEffectSettings effects,
+        double gainDecibels,
+        IReadOnlyList<AudioVst3PluginProject> vst3Plugins)
+    {
+        _effects.Update(effects);
+        _vst3.Update(vst3Plugins);
+        SetGain(gainDecibels);
+    }
+
     /// <summary>Clears delay and reverb state, for example after seeking.</summary>
     public void Reset() => _effects.Reset();
 
@@ -303,7 +322,8 @@ public sealed class AudioPreviewSubmix : IDisposable
         }
 
         _disposed = true;
-        _masterInput.Dispose();
+        _outputInput.Dispose();
+        _vst3.Dispose();
         lock (_sync)
         {
             foreach (AudioPreviewInput input in _inputs.ToArray())

@@ -181,6 +181,27 @@ public sealed class AudioEffectsTests
     }
 
     [Fact]
+    public void Delay_RendersItsTailAfterTheFiniteSourceEnds()
+    {
+        var provider = new AudioEffectsSampleProvider(new Samples([1]), new()
+        {
+            Enabled = true,
+            DelayEnabled = true,
+            DelayMilliseconds = 1,
+            DelayFeedback = 0,
+            DelayWetGain = 1,
+        });
+        float[] output = new float[64];
+
+        int read = provider.Read(output, 0, output.Length);
+
+        Assert.Equal(49, read);
+        Assert.Equal(1, output[0]);
+        Assert.Equal(1, output[48]);
+        Assert.Equal(0, output[47]);
+    }
+
+    [Fact]
     public void Dynamics_ProduceIdenticalResultsAcrossReadBlockSizesAndResetTheirState()
     {
         float[] signal = Enumerable.Repeat(0.5f, 9600).Concat(Enumerable.Repeat(0.001f, 9600)).ToArray();
@@ -282,6 +303,56 @@ public sealed class AudioEffectsTests
             Assert.Equal(decoded.Length, reader.Read(decoded, 0, decoded.Length));
             double expected = Rms(Process(tone, effects));
             Assert.InRange(Rms(decoded) / expected, 0.99, 1.01);
+        }
+        finally
+        {
+            File.Delete(input);
+            File.Delete(output);
+        }
+    }
+
+    [Fact]
+    public void Export_IncludesDelayTailAfterAnAudioClip()
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-delay-tail-{Guid.NewGuid():N}.wav");
+        string output = Path.ChangeExtension(input, ".out.wav");
+        try
+        {
+            using (var writer = new WaveFileWriter(input, WaveFormat.CreateIeeeFloatWaveFormat(48000, 1)))
+            {
+                float[] source = Enumerable.Repeat(0.25f, 48000).ToArray();
+                writer.WriteSamples(source, 0, source.Length);
+            }
+
+            var project = new EditorProject
+            {
+                AudioMixLayout = AudioChannelLayout.Mono,
+                AudioTracks =
+                [
+                    new()
+                    {
+                        AudioPath = input,
+                        Effects = new AudioEffectSettings
+                        {
+                            Enabled = true,
+                            DelayEnabled = true,
+                            DelayMilliseconds = 1,
+                            DelayFeedback = 0,
+                            DelayWetGain = 1,
+                        },
+                    },
+                ],
+            };
+
+            AudioExportResult result = AudioExporter.Export(project,
+                new(AudioExportCodec.FloatWave, 48000, 32), output, null, CancellationToken.None);
+
+            Assert.Equal(48000, result.SampleRate);
+            using var reader = new AudioFileReader(output);
+            Assert.Equal(48048d / 48000, reader.TotalTime.TotalSeconds, 6);
+            float[] samples = new float[48048];
+            Assert.Equal(samples.Length, reader.Read(samples, 0, samples.Length));
+            Assert.Contains(samples.Skip(48000), sample => Math.Abs(sample) > 0.1f);
         }
         finally
         {

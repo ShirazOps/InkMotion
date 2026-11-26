@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace InkMotion;
 
@@ -107,11 +108,14 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioClipSampleProvider _clip;
     private readonly TimeStretchSampleProvider _stretch;
     private readonly AudioEffectsSampleProvider _effects;
+    private readonly Vst3InsertChainSampleProvider _vst3;
     private ChannelMixingSampleProvider _monitorMix;
     private AudioMeterSampleProvider _meter;
     private readonly AudioPreviewBus _previewBus;
     private AudioPreviewInput _previewInput;
     private AudioPreviewSubmix? _submix;
+    private VolumeSampleProvider _outputGain;
+    private float _outputGainLinear;
     private bool _disposed;
     private bool _soloSuppressed;
     private AudioClipGainSettings _gainSettings;
@@ -124,7 +128,8 @@ public sealed class AudioClipPlayer : IDisposable
         AudioChannelLayout mixLayout,
         AudioPreviewBus previewBus,
         Func<double, double>? gainEnvelope = null,
-        AudioPreviewSubmix? submix = null)
+        AudioPreviewSubmix? submix = null,
+        double outputGain = 1)
     {
         ArgumentNullException.ThrowIfNull(previewBus);
         _reader = new AudioFileReader(audioPath);
@@ -146,10 +151,13 @@ public sealed class AudioClipPlayer : IDisposable
             _pitchSemitones = project.PitchSemitones;
             _stretch.SetParameters(_tempoRatio, _pitchSemitones);
             _effects = new AudioEffectsSampleProvider(_stretch, GetCompatibleEffects(project.Effects));
+            _vst3 = new Vst3InsertChainSampleProvider(_effects, project.Vst3Plugins);
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _submix = submix;
-            _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
-            _meter = new AudioMeterSampleProvider(_monitorMix);
+            _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
+            _outputGain = new VolumeSampleProvider(_monitorMix);
+            SetOutputGain(outputGain);
+            _meter = new AudioMeterSampleProvider(_outputGain);
             _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         }
         catch
@@ -166,6 +174,11 @@ public sealed class AudioClipPlayer : IDisposable
     public int SourceSampleRate => _reader.WaveFormat.SampleRate;
 
     public long SourceSampleFrames => _reader.Length / _reader.WaveFormat.BlockAlign;
+
+    public string? Vst3FailureMessage => _vst3.FailureMessage;
+
+    public IReadOnlyList<Vst3Parameter> GetVst3Parameters(string pluginId) =>
+        _vst3.GetParameters(pluginId);
 
     public bool IsPlaying => !_disposed && _previewInput.IsEnabled && _previewBus.IsPlaying;
 
@@ -199,6 +212,7 @@ public sealed class AudioClipPlayer : IDisposable
             _previewInput.Reset();
         }
         _effects.Update(GetCompatibleEffects(project.Effects));
+        _vst3.Update(project.Vst3Plugins);
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateRouteMatrix(project, mixLayout));
     }
@@ -217,10 +231,22 @@ public sealed class AudioClipPlayer : IDisposable
         bool enabled = _previewInput.IsEnabled;
         _previewInput.Dispose();
         _submix = submix;
-        _monitorMix = new ChannelMixingSampleProvider(_effects, CreateRouteMatrix(project, mixLayout));
-        _meter = new AudioMeterSampleProvider(_monitorMix);
+        _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
+        _outputGain = new VolumeSampleProvider(_monitorMix) { Volume = _outputGainLinear };
+        _meter = new AudioMeterSampleProvider(_outputGain);
         _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         _previewInput.SetEnabled(enabled);
+    }
+
+    public void SetOutputGain(double linearGain)
+    {
+        if (!double.IsFinite(linearGain) || linearGain < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(linearGain));
+        }
+
+        _outputGainLinear = (float)linearGain;
+        _outputGain.Volume = _outputGainLinear;
     }
 
     private float[,] CreateRouteMatrix(AudioTrackProject project, AudioChannelLayout mixLayout) =>
@@ -277,6 +303,7 @@ public sealed class AudioClipPlayer : IDisposable
         _disposed = true;
         _disposed = true;
         _previewInput.Dispose();
+        _vst3.Dispose();
         _reader.Dispose();
     }
 
