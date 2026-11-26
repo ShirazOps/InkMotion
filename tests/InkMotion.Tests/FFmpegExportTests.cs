@@ -17,6 +17,75 @@ public sealed class FFmpegFactAttribute : FactAttribute
 public sealed class FFmpegExportTests
 {
     [Fact]
+    public void Hdr10PlusMetadataRequiresAConsecutiveEntryForEveryOutputFrame()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-hdr10plus-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, """
+                {"JSONInfo":{"HDR10plusProfile":"A"},"padding":"{{padding}}","SceneInfo":[
+                {"SequenceFrameIndex":0},{"SequenceFrameIndex":1},{"SequenceFrameIndex":2}]}
+                """.Replace("{{padding}}", new string('x', 70_000), StringComparison.Ordinal));
+
+            Hdr10PlusMetadata.Validate(path, 3);
+
+            File.WriteAllText(path, """
+                {"SceneInfo":[{"SequenceFrameIndex":0},{"SequenceFrameIndex":2},{"SequenceFrameIndex":3}]}
+                """);
+            Assert.Throws<InvalidDataException>(() => Hdr10PlusMetadata.Validate(path, 3));
+
+            File.WriteAllText(path, """{"SceneInfo":[{"SequenceFrameIndex":0},{"SequenceFrameIndex":1}]}""");
+            Assert.Throws<InvalidDataException>(() => Hdr10PlusMetadata.Validate(path, 3));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Hdr10PlusMetadataIsPassedToSoftwareX265ByLocalFileName()
+    {
+        var request = new VideoExportRequest(new EditorProject { Colour = new(ProjectColourSpace.Hdr10Pq) },
+            VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.Hevc, "out.mp4", 720,
+            FFmpeg: new(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software, FFmpegVideoContainer.Mp4,
+                FFmpegVideoAudioCodec.Aac));
+
+        IReadOnlyList<string> arguments = FFmpegVideoExporter.BuildSegmentArguments(
+            request, "segment.mp4", "metadata.json");
+        int parametersIndex = Array.IndexOf(arguments.ToArray(), "-x265-params");
+
+        Assert.True(parametersIndex >= 0);
+        Assert.Contains("dhdr10-info=metadata.json", arguments[parametersIndex + 1]);
+        Assert.DoesNotContain(@"C:\metadata.json", arguments[parametersIndex + 1]);
+    }
+
+    [Fact]
+    public void Hdr10PlusMetadataIsRestrictedToPqSoftwareHevc()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-hdr10plus-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, """{"SceneInfo":[]}""");
+        try
+        {
+            var profile = VideoExportProfile.Create(ExportResolution.P720, 30);
+            var settings = new FFmpegVideoSettings(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software,
+                FFmpegVideoContainer.Mp4, FFmpegVideoAudioCodec.Aac, Hdr10PlusMetadataPath: path);
+            var request = new VideoExportRequest(new EditorProject { Colour = new(ProjectColourSpace.Hdr10Pq) },
+                profile, VideoExportCodec.Hevc, "out.mp4", 720, FFmpeg: settings);
+
+            FFmpegVideoExporter.ValidateColour(request);
+            Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+                request with { Project = new EditorProject() }));
+            Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+                request with { FFmpeg = settings with { Encoder = FFmpegVideoEncoder.Nvidia } }));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void WindowsMediaAndAv1_ValidateExplicitContainersAndBackends()
     {
         var wmv = new FFmpegVideoSettings(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software,

@@ -12,7 +12,8 @@ public enum FFmpegVideoContainer { Mp4, Matroska, Asf }
 public enum FFmpegVideoAudioCodec { Aac, Pcm, Flac, Opus, Wma }
 
 public sealed record FFmpegVideoSettings(string ExecutablePath, FFmpegVideoEncoder Encoder,
-    FFmpegVideoContainer Container, FFmpegVideoAudioCodec AudioCodec, int AudioBits = 24)
+    FFmpegVideoContainer Container, FFmpegVideoAudioCodec AudioCodec, int AudioBits = 24,
+    string? Hdr10PlusMetadataPath = null)
 {
     public string Extension => Container switch { FFmpegVideoContainer.Mp4 => ".mp4",
         FFmpegVideoContainer.Matroska => ".mkv", FFmpegVideoContainer.Asf => ".wmv",
@@ -136,6 +137,8 @@ public static class FFmpegVideoExporter
         double duration = VideoExporter.GetDurationSeconds(request.Project, audioDuration);
         int count = ExportPlanning.GetFrameCount(duration, request.Profile.FrameRate);
         if (count == 0) throw new InvalidOperationException("Nothing to export: add video, images, titles, audio or ink first.");
+        if (settings.Hdr10PlusMetadataPath is { Length: > 0 } metadataPath)
+            Hdr10PlusMetadata.Validate(metadataPath, count);
         string directory = request.CheckpointDirectory ??
             Path.Combine(Path.GetTempPath(), $"inkmotion-segments-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -160,7 +163,9 @@ public static class FFmpegVideoExporter
         string? stemPath = null;
         try
         {
-            int segmentFrames = Math.Max(1, (int)Math.Round(request.Profile.FrameRate * 5));
+            int segmentFrames = settings.Hdr10PlusMetadataPath is null
+                ? Math.Max(1, (int)Math.Round(request.Profile.FrameRate * 5))
+                : count;
             using (var device = new CanvasDevice())
             using (var renderer = new VideoExporter.FrameRenderer(device, request, warnings))
             {
@@ -187,7 +192,7 @@ public static class FFmpegVideoExporter
                                 if (frame % 5 == 0) progress?.Report(new(frame + 1, count, $"Encoding with {encoder}"));
                             }
                         }
-                        EncodeSegment(request, partial, Frames(), cancellationToken);
+                        EncodeSegment(request, partial, Frames(), cancellationToken, settings.Hdr10PlusMetadataPath);
                         File.Move(partial, segment, overwrite: true);
                     }
                     finally
@@ -285,13 +290,19 @@ public static class FFmpegVideoExporter
         IEnumerable<string?> paths = request.Project.AudioTracks.Select(track => track.AudioPath)
             .Concat(request.Project.VideoTracks.SelectMany(track => track.Clips)
                 .SelectMany(clip => new[] { clip.SourcePath, clip.ProxyPath, clip.ColourLutPath }))
-            .Append(request.FFmpeg!.ExecutablePath);
+            .Append(request.FFmpeg!.ExecutablePath)
+            .Append(request.FFmpeg.Hdr10PlusMetadataPath);
         foreach (string? path in paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct())
         {
             var file = new FileInfo(path!);
             content.Append('\n').Append(file.FullName).Append('|')
                 .Append(file.Exists ? file.Length : -1).Append('|')
                 .Append(file.Exists ? file.LastWriteTimeUtc.Ticks : -1);
+        }
+        if (request.FFmpeg.Hdr10PlusMetadataPath is { Length: > 0 } metadataPath)
+        {
+            using FileStream stream = File.OpenRead(metadataPath);
+            content.Append("\nHDR10PLUS-SHA256|").Append(Convert.ToHexString(SHA256.HashData(stream)));
         }
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content.ToString())));
     }
@@ -305,13 +316,31 @@ public static class FFmpegVideoExporter
             if (request.Codec is not (VideoExportCodec.Hevc or VideoExportCodec.Av1))
                 throw new ArgumentException($"{colour.DisplayName} projects export as 10-bit HEVC or AV1; choose one of those codecs.");
         }
+        if (request.FFmpeg?.Hdr10PlusMetadataPath is { Length: > 0 } metadataPath)
+        {
+            if (request.Project.Colour?.Space != ProjectColourSpace.Hdr10Pq ||
+                request.Codec != VideoExportCodec.Hevc ||
+                request.FFmpeg.Encoder != FFmpegVideoEncoder.Software)
+            {
+                throw new ArgumentException("HDR10+ metadata requires a PQ HDR project and the FFmpeg software HEVC encoder.");
+            }
+            if (!Path.IsPathFullyQualified(metadataPath) || !File.Exists(metadataPath))
+                throw new FileNotFoundException("Choose an existing local HDR10+ JSON metadata file.", metadataPath);
+        }
     }
 
-    public static IReadOnlyList<string> BuildSegmentArguments(VideoExportRequest request, string path)
+    public static IReadOnlyList<string> BuildSegmentArguments(VideoExportRequest request, string path,
+        string? hdr10PlusMetadataFileName = null)
     {
         FFmpegVideoSettings settings = request.FFmpeg!;
         ProjectColourSettings? colour = request.Project.Colour;
         string encoder = settings.EncoderName(request.Codec);
+        if (hdr10PlusMetadataFileName is not null &&
+            (colour?.Space != ProjectColourSpace.Hdr10Pq || encoder != "libx265" ||
+             Path.GetFileName(hdr10PlusMetadataFileName) != hdr10PlusMetadataFileName))
+        {
+            throw new ArgumentException("HDR10+ metadata must be a file name used by the software HEVC encoder.");
+        }
         var arguments = new List<string>
         {
             "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "rawvideo",
@@ -340,7 +369,11 @@ public static class FFmpegVideoExporter
                 int peak = (int)Math.Round(colour.PeakNits);
                 string x265 = $"repeat-headers=1:colorprim=bt2020:transfer={transfer}:colormatrix=bt2020nc:range=limited";
                 if (colour.Space == ProjectColourSpace.Hdr10Pq)
+                {
                     x265 += $":hdr10=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L({peak * 10000},50):max-cll={peak},0";
+                    if (hdr10PlusMetadataFileName is not null)
+                        x265 += $":dhdr10-info={hdr10PlusMetadataFileName}";
+                }
                 arguments.AddRange(["-x265-params", x265]);
             }
             else if (settings.Encoder == FFmpegVideoEncoder.Nvidia)
@@ -360,11 +393,20 @@ public static class FFmpegVideoExporter
     }
 
     private static void EncodeSegment(VideoExportRequest request, string path, IEnumerable<byte[]> frames,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? hdr10PlusMetadataPath = null)
     {
         FFmpegVideoSettings settings = request.FFmpeg!;
-        IReadOnlyList<string> arguments = BuildSegmentArguments(request, path);
-        using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments, redirectInput: true);
+        string? workingDirectory = null;
+        string? metadataFileName = null;
+        if (hdr10PlusMetadataPath is not null)
+        {
+            string fullMetadataPath = Path.GetFullPath(hdr10PlusMetadataPath);
+            workingDirectory = Path.GetDirectoryName(fullMetadataPath)!;
+            metadataFileName = Path.GetFileName(fullMetadataPath);
+        }
+        IReadOnlyList<string> arguments = BuildSegmentArguments(request, path, metadataFileName);
+        using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments,
+            redirectInput: true, workingDirectory);
         using CancellationTokenRegistration registration = cancellationToken.Register(() => FFmpegAudioEncoder.Terminate(process));
         Task<string> errors = FFmpegAudioEncoder.ReadTailAsync(process.StandardError);
         try

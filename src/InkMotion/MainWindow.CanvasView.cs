@@ -96,7 +96,7 @@ public sealed partial class MainWindow
         ProjectPeakNitsBox.Value = _projectColour?.PeakNits ?? 1000;
         ProjectColourReadout.Text = _projectColour is { } colour
             ? $"{colour.DisplayName}: SDR media maps to {colour.ReferenceWhiteNits:0} nits and highlights are kept up to {colour.PeakNits:0} nits in 10-bit HEVC/AV1 export through FFmpeg. " +
-              $"HDR10 PQ through libx265 carries static metadata; dynamic HDR10+ and Dolby Vision metadata are not generated. {GetHdrPreviewReadout()}"
+              $"HDR10 PQ through libx265 carries static metadata and can include a locally generated, frame-aligned HDR10+ sidecar; InkMotion does not generate it. Dolby Vision remains unsupported. {GetHdrPreviewReadout()}"
             : "SDR Rec.709: the existing 8-bit pipeline. Choose HDR10 PQ or HLG for a float, Rec.2020 colour-managed export.";
         UpdateHdrPreviewSurfaceVisibility();
     }
