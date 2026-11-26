@@ -93,6 +93,8 @@ The optional global Ctrl+Shift+F10 stop shortcut now cancels countdown or stops/
 
 The expanded design uses one shell: four page buttons in the first row; relevant actions in the second row; a shared video/audio viewer on the left with Original/Modified comparison; page-specific tools and options on the right; and one unified Video/Audio/Ink track layout below, visible in all four workspaces with a shared ruler and time-aligned cel exposures. Deliver real processing and project persistence with each tool, not placeholder controls.
 
+Compound tracks embed editable child timelines with up to four levels, track-level audio routing, source-bounded trims, independent split copies and a single parent undo step. Conversion currently groups one whole track at a time and rejects linked audio, multicamera membership and tracking or matte references that cannot safely move. Return to the main timeline to save. This does not yet provide multi-track selection or shared linked compound instances.
+
 1. **Shared layout and preview comparison**
    - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes and headers share scrolling and align to the video/ink ruler. Page action toolbars use responsive command-bar overflow rather than horizontal scrolling. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
    - Implemented: page-specific action row and the shared viewer in Audio Editor as well as Video Editor, Ink Editor and Export.

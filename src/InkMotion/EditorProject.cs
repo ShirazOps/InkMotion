@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 86;
+    public const int CurrentVersion = 87;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -730,6 +730,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 86)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1152,8 +1156,15 @@ public static class ProjectFrameRates
 internal static class EditorProjectValidation
 {
     public static void Validate(EditorProject project)
+        => Validate(project, new HashSet<EditorProject>(ReferenceEqualityComparer.Instance), 0);
+
+    private static void Validate(EditorProject project, HashSet<EditorProject> visited, int depth)
     {
         ArgumentNullException.ThrowIfNull(project);
+        if (depth > CompoundTimelines.MaximumDepth || !visited.Add(project))
+        {
+            throw new InvalidDataException("Compound timelines cannot contain cycles, shared mutable projects or more than four nested levels.");
+        }
         if (project.Version != EditorProject.CurrentVersion)
         {
             throw new InvalidDataException($"Project version {project.Version} is not supported.");
@@ -1346,6 +1357,18 @@ internal static class EditorProjectValidation
             }
         }
         InkLinkedCels.Validate(project.Frames);
+
+        foreach (TimelineClipProject clip in project.VideoTracks
+            .Where(track => track.Kind == TimelineTrackKind.Compound)
+            .SelectMany(track => track.Clips))
+        {
+            EditorProject nested = clip.NestedProject!;
+            if (nested.Colour != project.Colour)
+            {
+                throw new InvalidDataException("A compound timeline must use the same project colour settings as its parent.");
+            }
+            Validate(nested, visited, depth + 1);
+        }
     }
 
     private static void ValidateStroke(List<InkPoint>? stroke)

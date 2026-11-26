@@ -33,10 +33,7 @@ public static class ExportPlanning
         ArgumentNullException.ThrowIfNull(project);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         string fullPath = Path.GetFullPath(outputPath);
-        IEnumerable<string?> sources = project.AudioTracks.Select(track => track.AudioPath)
-            .Concat(project.VideoTracks.SelectMany(track => track.Clips)
-                .SelectMany(clip => new[] { clip.SourcePath, clip.ProxyPath }));
-        if (sources.OfType<string>().Any(path => !string.IsNullOrWhiteSpace(path) &&
+        if (CompoundTimelines.ReferencedPaths(project).Any(path =>
             string.Equals(Path.GetFullPath(path), fullPath, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("Choose a different output path: export cannot overwrite a source used by this project.");

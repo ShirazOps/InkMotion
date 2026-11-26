@@ -108,10 +108,11 @@ public sealed partial class MainWindow
         var name = new TextBox { Header = "Track name", Text = track.Name, MaxLength = 128 };
         var visible = new CheckBox { Content = "Visible", IsChecked = track.IsVisible };
         var locked = new CheckBox { Content = "Locked", IsChecked = track.IsLocked };
-        var muted = new CheckBox { Content = "Mute embedded audio", IsChecked = track.IsMuted,
-            Visibility = track.Kind == TimelineTrackKind.Video ? Visibility.Visible : Visibility.Collapsed };
-        var output = new ComboBox { Header = "Embedded audio output", HorizontalAlignment = HorizontalAlignment.Stretch,
-            Visibility = track.Kind == TimelineTrackKind.Video ? Visibility.Visible : Visibility.Collapsed };
+        bool hasAudio = track.Kind is TimelineTrackKind.Video or TimelineTrackKind.Compound;
+        var muted = new CheckBox { Content = "Mute track audio", IsChecked = track.IsMuted,
+            Visibility = hasAudio ? Visibility.Visible : Visibility.Collapsed };
+        var output = new ComboBox { Header = "Track audio output", HorizontalAlignment = HorizontalAlignment.Stretch,
+            Visibility = hasAudio ? Visibility.Visible : Visibility.Collapsed };
         PopulateBusOutputSelector(output, "Master (direct)");
         output.SelectedItem = FindBusItem(output, track.AudioBusId ?? string.Empty) ?? output.Items[0];
         var panel = new StackPanel { Spacing = 12, MinWidth = 300 };
@@ -134,8 +135,8 @@ public sealed partial class MainWindow
                 !string.IsNullOrWhiteSpace(name.Text))
             {
                 string newName = name.Text.Trim();
-                bool newMuted = track.Kind == TimelineTrackKind.Video && muted.IsChecked == true;
-                string? newBusId = track.Kind == TimelineTrackKind.Video
+                bool newMuted = hasAudio && muted.IsChecked == true;
+                string? newBusId = hasAudio
                     ? AudioBuses.Find(_audioBuses, (output.SelectedItem as ComboBoxItem)?.Tag as string)?.Id
                     : null;
                 if (track.Name != newName || track.IsVisible != (visible.IsChecked == true) ||

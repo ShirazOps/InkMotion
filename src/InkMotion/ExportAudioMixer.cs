@@ -15,6 +15,7 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly List<IDisposable> _readers = [];
     private readonly List<string> _warnings = [];
     private readonly List<Vst3InsertChainSampleProvider> _vst3Providers = [];
+    private readonly List<(string Name, ExportAudioMixer Mixer)> _compoundMixers = [];
     private readonly MixingSampleProvider _mixer;
     private readonly Dictionary<string, MixingSampleProvider> _busMixers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _busEndSeconds = new(StringComparer.Ordinal);
@@ -61,13 +62,20 @@ public sealed class ExportAudioMixer : IDisposable
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
-                !hasSolo && track.Kind == TimelineTrackKind.Video && !track.IsMuted &&
+                !hasSolo && track.Kind is (TimelineTrackKind.Video or TimelineTrackKind.Compound) && !track.IsMuted &&
                 AudioBuses.IsAudible(_buses, track.AudioBusId)))
             {
                 foreach (TimelineClipProject clip in track.Clips)
                 {
-                    VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
-                    AddVideoClipAudio(clip, transition, track.AudioBusId);
+                    if (track.Kind == TimelineTrackKind.Compound)
+                    {
+                        AddCompoundAudio(clip, track.AudioBusId);
+                    }
+                    else
+                    {
+                        VideoAudioTransition transition = VideoTransitions.GetAudioTransition(track, clip, _frameRate);
+                        AddVideoClipAudio(clip, transition, track.AudioBusId);
+                    }
                 }
             }
 
@@ -99,6 +107,8 @@ public sealed class ExportAudioMixer : IDisposable
 
     public IReadOnlyList<string> Warnings => _warnings
         .Concat(_vst3Providers.Select(provider => provider.FailureMessage).OfType<string>())
+        .Concat(_compoundMixers.SelectMany(item =>
+            item.Mixer.Warnings.Select(warning => $"{item.Name}: {warning}")))
         .Distinct(StringComparer.Ordinal)
         .ToArray();
 
@@ -177,6 +187,42 @@ public sealed class ExportAudioMixer : IDisposable
         AddSource(output, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
             timelineDuration + effects.TailDurationSeconds + vst3.TailDurationSeconds,
             track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId);
+    }
+
+    private void AddCompoundAudio(TimelineClipProject clip, string? busId)
+    {
+        EditorProject nested = clip.NestedProject ??
+            throw new InvalidDataException("A compound clip is missing its nested timeline.");
+        if (clip.Volume <= 0)
+        {
+            return;
+        }
+
+        var mixer = new ExportAudioMixer(nested, SampleRate, _reportVideoReadFailures);
+        _readers.Add(mixer);
+        _compoundMixers.Add((clip.NestedName ?? "Compound", mixer));
+        if (mixer.SourceCount == 0)
+        {
+            return;
+        }
+
+        var window = new OffsetSampleProvider(new MixerSampleProvider(mixer))
+        {
+            SkipOver = TimeSpan.FromSeconds(clip.SourceInSeconds),
+            Take = TimeSpan.FromSeconds(clip.DurationSeconds),
+        };
+        var envelope = new GainEnvelopeSampleProvider(window, elapsed =>
+            CompoundTimelines.GetAudioGain(clip, elapsed));
+        AddSource(envelope, VideoTimelineEditing.GetStartSeconds(clip, _frameRate),
+            clip.DurationSeconds, busId: busId);
+    }
+
+    private sealed class MixerSampleProvider(ExportAudioMixer mixer) : ISampleProvider
+    {
+        public WaveFormat WaveFormat { get; } =
+            WaveFormat.CreateIeeeFloatWaveFormat(mixer.SampleRate, mixer.Channels);
+
+        public int Read(float[] buffer, int offset, int count) => mixer.Read(buffer, offset, count);
     }
 
     private void AddVideoClipAudio(TimelineClipProject clip, VideoAudioTransition transition, string? busId)

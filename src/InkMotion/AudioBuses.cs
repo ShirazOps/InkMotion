@@ -163,7 +163,8 @@ public static class AudioBuses
         bool dangling =
             project.AudioTracks.Any(track => track.BusId is not null && !ids.Contains(track.BusId)) ||
             (project.VideoTracks ?? []).Any(track => track.AudioBusId is not null &&
-                (track.Kind != TimelineTrackKind.Video || !ids.Contains(track.AudioBusId)));
+                (track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Compound) ||
+                    !ids.Contains(track.AudioBusId)));
         return dangling ? "Audio and video tracks must be routed to an existing audio bus or the master." : null;
     }
 

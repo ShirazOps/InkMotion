@@ -69,6 +69,8 @@
                         <MenuFlyoutItem Text="Beginner quick-start guide" Click="StartQuickStartGuide_Click" />
                     </MenuBarItem>
                 </MenuBar>
+                <Button x:Name="ExitCompoundButton" Content="Return to parent" Click="ExitCompound_Click"
+                        Visibility="Collapsed" ToolTipService.ToolTip="Apply compound edits and return to the parent timeline" />
             </StackPanel>
 
             <Border x:Name="PageSwitcher" Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="3" VerticalAlignment="Center">
@@ -121,6 +123,12 @@
                     <AppBarElementContainer><Button Content="Add marker" Click="AddMarker_Click" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, markers, the playhead and timeline start" /></AppBarElementContainer>
+                    <AppBarElementContainer>
+                        <Button x:Name="CreateCompoundButton" Content="Compound track" Click="CreateCompound_Click" IsEnabled="False" />
+                    </AppBarElementContainer>
+                    <AppBarElementContainer>
+                        <Button x:Name="OpenCompoundButton" Content="Open compound" Click="OpenCompound_Click" IsEnabled="False" Visibility="Collapsed" />
+                    </AppBarElementContainer>
                     <AppBarElementContainer>
                         <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
                             <StackPanel Orientation="Horizontal" Spacing="4">

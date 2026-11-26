@@ -93,6 +93,16 @@ public static class VideoEditTools
         }
         else
         {
+            if (track.Kind == TimelineTrackKind.Compound)
+            {
+                double sourceIn = clip.SourceInSeconds -
+                    (edge == TimelineTrimEdge.Start ? start - requested : 0);
+                if (sourceIn < -1e-8 || sourceIn + duration > clip.SourceDurationSeconds + 1e-8)
+                {
+                    return false;
+                }
+                clip.SourceInSeconds = Math.Max(0, sourceIn);
+            }
             clip.DurationSeconds = duration;
         }
 
@@ -182,7 +192,7 @@ public static class VideoEditTools
         TimelineTrackProject selectedTrack, TimelineClipProject selectedClip, string path, double sourceDuration)
     {
         if (!tracks.Contains(selectedTrack) || !selectedTrack.Clips.Contains(selectedClip) ||
-            selectedTrack.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) ||
+            selectedTrack.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
             string.IsNullOrWhiteSpace(selectedClip.SourcePath) ||
             string.IsNullOrWhiteSpace(path))
         {
@@ -395,7 +405,7 @@ public static class VideoEditTools
     public static bool Relink(TimelineTrackProject track, TimelineClipProject clip, string path, double sourceDuration)
     {
         if (track.IsLocked || !track.Clips.Contains(clip) ||
-            track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) ||
+            track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image) ||
             string.IsNullOrWhiteSpace(path))
         {
             return false;
