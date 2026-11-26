@@ -305,7 +305,73 @@ public static class VideoSpeedRamp
             points.Add(new VideoSpeedRampPoint(1, clip.SpeedRamp[^1].Speed));
         }
 
-        return points;
+        return Simplify(points);
+    }
+
+    /// <summary>
+    /// Removes points inside runs of identical speed. Speed is held before the first and after the last point, so
+    /// the result describes exactly the same speed curve with fewer points.
+    /// </summary>
+    public static List<VideoSpeedRampPoint> Simplify(IReadOnlyList<VideoSpeedRampPoint> points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        var result = new List<VideoSpeedRampPoint>();
+        for (int index = 0; index < points.Count; index++)
+        {
+            double speed = points[index].Speed;
+            bool flatBefore = index == 0 || points[index - 1].Speed == speed;
+            bool flatAfter = index == points.Count - 1 || points[index + 1].Speed == speed;
+            if (!flatBefore || !flatAfter)
+            {
+                result.Add(points[index]);
+            }
+        }
+
+        if (result.Count == 0 && points.Count > 0)
+        {
+            result.Add(points[0]);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Combines the speed curves of two touching clips into one ramp spanning both, keeping every source frame at
+    /// its original timeline time. Returns null when the speed jumps at the boundary, which a continuous ramp cannot
+    /// represent, or when the combined ramp needs too many points.
+    /// </summary>
+    public static List<VideoSpeedRampPoint>? Concatenate(TimelineClipProject left, TimelineClipProject right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        double leftEnd = GetEndSpeed(left);
+        double rightStart = GetStartSpeed(right);
+        double leftDuration = VideoTimelineEditing.GetDurationSeconds(left, TimelineTrackKind.Video);
+        double rightDuration = VideoTimelineEditing.GetDurationSeconds(right, TimelineTrackKind.Video);
+        double total = leftDuration + rightDuration;
+        if (Math.Abs(leftEnd - rightStart) > SpeedTolerance * Math.Max(1, leftEnd) ||
+            !(leftDuration > 0) || !(rightDuration > 0) || !double.IsFinite(total))
+        {
+            return null;
+        }
+
+        IEnumerable<VideoSpeedRampPoint> leftPoints = IsRamped(left) ? left.SpeedRamp : [new(0, left.PlaybackSpeed)];
+        IEnumerable<VideoSpeedRampPoint> rightPoints = IsRamped(right) ? right.SpeedRamp : [new(0, right.PlaybackSpeed)];
+        var points = leftPoints
+            .Select(point => point with { Position = point.Position * leftDuration / total })
+            .ToList();
+        foreach (VideoSpeedRampPoint point in rightPoints)
+        {
+            double position = Math.Min(1, (leftDuration + (point.Position * rightDuration)) / total);
+            // Only the boundary points can coincide, and their speeds already match.
+            if (position > points[^1].Position)
+            {
+                points.Add(new VideoSpeedRampPoint(position, point.Speed));
+            }
+        }
+
+        List<VideoSpeedRampPoint> simplified = Simplify(points);
+        return ValidatePoints(simplified) is null ? simplified : null;
     }
 
     /// <summary>Scales every ramp point so the ramp has a new average speed, or returns null if a point leaves the range.</summary>
