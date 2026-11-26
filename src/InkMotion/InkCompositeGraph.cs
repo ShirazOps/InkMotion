@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace InkMotion;
 
 public enum InkCompositeNodeKind
@@ -17,6 +19,7 @@ public enum InkCompositeNodeKind
     /// <summary>Keeps an image only where a matte has alpha, or only where it has none when inverted.</summary>
     Mask,
     Output,
+    Scene3D,
 }
 
 /// <summary>A node in the optional ink compositing graph; parameters not used by its kind are ignored.</summary>
@@ -42,6 +45,8 @@ public sealed class InkCompositeNode
     /// <summary>Hue rotation in degrees.</summary>
     public double Hue { get; set; }
     public bool Invert { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InkCompositeScene3D? Scene3D { get; set; }
 }
 
 /// <summary>
@@ -62,7 +67,8 @@ public static class InkCompositeGraphs
 
     public static int GetInputCount(InkCompositeNodeKind kind) => kind switch
     {
-        InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text => 0,
+        InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text or
+            InkCompositeNodeKind.Scene3D => 0,
         InkCompositeNodeKind.Merge or InkCompositeNodeKind.Mask => 2,
         _ => 1,
     };
@@ -72,7 +78,8 @@ public static class InkCompositeGraphs
         InkCompositeNodeKind.Merge => ["Background", "Foreground"],
         InkCompositeNodeKind.Mask => ["Image", "Matte"],
         InkCompositeNodeKind.Output => ["Result"],
-        InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text => [],
+        InkCompositeNodeKind.Picture or InkCompositeNodeKind.InkLayer or InkCompositeNodeKind.Text or
+            InkCompositeNodeKind.Scene3D => [],
         _ => ["Image"],
     };
 
@@ -80,6 +87,7 @@ public static class InkCompositeGraphs
     {
         InkCompositeNodeKind.InkLayer => "Ink layer",
         InkCompositeNodeKind.ColourAdjust => "Colour adjust",
+        InkCompositeNodeKind.Scene3D => "3D scene",
         _ => kind.ToString(),
     };
 
@@ -89,6 +97,7 @@ public static class InkCompositeGraphs
         for (int index = 0; index < GetInputCount(kind); index++) node.Inputs.Add(null);
         if (kind == InkCompositeNodeKind.Pixelate) node.Radius = 8;
         if (kind == InkCompositeNodeKind.Glow) node.Radius = 16;
+        if (kind == InkCompositeNodeKind.Scene3D) node.Scene3D = new InkCompositeScene3D();
         return node;
     }
 
@@ -112,6 +121,7 @@ public static class InkCompositeGraphs
                 LayerId = node.LayerId, BlendMode = node.BlendMode, Opacity = node.Opacity, Radius = node.Radius,
                 Intensity = node.Intensity, Colour = node.Colour, Brightness = node.Brightness,
                 Contrast = node.Contrast, Saturation = node.Saturation, Hue = node.Hue, Invert = node.Invert,
+                Scene3D = node.Scene3D?.Clone(),
             }).ToList(),
         };
 
@@ -137,6 +147,8 @@ public static class InkCompositeGraphs
                 return "A compositing graph node has an invalid editor position.";
             if (node.Kind == InkCompositeNodeKind.InkLayer && string.IsNullOrWhiteSpace(node.LayerId))
                 return "An ink layer node must name a layer.";
+            if (node.Kind == InkCompositeNodeKind.Scene3D && !InkCompositeScenes3D.IsValid(node.Scene3D))
+                return "A 3D scene has an invalid camera, light or object setting.";
             if (!InRange(node.Opacity, 0, 1) || !InRange(node.Radius, 0, MaxBlurRadius) ||
                 !InRange(node.Intensity, 0, InkLayerEffects.MaxGlowIntensity) || !InRange(node.Brightness, -1, 1) ||
                 !InRange(node.Contrast, 0, 2) || !InRange(node.Saturation, 0, 2) || !InRange(node.Hue, -180, 180) ||
@@ -172,6 +184,24 @@ public static class InkCompositeGraphs
             if (!seen.Add(id) || !lookup.TryGetValue(id, out InkCompositeNode? node)) continue;
             foreach (string? input in node.Inputs)
                 if (input is not null) stack.Push(input);
+        }
+
+        return false;
+    }
+
+    public static bool HasProceduralContent(InkCompositeGraph? graph)
+    {
+        if (graph is not { Enabled: true } || GetOutput(graph) is not InkCompositeNode output) return false;
+        var lookup = graph.Nodes.ToDictionary(node => node.Id, StringComparer.Ordinal);
+        var pending = new Stack<string>(output.Inputs.OfType<string>());
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.TryPop(out string? id))
+        {
+            if (!seen.Add(id) || !lookup.TryGetValue(id, out InkCompositeNode? node)) continue;
+            if (node.Kind == InkCompositeNodeKind.Scene3D &&
+                node.Scene3D?.Objects.Any(item => item.Visible) == true) return true;
+            foreach (string? input in node.Inputs)
+                if (input is not null) pending.Push(input);
         }
 
         return false;

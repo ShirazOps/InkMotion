@@ -384,6 +384,7 @@ public sealed partial class InkCompositeGraphWindow : Window
         InkCompositeNodeKind.Mask => node.Invert ? "Outside the matte" : "Inside the matte",
         InkCompositeNodeKind.Picture => "Video, images and titles",
         InkCompositeNodeKind.Text => "Cel text overlays",
+        InkCompositeNodeKind.Scene3D => $"{node.Scene3D?.Objects.Count ?? 0} object(s)",
         _ => "Final composite",
     };
 
@@ -610,6 +611,9 @@ public sealed partial class InkCompositeGraphWindow : Window
                 AddSlider("Contrast", 0, 2, 0.01, node.Contrast, value => node.Contrast = value);
                 AddSlider("Saturation", 0, 2, 0.01, node.Saturation, value => node.Saturation = value);
                 AddSlider("Hue (degrees)", -180, 180, 1, node.Hue, value => node.Hue = value);
+                break;
+            case InkCompositeNodeKind.Scene3D:
+                ShowScene3DProperties(node);
                 break;
             case InkCompositeNodeKind.Mask:
                 var invert = new ToggleSwitch { Header = "Keep", OffContent = "Inside the matte", OnContent = "Outside the matte", IsOn = node.Invert };

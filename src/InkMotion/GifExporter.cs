@@ -49,14 +49,14 @@ public static class GifExporter
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         if (!ExportPlanning.HasInk(project))
         {
-            throw new InvalidOperationException("Nothing to export: add ink or cel text first.");
+            throw new InvalidOperationException("Nothing to export: add ink, cel text or a visible 3D scene first.");
         }
 
         double duration = ExportPlanning.GetInkDurationSeconds(project);
         int frameCount = ExportPlanning.GetFrameCount(duration, settings.Profile.FrameRate);
         if (frameCount == 0)
         {
-            throw new InvalidOperationException("Nothing to export: add ink or cel text first.");
+            throw new InvalidOperationException("Nothing to export: add ink, cel text or a visible 3D scene first.");
         }
 
         string fullOutputPath = Path.GetFullPath(outputPath);

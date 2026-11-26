@@ -43,6 +43,8 @@ public static partial class TimelineCompositor
                     width, height, sizeScale, seconds, drawingTransform),
                 InkCompositeNodeKind.Text => DrawGraphText(device, project, frameIndex, targetWidth, targetHeight,
                     width, height, sizeScale, seconds, drawingTransform),
+                InkCompositeNodeKind.Scene3D => DrawGraphScene3D(device, node, targetWidth, targetHeight,
+                    width, height, seconds, drawingTransform),
                 InkCompositeNodeKind.Merge => MergeGraphImages(device, Input(node, 0), Input(node, 1), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Blur => BlurGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
                 InkCompositeNodeKind.Glow => Input(node, 0) is CanvasRenderTarget glowSource
@@ -131,6 +133,28 @@ public static partial class TimelineCompositor
                     DrawInkText(drawing, overlay, 1, width, height, sizeScale));
             }
         });
+
+    private static CanvasRenderTarget DrawGraphScene3D(
+        ICanvasResourceCreator device,
+        InkCompositeNode node,
+        float targetWidth,
+        float targetHeight,
+        float width,
+        float height,
+        double seconds,
+        Matrix3x2 drawingTransform)
+    {
+        InkCompositeScene3D scene = node.Scene3D ??
+            throw new InvalidOperationException("The 3D scene settings are missing.");
+        int pixelWidth = checked((int)Math.Ceiling(targetWidth));
+        int pixelHeight = checked((int)Math.Ceiling(targetHeight));
+        byte[] pixels = InkCompositeScene3DRenderer.Render(
+            scene, pixelWidth, pixelHeight, width, height, drawingTransform, seconds);
+        using CanvasBitmap image = CanvasBitmap.CreateFromBytes(
+            device, pixels, pixelWidth, pixelHeight,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        return DrawGraphTarget(device, targetWidth, targetHeight, session => session.DrawImage(image));
+    }
 
     private static CanvasRenderTarget? MergeGraphImages(ICanvasResourceCreator device, CanvasRenderTarget? background,
         CanvasRenderTarget? foreground, InkCompositeNode node, float targetWidth, float targetHeight)

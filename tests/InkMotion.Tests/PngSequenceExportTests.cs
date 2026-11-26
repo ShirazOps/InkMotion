@@ -7,6 +7,52 @@ namespace InkMotion.Tests;
 
 public sealed class PngSequenceExportTests
 {
+    [Fact]
+    public async Task Export_SceneOnlyGraphWritesThePreviewedPixels()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion 3D scene {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        InkCompositeNode scene = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Scene3D, "scene", 0, 0);
+        scene.Scene3D!.CameraYaw = 0;
+        scene.Scene3D.CameraPitch = 0;
+        scene.Scene3D.AmbientLight = 1;
+        scene.Scene3D.Objects[0].Colour = 0xFF00FF00;
+        InkCompositeNode result = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
+        result.Inputs[0] = scene.Id;
+        var project = new EditorProject
+        {
+            Frames = [new() { ExposureFrames = 2 }],
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [scene, result] },
+        };
+
+        try
+        {
+            PngSequenceExportResult exported = await PngSequenceExporter.ExportAsync(
+                project, new(VideoExportProfile.Create(32, 32, 24), 32), output, null, CancellationToken.None);
+            Assert.Equal(2, exported.FrameCount);
+            StorageFile frame = await StorageFile.GetFileFromPathAsync(Path.Combine(output, "frame_000001.png"));
+            using IRandomAccessStream stream = await frame.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+            byte[] pixels = (await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, new BitmapTransform(),
+                ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage)).DetachPixelData();
+            int centre = ((16 * 32) + 16) * 4;
+            Assert.Equal(0, pixels[3]);
+            Assert.Equal(0, pixels[centre]);
+            Assert.Equal(255, pixels[centre + 1]);
+            Assert.Equal(0, pixels[centre + 2]);
+            Assert.Equal(255, pixels[centre + 3]);
+        }
+        finally
+        {
+            foreach (string file in Directory.Exists(output) ? Directory.GetFiles(output) : [])
+                File.Delete(file);
+            if (Directory.Exists(output)) Directory.Delete(output);
+            Directory.Delete(root);
+        }
+    }
+
     [Theory]
     [InlineData(false, InkLayerBlendMode.Normal)]
     [InlineData(true, InkLayerBlendMode.Normal)]
