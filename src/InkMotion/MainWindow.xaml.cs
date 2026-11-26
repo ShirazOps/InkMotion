@@ -388,6 +388,13 @@ public sealed partial class MainWindow : Window
     private void ShowWorkspace(string workspace)
     {
         if (InkSurface is not null && workspace != "Ink") CancelInkTrackingSelection();
+        if (_workspace != workspace)
+        {
+            VideoActionBar.IsOpen = false;
+            AudioActionBar.IsOpen = false;
+            InkActionBar.IsOpen = false;
+            ExportActionBar.IsOpen = false;
+        }
         if (_titleGesture is not null)
         {
             FinishActiveEdit();

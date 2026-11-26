@@ -3206,14 +3206,24 @@ public sealed partial class MainWindow
         MoveTrackDownButton.IsEnabled = trackIndex >= 0 && trackIndex < _videoTracks.Count - 1;
         DeleteTrackButton.IsEnabled = _videoTracks.Count > 1 && track is { IsLocked: false };
         TimelineClipLocation? selected = SelectedTimelineClip;
-        ToolbarClipActions.IsEnabled = selected is { Track.IsLocked: false };
-        CreateCompoundButton.IsEnabled = selected is { Track.IsLocked: false } && !_switchingCompound;
+        bool editableClip = selected is { Track.IsLocked: false };
+        ToolbarTrimStartButton.IsEnabled = editableClip;
+        ToolbarTrimEndButton.IsEnabled = editableClip;
+        ToolbarSplitButton.IsEnabled = editableClip;
+        ToolbarDuplicateButton.IsEnabled = editableClip;
+        ToolbarRippleDeleteButton.IsEnabled = editableClip;
+        CreateCompoundButton.IsEnabled = editableClip && !_switchingCompound;
         bool selectedCompound = selected is { Track.Kind: TimelineTrackKind.Compound };
         OpenCompoundButton.Visibility = selectedCompound ? Visibility.Visible : Visibility.Collapsed;
-        OpenCompoundButton.IsEnabled = selectedCompound && selected is { Track.IsLocked: false } && !_switchingCompound;
+        OpenCompoundButton.IsEnabled = selectedCompound && editableClip && !_switchingCompound;
 
         if (selected is not TimelineClipLocation location)
         {
+            CreateMulticamGroupButton.IsEnabled = false;
+            SwitchMulticamAngleButton.IsEnabled = false;
+            GenerateVideoProxyButton.IsEnabled = false;
+            GenerateOpticalFlowProxyButton.IsEnabled = false;
+            ToggleVideoProxyButton.IsEnabled = false;
             SelectedClipLabel.Text = "No clip selected. Click a clip on the timeline.";
             ClipActionsGrid.Visibility = Visibility.Collapsed;
             ClipPropertiesPanel.Visibility = Visibility.Collapsed;

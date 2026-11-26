@@ -114,7 +114,7 @@
 
         <Grid Grid.Row="1" Background="{StaticResource PanelBrush}">
             <CommandBar x:Name="VideoActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" HorizontalAlignment="Left">
+                        Background="Transparent" HorizontalAlignment="Stretch">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button x:Name="QuickStartAddVideoButton" Content="Add video…" Click="AddVideoClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add image…" Click="AddImageClip_Click" /></AppBarElementContainer>
@@ -123,30 +123,26 @@
                     <AppBarElementContainer><Button Content="Add marker" Click="AddMarker_Click" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><ToggleButton x:Name="VideoSnappingButton" Content="Snap" IsChecked="True" ToolTipService.ToolTip="Snap dragged clip edges within 8 pixels to clip edges, audio edges, markers, the playhead and timeline start" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToolbarTrimStartButton" Content="Trim start" Click="TrimClipStart_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToolbarTrimEndButton" Content="Trim end" Click="TrimClipEnd_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToolbarSplitButton" Content="Split" Click="SplitClip_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToolbarDuplicateButton" Content="Duplicate" Click="DuplicateVideoClip_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToolbarRippleDeleteButton" Content="Ripple delete" Click="RippleDeleteClip_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarElementContainer>
                         <Button x:Name="CreateCompoundButton" Content="Compound track" Click="CreateCompound_Click" IsEnabled="False" />
                     </AppBarElementContainer>
                     <AppBarElementContainer>
                         <Button x:Name="OpenCompoundButton" Content="Open compound" Click="OpenCompound_Click" IsEnabled="False" Visibility="Collapsed" />
                     </AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="CreateMulticamGroupButton" Content="Group cameras" Click="CreateMulticamGroup_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="SwitchMulticamAngleButton" Content="Switch angle" Click="SwitchMulticamAngle_Click" IsEnabled="False" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="GenerateVideoProxyButton" Content="Generate proxy" Click="GenerateVideoProxy_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarElementContainer>
-                        <UserControl x:Name="ToolbarClipActions" IsEnabled="False">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <Button Content="Trim start" Click="TrimClipStart_Click" />
-                                <Button Content="Trim end" Click="TrimClipEnd_Click" />
-                                <Button Content="Split" Click="SplitClip_Click" />
-                                <Button Content="Duplicate" Click="DuplicateVideoClip_Click" />
-                                <Button Content="Ripple delete" Click="RippleDeleteClip_Click" />
-                                <Button x:Name="CreateMulticamGroupButton" Content="Group cameras" Click="CreateMulticamGroup_Click" />
-                                <Button x:Name="SwitchMulticamAngleButton" Content="Switch angle" Click="SwitchMulticamAngle_Click" />
-                                <Button x:Name="GenerateVideoProxyButton" Content="Generate proxy" Click="GenerateVideoProxy_Click" />
-                                <Button x:Name="GenerateOpticalFlowProxyButton" Content="Generate optical-flow proxy"
-                                        Click="GenerateOpticalFlowProxy_Click"
-                                        ToolTipService.ToolTip="Generate a high-frame-rate SDR proxy using the selected local FFmpeg. Preview and export use the proxy; embedded audio stays linked to the original source." />
-                                <Button x:Name="ToggleVideoProxyButton" Content="Use proxy" Click="ToggleVideoProxy_Click" />
-                            </StackPanel>
-                        </UserControl>
+                        <Button x:Name="GenerateOpticalFlowProxyButton" Content="Generate optical-flow proxy"
+                                Click="GenerateOpticalFlowProxy_Click" IsEnabled="False"
+                                ToolTipService.ToolTip="Generate a high-frame-rate SDR proxy using the selected local FFmpeg. Preview and export use the proxy; embedded audio stays linked to the original source." />
                     </AppBarElementContainer>
+                    <AppBarElementContainer><Button x:Name="ToggleVideoProxyButton" Content="Use proxy" Click="ToggleVideoProxy_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><Button Content="Copy clip" Click="CopyVideoClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" /></AppBarElementContainer>
@@ -155,7 +151,7 @@
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="AudioActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" HorizontalAlignment="Left" Visibility="Collapsed">
+                        Background="Transparent" HorizontalAlignment="Stretch" Visibility="Collapsed">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button Content="Add audio clip…" Click="OpenAudio_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Add audio track" Click="AddAudioTrack_Click" /></AppBarElementContainer>
@@ -182,7 +178,7 @@
                 </CommandBar.PrimaryCommands>
             </CommandBar>
             <CommandBar x:Name="InkActionBar" IsDynamicOverflowEnabled="True" DefaultLabelPosition="Right"
-                        Background="Transparent" HorizontalAlignment="Left" Visibility="Collapsed">
+                        Background="Transparent" HorizontalAlignment="Stretch" Visibility="Collapsed">
                 <CommandBar.PrimaryCommands>
                     <AppBarElementContainer><Button x:Name="QuickStartPenButton" Content="Pen" Click="SelectPen_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Eraser" Click="SelectEraser_Click" /></AppBarElementContainer>

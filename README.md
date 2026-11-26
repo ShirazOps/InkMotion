@@ -14,7 +14,7 @@ InkMotion has no in-app cloud synchronisation, live co-editing, presence, or mer
 
 Download an x64 or x86 ZIP from [Releases](https://github.com/ShirazOps/InkMotion/releases), extract it and run `InkMotion.exe`. Release builds are self-contained; no separate .NET or Windows App SDK installation is needed. Builds are currently unsigned.
 
-Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar and inspector, while one shared track layout keeps the default Video, Audio and Ink tracks visible in every workspace. Playback and undo/redo controls are shared. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
+Switch between **Video Editor**, **Audio Editor**, **Ink Editor** and **Export** at the top of the window. Each workspace has its own toolbar and inspector, while one shared track layout keeps the default Video, Audio and Ink tracks visible in every workspace. Toolbar buttons that do not fit appear under **More options** (the ellipsis). Playback and undo/redo controls are shared. Use **View** to resize, hide or restore panels; layouts are remembered per workspace.
 
 The red playhead tracks playback across the shared time ruler in every workspace. Click or drag the ruler to pause and choose a frame for **Split**, trims, range boundaries and other playhead-based edits. Audio clips and Ink cels align to the same ruler; cel widths reflect exposure duration. Audio clips include start offsets and tempo changes: click a waveform to seek, or drag it to select a range. Switching workspaces keeps the same position.
 
