@@ -117,6 +117,21 @@ public sealed class InkColourSamplingTests
         Assert.Equal((100, 50), InkColourSampling.GetPixel(100.25, 50.5, 100.25, 50.5));
     }
 
+    [Fact]
+    public void GraphSamplingHandlesFractionalCanvasBounds()
+    {
+        using var device = new CanvasDevice(true);
+        InkCompositeNode picture = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Picture, "picture", 0, 0);
+        InkCompositeNode output = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
+        output.Inputs[0] = picture.Id;
+        var project = new EditorProject
+        {
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [picture, output] },
+        };
+        Assert.Equal(0xFF112233u, InkColourSampling.SampleComposite(device, project, 0,
+            100.25, 50.5, 100.25, 50.5, 0xFF112233, (_, _, _) => { }));
+    }
+
     [Theory]
     [InlineData(double.NaN, 0, 100, 50)]
     [InlineData(0, double.PositiveInfinity, 100, 50)]

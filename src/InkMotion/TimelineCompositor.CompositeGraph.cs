@@ -43,6 +43,10 @@ public static partial class TimelineCompositor
                     width, height, sizeScale, seconds, drawingTransform),
                 InkCompositeNodeKind.Text => DrawGraphText(device, project, frameIndex, targetWidth, targetHeight,
                     width, height, sizeScale, seconds, drawingTransform),
+                InkCompositeNodeKind.Scene3D => DrawGraphScene3D(device, node, targetWidth, targetHeight,
+                    width, height, seconds, drawingTransform),
+                InkCompositeNodeKind.Particles => DrawGraphParticles(device, node, targetWidth, targetHeight,
+                    width, height, seconds, drawingTransform),
                 InkCompositeNodeKind.Merge => MergeGraphImages(device, Input(node, 0), Input(node, 1), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Blur => BlurGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
                 InkCompositeNodeKind.Glow => Input(node, 0) is CanvasRenderTarget glowSource
@@ -54,6 +58,13 @@ public static partial class TimelineCompositor
                 InkCompositeNodeKind.Pixelate => PixelateGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
                 InkCompositeNodeKind.ColourAdjust => AdjustGraphColour(device, Input(node, 0), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Mask => MaskGraphImage(device, Input(node, 0), Input(node, 1), node.Invert, targetWidth, targetHeight),
+                InkCompositeNodeKind.Transform => TransformGraphImage(device, Input(node, 0), node, targetWidth,
+                    targetHeight, width, height, drawingTransform),
+                InkCompositeNodeKind.DropShadow => ShadowGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
+                InkCompositeNodeKind.Sharpen => SharpenGraphImage(device, Input(node, 0), node, targetWidth, targetHeight),
+                InkCompositeNodeKind.Vignette => VignetteGraphImage(device, Input(node, 0), node, targetWidth, targetHeight),
+                InkCompositeNodeKind.InvertColours or InkCompositeNodeKind.Sepia =>
+                    ColourEffectGraphImage(device, Input(node, 0), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Output => null,
                 _ => null,
             };
@@ -132,6 +143,40 @@ public static partial class TimelineCompositor
             }
         });
 
+    private static CanvasRenderTarget DrawGraphScene3D(
+        ICanvasResourceCreator device,
+        InkCompositeNode node,
+        float targetWidth,
+        float targetHeight,
+        float width,
+        float height,
+        double seconds,
+        Matrix3x2 drawingTransform)
+    {
+        InkCompositeScene3D scene = node.Scene3D ??
+            throw new InvalidOperationException("The 3D scene settings are missing.");
+        int pixelWidth = checked((int)Math.Ceiling(targetWidth));
+        int pixelHeight = checked((int)Math.Ceiling(targetHeight));
+        byte[] pixels = InkCompositeScene3DRenderer.Render(
+            scene, pixelWidth, pixelHeight, width, height, drawingTransform, seconds);
+        using CanvasBitmap image = CanvasBitmap.CreateFromBytes(
+            device, pixels, pixelWidth, pixelHeight,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+        return DrawGraphTarget(device, targetWidth, targetHeight, session => session.DrawImage(image));
+    }
+
+    private static CanvasRenderTarget DrawGraphParticles(ICanvasResourceCreator device, InkCompositeNode node,
+        float targetWidth, float targetHeight, float width, float height, double seconds, Matrix3x2 drawingTransform)
+    {
+        InkCompositeParticleSettings particles = node.Particles ??
+            throw new InvalidOperationException("The particle emitter settings are missing.");
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            session.Transform = drawingTransform;
+            InkCompositeParticleRenderer.Draw(session, particles, width, height, seconds);
+        });
+    }
+
     private static CanvasRenderTarget? MergeGraphImages(ICanvasResourceCreator device, CanvasRenderTarget? background,
         CanvasRenderTarget? foreground, InkCompositeNode node, float targetWidth, float targetHeight)
     {
@@ -196,6 +241,119 @@ public static partial class TimelineCompositor
         }
     }
 
+    private static CanvasRenderTarget? TransformGraphImage(ICanvasResourceCreator device, CanvasRenderTarget? source,
+        InkCompositeNode node, float targetWidth, float targetHeight, float width, float height, Matrix3x2 drawingTransform)
+    {
+        if (source is null) return null;
+        InkCompositeTransformSettings settings = node.Transform ??
+            throw new InvalidOperationException("The transform settings are missing.");
+        if (!InkCompositeTransforms.IsValid(settings) || !Matrix3x2.Invert(drawingTransform, out Matrix3x2 inverse))
+            throw new InvalidOperationException("The compositing transform is invalid.");
+        var centre = new Vector2(width / 2, height / 2);
+        Matrix3x2 transform = Matrix3x2.CreateScale((float)settings.ScaleX, (float)settings.ScaleY, centre) *
+            Matrix3x2.CreateRotation((float)(settings.Rotation * Math.PI / 180), centre) *
+            Matrix3x2.CreateTranslation((float)(settings.OffsetX * width), (float)(settings.OffsetY * height));
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            session.Transform = inverse * transform * drawingTransform;
+            session.DrawImage(source);
+        });
+    }
+
+    private static CanvasRenderTarget? ShadowGraphImage(ICanvasResourceCreator device, CanvasRenderTarget? source,
+        InkCompositeNode node, float sizeScale, float targetWidth, float targetHeight)
+    {
+        if (source is null) return null;
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            if (node.Opacity > 0)
+            {
+                using var shadow = new ShadowEffect
+                {
+                    Source = source,
+                    ShadowColor = WithOpacity(ToColour(node.Colour), node.Opacity),
+                    BlurAmount = (float)Math.Min(250, node.Radius * sizeScale / 2),
+                    Optimization = EffectOptimization.Quality,
+                };
+                session.DrawImage(shadow, (float)(node.ShadowOffsetX * sizeScale), (float)(node.ShadowOffsetY * sizeScale));
+            }
+            session.DrawImage(source);
+        });
+    }
+
+    private static CanvasRenderTarget? SharpenGraphImage(ICanvasResourceCreator device, CanvasRenderTarget? source,
+        InkCompositeNode node, float targetWidth, float targetHeight)
+    {
+        if (source is null) return null;
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            if (node.Intensity <= 0) session.DrawImage(source);
+            else
+            {
+                using var effect = new SharpenEffect { Source = source, Amount = (float)node.Intensity };
+                session.DrawImage(effect);
+            }
+        });
+    }
+
+    private static CanvasRenderTarget? VignetteGraphImage(ICanvasResourceCreator device, CanvasRenderTarget? source,
+        InkCompositeNode node, float targetWidth, float targetHeight)
+    {
+        if (source is null) return null;
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            if (node.Intensity <= 0) session.DrawImage(source);
+            else
+            {
+                using var opaque = new ColorMatrixEffect
+                {
+                    Source = source, AlphaMode = CanvasAlphaMode.Premultiplied,
+                    ColorMatrix = new Matrix5x4 { M11 = 1, M22 = 1, M33 = 1, M54 = 1 },
+                };
+                using var effect = new VignetteEffect
+                {
+                    Source = opaque, Amount = (float)node.Intensity, Curve = 0.5f,
+                    Color = ToColour(node.Colour),
+                };
+                using var masked = new AlphaMaskEffect { Source = effect, AlphaMask = source };
+                session.DrawImage(masked);
+            }
+        });
+    }
+
+    private static CanvasRenderTarget? ColourEffectGraphImage(ICanvasResourceCreator device, CanvasRenderTarget? source,
+        InkCompositeNode node, float targetWidth, float targetHeight)
+    {
+        if (source is null) return null;
+        return DrawGraphTarget(device, targetWidth, targetHeight, session =>
+        {
+            float amount = (float)node.Intensity;
+            if (amount <= 0)
+            {
+                session.DrawImage(source);
+                return;
+            }
+            Matrix5x4 matrix = node.Kind == InkCompositeNodeKind.InvertColours
+                ? new Matrix5x4
+                {
+                    M11 = 1 - (2 * amount), M22 = 1 - (2 * amount), M33 = 1 - (2 * amount), M44 = 1,
+                    M51 = amount, M52 = amount, M53 = amount,
+                }
+                : new Matrix5x4
+                {
+                    M11 = 1 - (0.607f * amount), M12 = 0.349f * amount, M13 = 0.272f * amount,
+                    M21 = 0.769f * amount, M22 = 1 - (0.314f * amount), M23 = 0.534f * amount,
+                    M31 = 0.189f * amount, M32 = 0.168f * amount, M33 = 1 - (0.869f * amount), M44 = 1,
+                };
+            using var effect = new ColorMatrixEffect
+            {
+                Source = source, AlphaMode = CanvasAlphaMode.Premultiplied,
+                ClampOutput = !t_highPrecision, ColorMatrix = matrix,
+            };
+            session.DrawImage(effect);
+        });
+    }
+
     private static CanvasRenderTarget? AdjustGraphColour(ICanvasResourceCreator device, CanvasRenderTarget? source,
         InkCompositeNode node, float targetWidth, float targetHeight)
     {
@@ -206,7 +364,7 @@ public static partial class TimelineCompositor
             using var adjust = new ColorMatrixEffect
             {
                 Source = hue,
-                AlphaMode = CanvasAlphaMode.Straight,
+                AlphaMode = CanvasAlphaMode.Premultiplied,
                 ClampOutput = true,
                 ColorMatrix = CreateColourAdjustMatrix(node.Brightness, node.Contrast, node.Saturation),
             };

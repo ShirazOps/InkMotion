@@ -384,6 +384,12 @@ public sealed partial class InkCompositeGraphWindow : Window
         InkCompositeNodeKind.Mask => node.Invert ? "Outside the matte" : "Inside the matte",
         InkCompositeNodeKind.Picture => "Video, images and titles",
         InkCompositeNodeKind.Text => "Cel text overlays",
+        InkCompositeNodeKind.Scene3D => $"{node.Scene3D?.Objects.Count ?? 0} object(s)",
+        InkCompositeNodeKind.Particles => $"{node.Particles?.Rate ?? 0} particles/s",
+        InkCompositeNodeKind.Transform => $"Rotation {node.Transform?.Rotation ?? 0:0}°",
+        InkCompositeNodeKind.DropShadow => $"Radius {node.Radius:0} · opacity {node.Opacity:P0}",
+        InkCompositeNodeKind.Sharpen or InkCompositeNodeKind.Vignette or InkCompositeNodeKind.InvertColours or
+            InkCompositeNodeKind.Sepia => $"Strength {node.Intensity:0.##}",
         _ => "Final composite",
     };
 
@@ -585,22 +591,7 @@ public sealed partial class InkCompositeGraphWindow : Window
             case InkCompositeNodeKind.Glow:
                 AddSlider("Radius", 0, InkCompositeGraphs.MaxBlurRadius, 1, node.Radius, value => node.Radius = value);
                 AddSlider("Strength", 0, InkLayerEffects.MaxGlowIntensity, 0.05, node.Intensity, value => node.Intensity = value);
-                var picker = new ColorPicker
-                {
-                    Color = TimelineCompositor.ToColour(node.Colour), IsAlphaEnabled = false, IsMoreButtonVisible = false,
-                    IsColorChannelTextInputVisible = false, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Box,
-                };
-                picker.ColorChanged += (_, args) =>
-                {
-                    if (_loading) return;
-                    Color colour = args.NewColor;
-                    node.Colour = 0xFF000000u | ((uint)colour.R << 16) | ((uint)colour.G << 8) | colour.B;
-                    Commit("Glow colour changed.", commit: false);
-                    Redraw();
-                };
-                picker.LostFocus += (_, _) => _commitPending();
-                _properties.Children.Add(new TextBlock { Text = "Glow colour" });
-                _properties.Children.Add(picker);
+                AddOpaqueColourPicker("Glow colour", node.Colour, value => node.Colour = value, "Glow colour changed.");
                 break;
             case InkCompositeNodeKind.Pixelate:
                 AddSlider("Block size", InkLayerEffects.MinPixelSize, InkLayerEffects.MaxPixelSize, 1, node.Radius, value => node.Radius = value);
@@ -610,6 +601,40 @@ public sealed partial class InkCompositeGraphWindow : Window
                 AddSlider("Contrast", 0, 2, 0.01, node.Contrast, value => node.Contrast = value);
                 AddSlider("Saturation", 0, 2, 0.01, node.Saturation, value => node.Saturation = value);
                 AddSlider("Hue (degrees)", -180, 180, 1, node.Hue, value => node.Hue = value);
+                break;
+            case InkCompositeNodeKind.Scene3D:
+                ShowScene3DProperties(node);
+                break;
+            case InkCompositeNodeKind.Particles:
+                ShowParticleProperties(node);
+                break;
+            case InkCompositeNodeKind.Transform:
+                InkCompositeTransformSettings transform = node.Transform ??
+                    throw new InvalidOperationException("The transform settings are missing.");
+                AddSlider("Offset X (% of width)", -200, 200, 1, transform.OffsetX * 100, value => transform.OffsetX = value / 100);
+                AddSlider("Offset Y (% of height)", -200, 200, 1, transform.OffsetY * 100, value => transform.OffsetY = value / 100);
+                AddSlider("Scale X (%)", 5, 1000, 5, transform.ScaleX * 100, value => transform.ScaleX = value / 100);
+                AddSlider("Scale Y (%)", 5, 1000, 5, transform.ScaleY * 100, value => transform.ScaleY = value / 100);
+                AddSlider("Rotation (degrees)", -180, 180, 1, transform.Rotation, value => transform.Rotation = value);
+                Hint("Scales and rotates around the canvas centre, then offsets the image.");
+                break;
+            case InkCompositeNodeKind.DropShadow:
+                AddSlider("Blur radius", 0, InkCompositeGraphs.MaxBlurRadius, 1, node.Radius, value => node.Radius = value);
+                AddSlider("Offset X", -500, 500, 1, node.ShadowOffsetX, value => node.ShadowOffsetX = value);
+                AddSlider("Offset Y", -500, 500, 1, node.ShadowOffsetY, value => node.ShadowOffsetY = value);
+                AddSlider("Shadow opacity", 0, 1, 0.01, node.Opacity, value => node.Opacity = value);
+                AddOpaqueColourPicker("Shadow colour", node.Colour, value => node.Colour = value, "Shadow colour changed.");
+                break;
+            case InkCompositeNodeKind.Sharpen:
+                AddSlider("Strength", 0, VideoSharpen.MaximumAmount, 0.1, node.Intensity, value => node.Intensity = value);
+                break;
+            case InkCompositeNodeKind.Vignette:
+                AddSlider("Strength", 0, 1, 0.01, node.Intensity, value => node.Intensity = value);
+                AddOpaqueColourPicker("Vignette colour", node.Colour, value => node.Colour = value, "Vignette colour changed.");
+                break;
+            case InkCompositeNodeKind.InvertColours:
+            case InkCompositeNodeKind.Sepia:
+                AddSlider("Strength", 0, 1, 0.01, node.Intensity, value => node.Intensity = value);
                 break;
             case InkCompositeNodeKind.Mask:
                 var invert = new ToggleSwitch { Header = "Keep", OffContent = "Inside the matte", OnContent = "Outside the matte", IsOn = node.Invert };
@@ -636,6 +661,26 @@ public sealed partial class InkCompositeGraphWindow : Window
 
     private void Hint(string text) =>
         _properties.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.75 });
+
+    private void AddOpaqueColourPicker(string label, uint initialColour, Action<uint> set, string status)
+    {
+        var picker = new ColorPicker
+        {
+            Color = TimelineCompositor.ToColour(initialColour), IsAlphaEnabled = false, IsMoreButtonVisible = false,
+            IsColorChannelTextInputVisible = false, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Box,
+        };
+        picker.ColorChanged += (_, args) =>
+        {
+            if (_loading) return;
+            Color colour = args.NewColor;
+            set(0xFF000000u | ((uint)colour.R << 16) | ((uint)colour.G << 8) | colour.B);
+            Commit(status, commit: false);
+            Redraw();
+        };
+        picker.LostFocus += (_, _) => _commitPending();
+        _properties.Children.Add(new TextBlock { Text = label });
+        _properties.Children.Add(picker);
+    }
 
     private void AddSlider(string label, double minimum, double maximum, double step, double value, Action<double> set)
     {

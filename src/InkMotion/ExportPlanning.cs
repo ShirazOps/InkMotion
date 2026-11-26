@@ -131,7 +131,7 @@ public static class ExportPlanning
     public static bool HasInk(EditorProject project)
     {
         ArgumentNullException.ThrowIfNull(project);
-        return project.Frames.Any(frame =>
+        return InkCompositeGraphs.HasProceduralContent(project.CompositeGraph) || project.Frames.Any(frame =>
             frame.TextOverlays.Any(overlay => !string.IsNullOrWhiteSpace(overlay.Text)) ||
             project.InkLayers.Any(layer => layer.IsVisible && GetLayerStrokes(frame, layer.Id).Any(stroke => stroke.Count > 0)));
     }

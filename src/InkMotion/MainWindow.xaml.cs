@@ -474,6 +474,7 @@ public sealed partial class MainWindow : Window
 
     private bool HasVisibleInkAtPlayhead()
     {
+        if (InkCompositeGraphs.HasProceduralContent(_compositeGraph)) return true;
         int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
         double seconds = _playheadFramePosition / _frameRate;
         if (_inkLayers.Any(layer => layer.IsVisible &&
