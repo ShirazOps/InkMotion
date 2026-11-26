@@ -157,6 +157,36 @@ public static class HdrColour
         return (LinearToSrgb(Math.Min(lr, 1)), LinearToSrgb(Math.Min(lg, 1)), LinearToSrgb(Math.Min(lb, 1)));
     }
 
+    /// <summary>Converts premultiplied working-space RGBA half-floats to premultiplied scRGB display values.</summary>
+    public static byte[] ConvertWorkingFrameToScRgb(byte[] rgbaHalf, double referenceWhiteNits)
+    {
+        ArgumentNullException.ThrowIfNull(rgbaHalf);
+        if (rgbaHalf.Length % 8 != 0)
+            throw new ArgumentException("Half-float RGBA frames use eight bytes per pixel.", nameof(rgbaHalf));
+        if (!double.IsFinite(referenceWhiteNits) || referenceWhiteNits <= 0)
+            throw new ArgumentOutOfRangeException(nameof(referenceWhiteNits));
+
+        byte[] output = new byte[rgbaHalf.Length];
+        int pixels = rgbaHalf.Length / 8;
+        double whiteScale = referenceWhiteNits / 80;
+        ForEachChunk(pixels, (start, end) =>
+        {
+            ReadOnlySpan<Half> source = MemoryMarshal.Cast<byte, Half>(rgbaHalf.AsSpan());
+            Span<Half> target = MemoryMarshal.Cast<byte, Half>(output.AsSpan());
+            for (int pixel = start; pixel < end; pixel++)
+            {
+                int index = pixel * 4;
+                double alpha = Math.Clamp((double)source[index + 3], 0, 1);
+                double unpremultiply = alpha > 0 ? 1 / alpha : 0;
+                target[index] = (Half)(SrgbToLinear((double)source[index] * unpremultiply) * whiteScale * alpha);
+                target[index + 1] = (Half)(SrgbToLinear((double)source[index + 1] * unpremultiply) * whiteScale * alpha);
+                target[index + 2] = (Half)(SrgbToLinear((double)source[index + 2] * unpremultiply) * whiteScale * alpha);
+                target[index + 3] = (Half)alpha;
+            }
+        });
+        return output;
+    }
+
     /// <summary>Converts premultiplied RGBA half-float working pixels to opaque rgb48le HDR signal for FFmpeg.</summary>
     public static byte[] EncodeWorkingFrame(byte[] rgbaHalf, ProjectColourSettings settings)
     {

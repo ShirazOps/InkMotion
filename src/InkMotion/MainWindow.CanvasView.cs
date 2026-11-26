@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Text;
+using Microsoft.Graphics.Display;
 using Windows.Foundation;
 
 namespace InkMotion;
@@ -77,6 +78,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         UpdateProjectColourControls();
         RenderCurrentInk();
+        CompositionSurface.Invalidate();
         StatusText.Text = colour is null
             ? "Project colour set to SDR Rec.709."
             : $"Project colour set to {colour.DisplayName}. HDR export needs the FFmpeg backend with HEVC or AV1.";
@@ -93,8 +95,76 @@ public sealed partial class MainWindow
         ProjectReferenceWhiteBox.Value = _projectColour?.ReferenceWhiteNits ?? 203;
         ProjectPeakNitsBox.Value = _projectColour?.PeakNits ?? 1000;
         ProjectColourReadout.Text = _projectColour is { } colour
-            ? $"{colour.DisplayName}: SDR media maps to {colour.ReferenceWhiteNits:0} nits and highlights are kept up to {colour.PeakNits:0} nits in 10-bit HEVC/AV1 export through FFmpeg. PQ/HLG clips decode through FFmpeg; the preview is tone-mapped to SDR."
+            ? $"{colour.DisplayName}: SDR media maps to {colour.ReferenceWhiteNits:0} nits and highlights are kept up to {colour.PeakNits:0} nits in 10-bit HEVC/AV1 export through FFmpeg. " +
+              $"HDR10 PQ through libx265 carries static metadata; dynamic HDR10+ and Dolby Vision metadata are not generated. {GetHdrPreviewReadout()}"
             : "SDR Rec.709: the existing 8-bit pipeline. Choose HDR10 PQ or HLG for a float, Rec.2020 colour-managed export.";
+        UpdateHdrPreviewSurfaceVisibility();
+    }
+
+    private string GetHdrPreviewReadout() => _hdrPreviewIssue ??
+        (_hdrDisplayActive
+            ? "HDR display preview is active using scRGB half-float output."
+            : "This display is not in HDR mode; preview remains tone-mapped to SDR.");
+
+    private void InitialiseHdrPreviewDisplayInformation()
+    {
+        try
+        {
+            _hdrDisplayInformation = DisplayInformation.CreateForWindowId(AppWindow.Id);
+            _hdrDisplayInformation.AdvancedColorInfoChanged += HdrDisplayInformation_AdvancedColorInfoChanged;
+            UpdateHdrPreviewDisplayState();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or
+            ArgumentException or InvalidOperationException)
+        {
+            _hdrPreviewIssue = $"HDR display capabilities could not be read: {ex.Message}";
+            UpdateProjectColourControls();
+        }
+    }
+
+    private void HdrDisplayInformation_AdvancedColorInfoChanged(DisplayInformation sender, object args) =>
+        UpdateHdrPreviewDisplayState();
+
+    private void UpdateHdrPreviewDisplayState()
+    {
+        bool active;
+        try
+        {
+            active = _hdrDisplayInformation?.GetAdvancedColorInfo().CurrentAdvancedColorKind ==
+                DisplayAdvancedColorKind.HighDynamicRange;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or
+            ArgumentException or InvalidOperationException)
+        {
+            _hdrDisplayActive = false;
+            _hdrPreviewIssue = $"HDR display capabilities could not be read: {ex.Message}";
+            UpdateProjectColourControls();
+            CompositionSurface.Invalidate();
+            return;
+        }
+
+        if (_hdrDisplayActive == active && _hdrPreviewIssue is null)
+        {
+            return;
+        }
+
+        _hdrDisplayActive = active;
+        _hdrPreviewIssue = null;
+        UpdateProjectColourControls();
+        CompositionSurface.Invalidate();
+    }
+
+    private void UpdateHdrPreviewSurfaceVisibility()
+    {
+        bool visible = _projectColour is not null && _hdrDisplayActive && _workspace == "Video" &&
+            !IsOriginalPreview && _hdrPreviewIssue is null;
+        HdrPreviewSurface.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (!visible && _hdrPreviewSwapChain is not null)
+        {
+            _hdrPreviewSwapChain.Dispose();
+            _hdrPreviewSwapChain = null;
+            HdrPreviewSurface.SwapChain = null;
+        }
     }
 
     private void UpdateProjectCanvasControls()

@@ -16,6 +16,7 @@ using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI;
+using Windows.Graphics.DirectX;
 using WinRT.Interop;
 
 namespace InkMotion;
@@ -86,6 +87,8 @@ public sealed partial class MainWindow
     private CanvasRenderTarget? _compositionBaseTarget;
     private float _compositionBaseWidth;
     private float _compositionBaseHeight;
+    private DirectXPixelFormat _compositionBaseFormat;
+    private CanvasSwapChain? _hdrPreviewSwapChain;
     private CanvasBitmap? _videoLumaWaveformBitmap;
     private CanvasBitmap? _videoVectorscopeBitmap;
     private VideoRgbHistogramData? _videoRgbHistogram;
@@ -967,6 +970,9 @@ public sealed partial class MainWindow
     {
         _compositionBaseTarget?.Dispose();
         _compositionBaseTarget = null;
+        _hdrPreviewSwapChain?.Dispose();
+        _hdrPreviewSwapChain = null;
+        HdrPreviewSurface.SwapChain = null;
         DisposeOverlayBitmaps();
         DisposePreviewVideoFrameSources();
         DisposeVideoScopeSampleTarget();
@@ -974,7 +980,6 @@ public sealed partial class MainWindow
 
     private void CompositionSurface_Draw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        double seconds = _playheadFramePosition / _frameRate;
         float width = (float)sender.ActualWidth;
         float height = (float)sender.ActualHeight;
         if (width <= 0 || height <= 0)
@@ -982,16 +987,83 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (_compositionBaseTarget is null || _compositionBaseWidth != width || _compositionBaseHeight != height)
+        if (ShouldUseHdrDisplayPreview())
         {
-            _compositionBaseTarget?.Dispose();
-            _compositionBaseTarget = new CanvasRenderTarget(sender.Device, width, height, 96,
-                Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                CanvasAlphaMode.Premultiplied);
+            try
+            {
+                DrawHdrDisplayPreview(sender, width, height);
+                args.DrawingSession.Clear(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+                TitleAdornerSurface.Invalidate();
+                return;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or
+                ArgumentException or InvalidOperationException)
+            {
+                _hdrPreviewIssue = $"HDR display preview is unavailable: {ex.Message}";
+                _hdrPreviewSwapChain?.Dispose();
+                _hdrPreviewSwapChain = null;
+                HdrPreviewSurface.SwapChain = null;
+                HdrPreviewSurface.Visibility = Visibility.Collapsed;
+                UpdateProjectColourControls();
+                StatusText.Text = _hdrPreviewIssue;
+            }
+        }
+        else if (HdrPreviewSurface.Visibility == Visibility.Visible)
+        {
+            HdrPreviewSurface.Visibility = Visibility.Collapsed;
+        }
+
+        RenderComposition(sender, args.DrawingSession, width, height, hdrPreview: false);
+        TitleAdornerSurface.Invalidate();
+    }
+
+    private bool ShouldUseHdrDisplayPreview() =>
+        _projectColour is not null && _hdrDisplayActive && _workspace == "Video" &&
+        !IsOriginalPreview && HdrPreviewSurface.Visibility == Visibility.Visible;
+
+    private void DrawHdrDisplayPreview(CanvasControl sender, float width, float height)
+    {
+        if (!sender.Device.IsPixelFormatSupported(DirectXPixelFormat.R16G16B16A16Float))
+        {
+            throw new InvalidOperationException("This graphics device does not support half-float rendering.");
+        }
+
+        if (_hdrPreviewSwapChain is null || _compositionBaseWidth != width || _compositionBaseHeight != height)
+        {
+            _hdrPreviewSwapChain?.Dispose();
+            _hdrPreviewSwapChain = new CanvasSwapChain(sender.Device, width, height, sender.Dpi,
+                DirectXPixelFormat.R16G16B16A16Float, 2, CanvasAlphaMode.Premultiplied);
+            HdrPreviewSurface.SwapChain = _hdrPreviewSwapChain;
             _compositionBaseWidth = width;
             _compositionBaseHeight = height;
         }
 
+        using (CanvasDrawingSession session = _hdrPreviewSwapChain.CreateDrawingSession(
+            Windows.UI.Color.FromArgb(0, 0, 0, 0)))
+        {
+            RenderComposition(sender, session, width, height, hdrPreview: true);
+        }
+        _hdrPreviewSwapChain.Present();
+    }
+
+    private void RenderComposition(CanvasControl sender, CanvasDrawingSession output, float width, float height,
+        bool hdrPreview)
+    {
+        DirectXPixelFormat format = hdrPreview
+            ? DirectXPixelFormat.R16G16B16A16Float
+            : DirectXPixelFormat.B8G8R8A8UIntNormalized;
+        if (_compositionBaseTarget is null || _compositionBaseWidth != width ||
+            _compositionBaseHeight != height || _compositionBaseFormat != format)
+        {
+            _compositionBaseTarget?.Dispose();
+            _compositionBaseTarget = new CanvasRenderTarget(sender.Device, width, height, 96, format,
+                CanvasAlphaMode.Premultiplied);
+            _compositionBaseWidth = width;
+            _compositionBaseHeight = height;
+            _compositionBaseFormat = format;
+        }
+
+        double seconds = _playheadFramePosition / _frameRate;
         var project = new EditorProject
         {
             FrameRate = _frameRate,
@@ -1005,7 +1077,7 @@ public sealed partial class MainWindow
         using (CanvasDrawingSession session = _compositionBaseTarget.CreateDrawingSession())
         {
             session.Clear(Color.FromArgb(0, 0, 0, 0));
-            DrawVideoComposition(sender, session, seconds, width, height);
+            DrawVideoComposition(sender, session, seconds, width, height, hdrPreview: hdrPreview);
             DrawInkGuides(session, width, height);
             DrawInkOnionSkins(session, width, height);
             if (!hasBlendModes)
@@ -1019,23 +1091,42 @@ public sealed partial class MainWindow
             using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
                 sender.Device, _compositionBaseTarget, width, height, project,
                 frameIndex, width, height, 1, seconds);
-            args.DrawingSession.DrawImage(composite);
+            DrawCompositionOutput(sender, output, composite, hdrPreview);
         }
         else
         {
-            args.DrawingSession.DrawImage(_compositionBaseTarget);
+            DrawCompositionOutput(sender, output, _compositionBaseTarget, hdrPreview);
         }
         if (_workspace == "Ink" && !_isPlaying && !IsOriginalPreview &&
             CurrentInkLayer is { IsHoldout: true, IsVisible: true } matte)
         {
-            TimelineCompositor.DrawLayerTint(args.DrawingSession, project, matte, frameIndex, width, height, seconds,
+            TimelineCompositor.DrawLayerTint(output, project, matte, frameIndex, width, height, seconds,
                 Color.FromArgb(90, 255, 40, 40));
         }
-        TitleAdornerSurface.Invalidate();
+    }
+
+    private void DrawCompositionOutput(CanvasControl sender, CanvasDrawingSession output, CanvasRenderTarget source,
+        bool hdrPreview)
+    {
+        if (!hdrPreview)
+        {
+            output.DrawImage(source);
+            return;
+        }
+
+        ProjectColourSettings settings = _projectColour ??
+            throw new InvalidOperationException("HDR display preview requires HDR project colour settings.");
+        byte[] scRgbPixels = HdrColour.ConvertWorkingFrameToScRgb(source.GetPixelBytes(),
+            settings.ReferenceWhiteNits);
+        using CanvasBitmap displayBitmap = CanvasBitmap.CreateFromBytes(sender.Device, scRgbPixels,
+            checked((int)source.SizeInPixels.Width), checked((int)source.SizeInPixels.Height),
+            DirectXPixelFormat.R16G16B16A16Float,
+            96, CanvasAlphaMode.Premultiplied);
+        output.DrawImage(displayBitmap);
     }
 
     private void DrawVideoComposition(CanvasControl canvas, CanvasDrawingSession session, double seconds, float width, float height,
-        bool requireComplete = false)
+        bool requireComplete = false, bool hdrPreview = false)
     {
         if (IsOriginalPreview)
         {
@@ -1075,7 +1166,7 @@ public sealed partial class MainWindow
                     DrawComposedVideoClip(
                         canvas, session, layer.Clip, seconds, width, height, opacity,
                         updateScopes: !requireComplete && layer.Clip.Id == scopeClipId,
-                        requireComplete: requireComplete);
+                    requireComplete: requireComplete, hdrPreview: hdrPreview);
                     break;
                 case TimelineTrackKind.Image:
                     DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
@@ -1100,7 +1191,8 @@ public sealed partial class MainWindow
         float height,
         float opacity,
         bool updateScopes,
-        bool requireComplete = false)
+        bool requireComplete = false,
+        bool hdrPreview = false)
     {
         string path = VideoProxy.GetRenderPath(clip);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
@@ -1138,9 +1230,9 @@ public sealed partial class MainWindow
         }
 
         TimelineVideoFrameSource? source = null;
-        // HDR projects decode PQ/HLG clips through FFmpeg and tone-map them for the 8-bit preview.
+        // HDR display previews retain the float working image; the SDR surface uses tone-mapped 8-bit pixels.
         HdrDecodeOptions? hdr = HdrVideoProbe.GetDecodeOptions(_projectColour, _ffmpegCapabilities?.ExecutablePath,
-            path, workingFloat: false);
+            path, workingFloat: hdrPreview);
         string sourceKey = hdr is null ? path : $"{path}|{hdr.FFmpegPath}|{hdr.Settings}";
         if (_previewVideoFrameSources.TryGetValue(clip.Id, out var cached))
         {
@@ -1624,6 +1716,9 @@ public sealed partial class MainWindow
         DisposeVideoScopeSampleTarget();
         _compositionBaseTarget?.Dispose();
         _compositionBaseTarget = null;
+        _hdrPreviewSwapChain?.Dispose();
+        _hdrPreviewSwapChain = null;
+        HdrPreviewSurface.SwapChain = null;
         _previewMediaPlayer.MediaOpened -= PreviewMediaPlayer_MediaOpened;
         _previewMediaPlayer.MediaFailed -= PreviewMediaPlayer_MediaFailed;
         _previewMediaPlayer.Dispose();

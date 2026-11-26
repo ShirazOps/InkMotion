@@ -266,6 +266,10 @@
                             IsHitTestVisible="False"
                             CreateResources="CompositionSurface_CreateResources"
                             Draw="CompositionSurface_Draw" />
+                        <canvas:CanvasSwapChainPanel
+                            x:Name="HdrPreviewSurface"
+                            IsHitTestVisible="False"
+                            Visibility="Collapsed" />
                         <canvas:CanvasControl x:Name="LiveAudioSpectrumSurface" ClearColor="Transparent"
                             IsHitTestVisible="False" Draw="LiveAudioSpectrumSurface_Draw"
                             AutomationProperties.Name="Live frequency spectrum of the mixed audio playback" />
