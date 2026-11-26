@@ -50,7 +50,7 @@ AI pose tracking, automatic occlusion mattes and image cut-outs analyse media on
 
 Microsoft may process information relating to Store downloads, purchases, updates, permissions or Windows diagnostics under the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). Such processing is controlled by Microsoft and your Windows settings, not by InkMotion.
 
-If you choose files on a network share or in a cloud-synchronised folder, Windows or your storage provider may transfer those files as part of that service. InkMotion does not control those services or their retention policies.
+If you choose files on a network share or in a cloud-synchronised folder, Windows or your storage provider may transfer those files as part of that service. InkMotion does not provide project synchronisation or concurrent-edit protection, and it does not control those services or their retention policies. Avoid editing the same project from multiple InkMotion instances; allow external synchronisation to finish before reopening it.
 
 ## Retention and your choices
 
