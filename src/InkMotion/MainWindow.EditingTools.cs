@@ -7,6 +7,11 @@ public sealed partial class MainWindow
 {
     private bool EnsureInkLayerEditable()
     {
+        if (CurrentInkLayer.LipSync is { Enabled: true })
+        {
+            StatusText.Text = "Turn lip-sync preview off before editing the layer drawing, or use Edit selected mouth in Lip-sync.";
+            return false;
+        }
         if (_characterRig is { Enabled: true } && CurrentInkLayer.RigBinding is not null)
         {
             StatusText.Text = "Turn animated rig preview off in Character rig before editing the original drawing; re-enable it to review poses.";

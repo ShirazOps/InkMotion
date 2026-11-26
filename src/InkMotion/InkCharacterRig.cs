@@ -234,6 +234,8 @@ public static class InkCharacterRigs
         InkLayerProject layer, double seconds, float width, float height)
     {
         IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+        if (layer.LipSync is { Enabled: true } sync && InkLipSyncs.IsSourceCurrent(sync, project))
+            strokes = sync.Mouths[InkLipSyncs.Evaluate(sync, seconds)];
         if (project.CharacterRig is { Enabled: true } && layer.RigBinding is not null && strokes.Count == 0)
         {
             for (int previous = frameIndex - 1; previous >= 0 && strokes.Count == 0; previous--)

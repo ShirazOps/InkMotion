@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 88;
+    public const int CurrentVersion = 89;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -71,6 +71,7 @@ public sealed class InkLayerProject
     public InkAutoMatte? AutoMatte { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
     public InkRigBinding? RigBinding { get; set; }
+    public InkLipSync? LipSync { get; set; }
 }
 
 public sealed class AudioTrackProject
@@ -740,6 +741,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 88)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1298,6 +1303,10 @@ internal static class EditorProjectValidation
         {
             throw new InvalidDataException(rigError);
         }
+        foreach (InkLipSync sync in project.InkLayers.Select(layer => layer.LipSync).OfType<InkLipSync>())
+        {
+            InkLipSyncs.Validate(sync);
+        }
 
         if (project.Frames is null || project.Frames.Count == 0)
         {
@@ -1381,7 +1390,7 @@ internal static class EditorProjectValidation
         }
     }
 
-    private static void ValidateStroke(List<InkPoint>? stroke)
+    internal static void ValidateStroke(List<InkPoint>? stroke)
     {
         if (stroke is null || stroke.Any(point =>
                     point is null ||

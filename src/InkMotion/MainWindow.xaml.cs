@@ -501,10 +501,13 @@ public sealed partial class MainWindow : Window
         if (InkCompositeGraphs.HasProceduralContent(_compositeGraph)) return true;
         int frameIndex = InkTimeline.GetFrameIndexAtPosition(_frames, _playheadFramePosition);
         double seconds = _playheadFramePosition / _frameRate;
+        var inkProject = new EditorProject { Frames = _frames, FrameRate = _frameRate,
+            CharacterRig = _characterRig, AudioTracks = _audioTracks.Select(track => track.Project).ToList() };
         if (_inkLayers.Any(layer => layer.IsVisible &&
             InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) &&
             InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _videoTracks) &&
-            InkObjectMotion.Strokes(_frames, frameIndex, layer, _frameRate).Any(stroke => stroke.Count > 0)))
+            InkCharacterRigs.Strokes(inkProject, frameIndex, layer, seconds,
+                (float)Math.Max(1, InkSurface.ActualWidth), (float)Math.Max(1, InkSurface.ActualHeight)).Any(stroke => stroke.Count > 0)))
         {
             return true;
         }
@@ -2173,6 +2176,7 @@ public sealed partial class MainWindow : Window
 
     private void RenderCurrentInk()
     {
+        UpdateLipSyncReadout();
         RefreshInkTextSelection();
         InkSurface.Invalidate();
         CompositionSurface.Invalidate();
@@ -2204,7 +2208,7 @@ public sealed partial class MainWindow : Window
                 InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
                     TimelineCompositor.DrawInkStrokes(drawing,
                         InkCharacterRigs.Strokes(new EditorProject { Frames = _frames, FrameRate = _frameRate,
-                            CharacterRig = _characterRig }, guide.FrameIndex, layer,
+                            CharacterRig = _characterRig, AudioTracks = _audioTracks.Select(track => track.Project).ToList() }, guide.FrameIndex, layer,
                             InkTimeline.GetStartFramePosition(_frames, guide.FrameIndex) / _frameRate, width, height),
                         point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
                             layer.Opacity * guide.Opacity), width, height, 1));

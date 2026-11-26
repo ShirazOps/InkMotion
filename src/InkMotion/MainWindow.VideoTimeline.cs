@@ -1197,6 +1197,7 @@ public sealed partial class MainWindow
         {
             FrameRate = _frameRate,
             VideoTracks = _videoTracks,
+            AudioTracks = _audioTracks.Select(track => track.Project).ToList(),
             InkLayers = _characterRigPreview?.InkLayers ?? _inkLayers,
             CharacterRig = _characterRigPreview?.CharacterRig ?? _characterRig,
             CompositeGraph = _compositeGraph,
