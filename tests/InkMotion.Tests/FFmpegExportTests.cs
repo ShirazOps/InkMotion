@@ -16,6 +16,119 @@ public sealed class FFmpegFactAttribute : FactAttribute
 
 public sealed class FFmpegExportTests
 {
+    [FFmpegFact]
+    public void OpticalFlowProxyPreservesDurationAndGeneratesIntermediateMotion()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-optical-flow-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "source.mp4");
+        string repeated = Path.Combine(directory, "repeated.mp4");
+        string opticalPixels = Path.Combine(directory, "optical.gray");
+        string repeatedPixels = Path.Combine(directory, "repeated.gray");
+        try
+        {
+            FFmpegAudioEncoder.Run(ffmpeg,
+                ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "testsrc2=size=96x64:rate=12:duration=2", "-an",
+                    "-c:v", "libx264", "-crf", "16", "-preset", "fast", source], CancellationToken.None);
+            VideoProxyResult proxy = VideoOpticalFlowProxy.Generate(source, 2, 12, ffmpeg, directory);
+            FFmpegAudioEncoder.Run(ffmpeg,
+                ["-hide_banner", "-loglevel", "error", "-y", "-i", source,
+                    "-vf", "fps=48", "-an", "-c:v", "libx264", "-crf", "16", "-preset", "fast",
+                    "-pix_fmt", "yuv420p", repeated], CancellationToken.None);
+            foreach ((string input, string output) in new[] { (proxy.Path, opticalPixels), (repeated, repeatedPixels) })
+            {
+                FFmpegAudioEncoder.Run(ffmpeg,
+                    ["-hide_banner", "-loglevel", "error", "-y", "-i", input,
+                        "-pix_fmt", "gray", "-f", "rawvideo", output], CancellationToken.None);
+            }
+
+            byte[] optical = File.ReadAllBytes(opticalPixels);
+            byte[] baseline = File.ReadAllBytes(repeatedPixels);
+            const int frameBytes = 96 * 64;
+            Assert.Equal(96 * frameBytes, optical.Length);
+            Assert.Equal(optical.Length, baseline.Length);
+            double difference = Enumerable.Range(frameBytes * 14, frameBytes)
+                .Average(index => Math.Abs(optical[index] - baseline[index]));
+            Assert.True(difference > 1, $"Interpolated motion differs too little from frame repetition: {difference:F2}.");
+            Assert.Equal(new FileInfo(source).Length, proxy.SourceLength);
+            var clip = new TimelineClipProject
+            {
+                SourcePath = source,
+                ProxyPath = proxy.Path,
+                UseProxy = true,
+                ProxySourceLength = proxy.SourceLength,
+                ProxySourceLastWriteUtcTicks = proxy.SourceLastWriteUtcTicks,
+            };
+            Assert.Equal(proxy.Path, VideoProxy.GetRenderPath(clip));
+            Assert.Equal(source, VideoTimelineEditing.CreatePreviewAudioProject(
+                new TimelineClipLocation(new TimelineTrackProject { Kind = TimelineTrackKind.Video }, clip),
+                originalPreview: false, hasSoloAudio: false).AudioPath);
+        }
+        finally
+        {
+            foreach (string file in Directory.EnumerateFiles(directory)) File.Delete(file);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public void OpticalFlowProxyRejectsInvalidSourceBeforeStartingFfmpeg()
+    {
+        Assert.Throws<FileNotFoundException>(() => VideoOpticalFlowProxy.Generate(
+            Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.mp4"),
+            1, 24, @"C:\missing-ffmpeg.exe", Path.GetTempPath()));
+    }
+
+    [FFmpegFact]
+    public void OpticalFlowProxyHonoursCancellationWithoutCreatingAProxy()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-optical-cancel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "source.mp4");
+        try
+        {
+            File.WriteAllBytes(source, [0]);
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            Assert.Throws<OperationCanceledException>(() =>
+                VideoOpticalFlowProxy.Generate(source, 1, 24, ffmpeg, directory, cancellation.Token));
+            Assert.Equal(new[] { source }, Directory.GetFiles(directory));
+        }
+        finally
+        {
+            File.Delete(source);
+            Directory.Delete(directory);
+        }
+    }
+
+    [FFmpegFact]
+    public void OpticalFlowProxyRejectsHdrInsteadOfCreatingAnSdrCopy()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-optical-hdr-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "source.mp4");
+        try
+        {
+            FFmpegAudioEncoder.Run(ffmpeg,
+                ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+                    "-i", "testsrc2=size=96x64:rate=12:duration=1", "-an",
+                    "-c:v", "libx264", "-x264-params",
+                    "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc", source], CancellationToken.None);
+            Assert.Throws<NotSupportedException>(() =>
+                VideoOpticalFlowProxy.Generate(source, 1, 12, ffmpeg, directory));
+            Assert.Equal(new[] { source }, Directory.GetFiles(directory));
+        }
+        finally
+        {
+            foreach (string file in Directory.EnumerateFiles(directory)) File.Delete(file);
+            Directory.Delete(directory);
+        }
+    }
+
     [Fact]
     public void Hdr10PlusMetadataRequiresAConsecutiveEntryForEveryOutputFrame()
     {
