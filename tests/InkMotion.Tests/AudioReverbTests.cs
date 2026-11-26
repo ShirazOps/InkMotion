@@ -46,7 +46,7 @@ public sealed class AudioReverbTests
             }
         }
 
-        Assert.Equal(0, provider.Read(output, 0, channels));
+        Assert.Equal(channels, provider.Read(output, 0, channels));
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public sealed class AudioReverbTests
     }
 
     [Fact]
-    public void FloatWaveExportMatchesPreviewAndDoesNotExtendClipForReverbTail()
+    public void FloatWaveExportIncludesReverbTailAndMatchesPreview()
     {
         string input = Path.Combine(Path.GetTempPath(), $"inkmotion-reverb-{Guid.NewGuid():N}.wav");
         string output = Path.ChangeExtension(input, ".out.wav");
@@ -220,12 +220,14 @@ public sealed class AudioReverbTests
                 AudioTracks = [new() { AudioPath = input, Effects = Settings }],
             };
             AudioExporter.Export(project, new(AudioExportCodec.FloatWave, 48000, 32), output, null, CancellationToken.None);
-            float[] expected = new float[signal.Length];
+            int tailSamples = (int)Math.Ceiling(Settings.TailDurationSeconds * 48000);
+            float[] expected = new float[signal.Length + tailSamples];
             var provider = new AudioEffectsSampleProvider(new Samples(signal), Settings);
-            provider.Read(expected, 0, expected.Length);
+            Assert.Equal(expected.Length, provider.Read(expected, 0, expected.Length));
             Assert.Contains(expected.Skip(1).Take(signal.Length - 2), value => value != 0);
+            Assert.Contains(expected.Skip(signal.Length), value => value != 0);
             using var reader = new AudioFileReader(output);
-            float[] actual = new float[signal.Length];
+            float[] actual = new float[expected.Length];
             Assert.Equal(actual.Length, reader.Read(actual, 0, actual.Length));
             Assert.Equal(0, reader.Read(new float[100], 0, 100));
             Assert.Equal(expected, actual);

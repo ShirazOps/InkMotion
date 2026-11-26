@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text.Json;
 using NAudio.Wave;
 
@@ -58,6 +59,26 @@ public static class Vst3PluginTrustStore
         lock (Sync)
         {
             return GetTrustedPlugins().Contains(GetKey(plugin));
+        }
+    }
+
+    public static bool TryIsTrusted(
+        Vst3PluginDescription plugin,
+        out bool trusted,
+        out string? failure)
+    {
+        try
+        {
+            trusted = IsTrusted(plugin);
+            failure = null;
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
+            JsonException or ArgumentException or NotSupportedException or SecurityException)
+        {
+            trusted = false;
+            failure = exception.Message;
+            return false;
         }
     }
 
@@ -181,7 +202,16 @@ public sealed class Vst3InsertChainSampleProvider : ISampleProvider, IDisposable
                 Vst3HostedSampleProvider? host = null;
                 if (plugin.Enabled)
                 {
-                    if (!Vst3PluginTrustStore.IsTrusted(plugin.GetDescription()))
+                    if (!Vst3PluginTrustStore.TryIsTrusted(
+                        plugin.GetDescription(), out bool trusted, out string? trustFailure))
+                    {
+                        _creationError = JoinFailure(_creationError,
+                            $"{plugin.Name}: local plug-in approval could not be checked; the insert remains bypassed. {trustFailure}");
+                        _hosts.Add(null);
+                        continue;
+                    }
+
+                    if (!trusted)
                     {
                         _creationError = JoinFailure(_creationError,
                             $"{plugin.Name}: this plug-in has not been approved on this device. Review it in the insert controls before enabling it.");

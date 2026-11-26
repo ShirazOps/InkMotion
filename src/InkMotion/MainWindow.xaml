@@ -1214,8 +1214,9 @@
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
                                 <Border Style="{StaticResource DividerStyle}" />
                                 <TextBlock Text="VST3 PLUG-IN INSERTS" Style="{StaticResource SectionHeaderTextStyle}" />
-                                <TextBlock Text="Plug-ins run in separate processes, but are not security sandboxes. Only load plug-ins you trust. Audio-track inserts currently support mono and stereo; bus inserts require a mono or stereo bus layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="Plug-ins run in separate processes, but are not security sandboxes. Only load plug-ins you trust. Use the native editor where supported; its parameter changes synchronise with the insert and are saved in the project. Audio-track inserts currently support mono and stereo; bus inserts require a mono or stereo bus layout." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button x:Name="AddVst3PluginButton" Content="Add VST3 plug-in" Click="AddVst3Plugin_Click" />
+                                <Button x:Name="OpenVst3PluginEditorButton" Content="Open plug-in editor" Click="OpenVst3PluginEditor_Click" IsEnabled="False" />
                                 <TextBlock x:Name="Vst3PluginStatusText" Text="Choose a plug-in bundle to scan installed VST3 effects." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <StackPanel x:Name="Vst3PluginsPanel" Spacing="6" />
                                 <StackPanel x:Name="Vst3PluginControlsPanel" Spacing="6" />

@@ -14,6 +14,7 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, IReadOnlyList<Vst3Parameter>> _vst3ParameterCache =
         new(StringComparer.OrdinalIgnoreCase);
     private string? _selectedVst3PluginId;
+    private bool _updatingVst3ParameterControls;
 
     private void UpdateVst3PluginInspector(AudioTrackProject? track)
     {
@@ -21,6 +22,7 @@ public sealed partial class MainWindow
         Vst3PluginsPanel.Children.Clear();
         Vst3PluginControlsPanel.Children.Clear();
         AddVst3PluginButton.IsEnabled = target is not null;
+        OpenVst3PluginEditorButton.IsEnabled = false;
         if (target is null)
         {
             Vst3PluginStatusText.Text = "Select an audio clip or bus to manage VST3 inserts.";
@@ -165,6 +167,73 @@ public sealed partial class MainWindow
         }
     }
 
+    private void OpenVst3PluginEditor_Click(object sender, RoutedEventArgs e)
+    {
+        Vst3PluginTarget? target = GetVst3PluginTarget(
+            TryGetSelectedAudioClip(out AudioTrackRuntime? track) ? track.Project : null);
+        AudioVst3PluginProject? plugin = target?.GetPlugins()
+            .FirstOrDefault(candidate => candidate.Id == _selectedVst3PluginId);
+        if (target is null || plugin is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Vst3PluginTrustStore.TryIsTrusted(
+                plugin.GetDescription(), out bool trusted, out string? trustFailure))
+            {
+                Vst3PluginStatusText.Text =
+                    $"{plugin.Name} approval could not be checked; its editor remains closed. {trustFailure}";
+                return;
+            }
+
+            if (!trusted)
+            {
+                Vst3PluginStatusText.Text = $"{plugin.Name} must be approved on this device before its editor can be opened.";
+                return;
+            }
+
+            if (_vst3Editors.ContainsKey(plugin))
+            {
+                Vst3PluginStatusText.Text = $"{plugin.Name} editor is already open.";
+                return;
+            }
+
+            var editor = new Vst3PluginEditor(plugin.GetDescription(), plugin.ParameterValues);
+            editor.ParameterChanged += (id, value) =>
+                DispatcherQueue.TryEnqueue(() => ApplyNativeVst3Parameter(target, plugin.Id, id, value));
+            editor.StatusChanged += message => DispatcherQueue.TryEnqueue(() =>
+                Vst3PluginStatusText.Text = $"{plugin.Name}: {message}");
+            editor.Exited += () => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_vst3Editors.TryGetValue(plugin, out Vst3PluginEditor? activeEditor) &&
+                    ReferenceEquals(activeEditor, editor))
+                {
+                    _vst3Editors.Remove(plugin);
+                    editor.Dispose();
+                    UpdateVst3PluginInspector(target.Track);
+                }
+            });
+            _vst3Editors.Add(plugin, editor);
+            try
+            {
+                editor.Start();
+            }
+            catch
+            {
+                _vst3Editors.Remove(plugin);
+                editor.Dispose();
+                throw;
+            }
+            Vst3PluginStatusText.Text = $"Opening the native editor for {plugin.Name}...";
+        }
+        catch (Exception exception) when (IsVst3UiFailure(exception))
+        {
+            Vst3PluginStatusText.Text = $"{plugin.Name} native editor could not be opened: {exception.Message}";
+        }
+    }
+
     private async Task<Vst3PluginDescription?> ChooseVst3EffectAsync(
         IReadOnlyList<Vst3PluginDescription> effects)
     {
@@ -208,27 +277,41 @@ public sealed partial class MainWindow
 
         bool enable = toggle.IsChecked == true;
         Vst3PluginDescription description = context.Plugin.GetDescription();
-        if (enable && !Vst3PluginTrustStore.IsTrusted(description))
+        bool trusted = false;
+        if (enable)
         {
-            ContentDialog consent = CreateVst3ConsentDialog(
-                $"Enable {context.Plugin.Name}? Its code runs with your Windows account's permissions. The separate worker process is not a security sandbox. Approval is stored only on this device.");
-            if (await consent.ShowAsync() != ContentDialogResult.Primary)
+            if (!Vst3PluginTrustStore.TryIsTrusted(
+                description, out trusted, out string? trustFailure))
             {
                 toggle.IsChecked = false;
                 toggle.Content = "Bypassed";
+                Vst3PluginStatusText.Text =
+                    $"{context.Plugin.Name} approval could not be checked; the insert remains bypassed. {trustFailure}";
                 return;
             }
 
-            try
+            if (!trusted)
             {
-                Vst3PluginTrustStore.Trust(description);
-            }
-            catch (Exception exception) when (IsVst3UiFailure(exception))
-            {
-                toggle.IsChecked = false;
-                toggle.Content = "Bypassed";
-                Vst3PluginStatusText.Text = $"Could not save plug-in approval: {exception.Message}";
-                return;
+                ContentDialog consent = CreateVst3ConsentDialog(
+                    $"Enable {context.Plugin.Name}? Its code runs with your Windows account's permissions. The separate worker process is not a security sandbox. Approval is stored only on this device.");
+                if (await consent.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    toggle.IsChecked = false;
+                    toggle.Content = "Bypassed";
+                    return;
+                }
+
+                try
+                {
+                    Vst3PluginTrustStore.Trust(description);
+                }
+                catch (Exception exception) when (IsVst3UiFailure(exception))
+                {
+                    toggle.IsChecked = false;
+                    toggle.Content = "Bypassed";
+                    Vst3PluginStatusText.Text = $"Could not save plug-in approval: {exception.Message}";
+                    return;
+                }
             }
         }
 
@@ -249,6 +332,10 @@ public sealed partial class MainWindow
             () =>
             {
                 bool removed = context.Target.GetPluginList().Remove(context.Plugin);
+                if (removed && _vst3Editors.Remove(context.Plugin, out Vst3PluginEditor? editor))
+                {
+                    editor.Dispose();
+                }
                 if (removed && _selectedVst3PluginId == context.Plugin.Id)
                 {
                     _selectedVst3PluginId = null;
@@ -276,7 +363,15 @@ public sealed partial class MainWindow
             Text = $"{plugin.Name} · generic parameter controls",
         });
 
-        if (!Vst3PluginTrustStore.IsTrusted(plugin.GetDescription()))
+        if (!Vst3PluginTrustStore.TryIsTrusted(
+            plugin.GetDescription(), out bool isTrusted, out string? trustFailure))
+        {
+            Vst3PluginStatusText.Text = $"Could not read local plug-in approvals: {trustFailure}";
+            return;
+        }
+
+        OpenVst3PluginEditorButton.IsEnabled = isTrusted;
+        if (!isTrusted)
         {
             Vst3PluginStatusText.Text = $"{plugin.Name} is bypassed until you approve it locally.";
             return;
@@ -349,7 +444,8 @@ public sealed partial class MainWindow
 
     private void Vst3Parameter_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
-        if (sender is not Slider { Tag: Vst3ParameterActionContext context })
+        if (_updatingVst3ParameterControls ||
+            sender is not Slider { Tag: Vst3ParameterActionContext context })
         {
             return;
         }
@@ -367,6 +463,7 @@ public sealed partial class MainWindow
             FinishActiveEdit();
             BeginEdit();
             context.Plugin.ParameterValues[context.Parameter.Id] = value;
+            SetNativeVst3EditorParameter(context.Plugin, context.Parameter.Id, value);
             UpdateAudioTrackPlayers(runtime);
             MarkEditChanged();
             CommitEdit();
@@ -378,6 +475,7 @@ public sealed partial class MainWindow
             FinishActiveEdit();
             BeginEdit();
             context.Plugin.ParameterValues[context.Parameter.Id] = value;
+            SetNativeVst3EditorParameter(context.Plugin, context.Parameter.Id, value);
             if (GetPreviewSubmix(bus.Id) is AudioPreviewSubmix submix)
             {
                 submix.Update(bus.Effects, bus.GainDecibels, bus.Vst3Plugins);
@@ -411,6 +509,105 @@ public sealed partial class MainWindow
         throw new InvalidOperationException("The selected VST3 insert target is unavailable.");
     }
 
+    private void ApplyNativeVst3Parameter(
+        Vst3PluginTarget target,
+        string pluginId,
+        uint parameterId,
+        double value)
+    {
+        if (!target.GetPluginList().Any(plugin => plugin.Id == pluginId))
+        {
+            return;
+        }
+
+        bool UpdatePlugin()
+        {
+            AudioVst3PluginProject? plugin = target.GetPluginList()
+                .FirstOrDefault(candidate => candidate.Id == pluginId);
+            if (plugin is null)
+            {
+                return false;
+            }
+
+            plugin.ParameterValues[parameterId] = value;
+            return true;
+        }
+
+        FinishActiveEdit();
+        BeginEdit();
+        if (!UpdatePlugin())
+        {
+            CommitEdit();
+            return;
+        }
+
+        if (target.Track is AudioTrackProject track)
+        {
+            AudioTrackRuntime? runtime = FindAudioTrackRuntime(track);
+            if (runtime is null)
+            {
+                CommitEdit();
+                return;
+            }
+
+            UpdateAudioTrackPlayers(runtime);
+        }
+        else if (target.Bus is AudioBusProject bus &&
+            GetPreviewSubmix(bus.Id) is AudioPreviewSubmix submix)
+        {
+            submix.Update(bus.Effects, bus.GainDecibels, bus.Vst3Plugins);
+        }
+
+        MarkEditChanged();
+        CommitEdit();
+        UpdateNativeVst3ParameterControl(target, pluginId, parameterId, value);
+    }
+
+    private void UpdateNativeVst3ParameterControl(
+        Vst3PluginTarget target,
+        string pluginId,
+        uint parameterId,
+        double value)
+    {
+        foreach (Slider slider in Vst3PluginControlsPanel.Children
+            .OfType<StackPanel>()
+            .SelectMany(panel => panel.Children.OfType<Slider>()))
+        {
+            if (slider.Tag is not Vst3ParameterActionContext context ||
+                context.Plugin.Id != pluginId ||
+                !ReferenceEquals(context.Target.Track, target.Track) ||
+                !ReferenceEquals(context.Target.Bus, target.Bus) ||
+                context.Parameter.Id != parameterId)
+            {
+                continue;
+            }
+
+            _updatingVst3ParameterControls = true;
+            slider.Value = value;
+            context.Readout.Text = $"{value:P0}";
+            _updatingVst3ParameterControls = false;
+        }
+    }
+
+    private void SetNativeVst3EditorParameter(
+        AudioVst3PluginProject plugin,
+        uint parameterId,
+        double value)
+    {
+        if (_vst3Editors.TryGetValue(plugin, out Vst3PluginEditor? editor))
+        {
+            try
+            {
+                editor.SetParameter(parameterId, value);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or
+                System.ComponentModel.Win32Exception or ObjectDisposedException)
+            {
+                Vst3PluginStatusText.Text = $"Could not update the native VST3 editor: {exception.Message}";
+            }
+        }
+    }
+
     private Vst3PluginTarget? GetVst3PluginTarget(AudioTrackProject? track)
     {
         AudioBusProject? bus = AudioBuses.Find(_audioBuses, _audioEffectsBusId);
@@ -431,6 +628,15 @@ public sealed partial class MainWindow
         CloseButtonText = "Cancel",
         DefaultButton = ContentDialogButton.Close,
     };
+
+    private void DisposeVst3Editors()
+    {
+        foreach (Vst3PluginEditor editor in _vst3Editors.Values)
+        {
+            editor.Dispose();
+        }
+        _vst3Editors.Clear();
+    }
 
     private static bool IsVst3UiFailure(Exception exception) =>
         exception is IOException or UnauthorizedAccessException or InvalidDataException or

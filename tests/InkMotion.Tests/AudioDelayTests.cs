@@ -48,7 +48,7 @@ public sealed class AudioDelayTests
             }
         }
 
-        Assert.Equal(0, provider.Read(output, 0, 1));
+        Assert.Equal(channels, provider.Read(output, 0, channels));
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public sealed class AudioDelayTests
     }
 
     [Fact]
-    public void ExportMatchesThePreviewProcessorWithoutExtendingTheClip()
+    public void ExportIncludesDelayTailAndMatchesThePreviewProcessor()
     {
         string input = Path.Combine(Path.GetTempPath(), $"inkmotion-delay-{Guid.NewGuid():N}.wav");
         string output = Path.ChangeExtension(input, ".out.wav");
@@ -173,10 +173,12 @@ public sealed class AudioDelayTests
             };
             AudioExporter.Export(project, new(AudioExportCodec.FloatWave, 48000, 32), output, null, CancellationToken.None);
             var processor = new AudioEffectsSampleProvider(new Samples(signal), Settings);
-            float[] expected = new float[signal.Length];
-            processor.Read(expected, 0, expected.Length);
+            int tailSamples = (int)Math.Ceiling(Settings.TailDurationSeconds * 48000);
+            float[] expected = new float[signal.Length + tailSamples];
+            Assert.Equal(expected.Length, processor.Read(expected, 0, expected.Length));
+            Assert.Contains(expected.Skip(signal.Length), sample => sample != 0);
             using var reader = new AudioFileReader(output);
-            float[] actual = new float[signal.Length];
+            float[] actual = new float[expected.Length];
             Assert.Equal(actual.Length, reader.Read(actual, 0, actual.Length));
             Assert.Equal(0, reader.Read(new float[100], 0, 100));
             Assert.Equal(expected, actual);

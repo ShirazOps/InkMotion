@@ -4,6 +4,7 @@
 #include "public.sdk/source/vst/hosting/plugprovider.h"
 #include "public.sdk/source/vst/hosting/processdata.h"
 #include "public.sdk/source/vst/utility/stringconvert.h"
+#include "pluginterfaces/gui/iplugview.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstprocesscontext.h"
@@ -13,7 +14,10 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <iomanip>
+#include <limits>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -33,8 +37,11 @@ using Steinberg::Vst::BusInfo;
 using Steinberg::Vst::HostApplication;
 using Steinberg::Vst::HostProcessData;
 using Steinberg::Vst::IComponent;
+using Steinberg::Vst::IComponentHandler;
 using Steinberg::Vst::IEditController;
 using Steinberg::Vst::IAudioProcessor;
+using Steinberg::IPlugView;
+using Steinberg::IPlugFrame;
 using Steinberg::Vst::ParameterChanges;
 using Steinberg::Vst::ParameterInfo;
 using Steinberg::Vst::ProcessContext;
@@ -533,6 +540,460 @@ int RunWorker(const std::string& path, const std::string& classId, double sample
     }
 }
 
+#if defined(_WIN32)
+constexpr UINT kApplyEditorParametersMessage = WM_APP + 1;
+constexpr UINT_PTR kEditorInputTimer = 1;
+constexpr UINT kEditorInputIntervalMilliseconds = 40;
+constexpr wchar_t kEditorWindowClass[] = L"InkMotionVst3Editor";
+
+class EditorComponentHandler final : public IComponentHandler
+{
+public:
+    Steinberg::tresult PLUGIN_API beginEdit(Steinberg::Vst::ParamID) override
+    {
+        return Steinberg::kResultOk;
+    }
+
+    Steinberg::tresult PLUGIN_API performEdit(
+        Steinberg::Vst::ParamID id, Steinberg::Vst::ParamValue value) override
+    {
+        std::cout << "P " << id << ' ' << std::setprecision(17) << value << '\n' << std::flush;
+        return Steinberg::kResultOk;
+    }
+
+    Steinberg::tresult PLUGIN_API endEdit(Steinberg::Vst::ParamID) override
+    {
+        return Steinberg::kResultOk;
+    }
+
+    Steinberg::tresult PLUGIN_API restartComponent(Steinberg::int32) override
+    {
+        return Steinberg::kResultOk;
+    }
+
+private:
+    Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID iid, void** object) override
+    {
+        if (!object)
+        {
+            return Steinberg::kInvalidArgument;
+        }
+        *object = nullptr;
+        if (Steinberg::FUnknownPrivate::iidEqual(iid, IComponentHandler::iid) ||
+            Steinberg::FUnknownPrivate::iidEqual(iid, Steinberg::FUnknown::iid))
+        {
+            *object = this;
+            addRef();
+            return Steinberg::kResultOk;
+        }
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1000; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1000; }
+};
+
+class EditorWindow final : public IPlugFrame
+{
+public:
+    EditorWindow(IPlugView* view, IEditController* controller)
+        : view_(view), controller_(controller)
+    {
+    }
+
+    bool Open()
+    {
+        if (!view_ || !controller_ ||
+            view_->isPlatformTypeSupported(Steinberg::kPlatformTypeHWND) != Steinberg::kResultOk)
+        {
+            throw std::runtime_error("The VST3 effect does not provide a Windows native editor.");
+        }
+        resizable_ = view_->canResize() == Steinberg::kResultOk;
+        windowStyle_ = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+        if (resizable_)
+        {
+            windowStyle_ |= WS_SIZEBOX | WS_MAXIMIZEBOX;
+        }
+
+        WNDCLASSEXW windowClass {};
+        windowClass.cbSize = sizeof(windowClass);
+        windowClass.lpfnWndProc = WindowProcedure;
+        windowClass.hInstance = GetModuleHandleW(nullptr);
+        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        windowClass.lpszClassName = kEditorWindowClass;
+        RegisterClassExW(&windowClass);
+
+        Steinberg::ViewRect size {};
+        if (view_->getSize(&size) != Steinberg::kResultOk ||
+            size.right <= size.left || size.bottom <= size.top)
+        {
+            throw std::runtime_error("The VST3 editor returned an invalid initial size.");
+        }
+
+        RECT bounds {0, 0, size.right - size.left, size.bottom - size.top};
+        AdjustWindowRect(&bounds, windowStyle_, FALSE);
+        window_ = CreateWindowExW(
+            0, kEditorWindowClass, L"InkMotion VST3 Editor", windowStyle_,
+            CW_USEDEFAULT, CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top,
+            nullptr, nullptr, windowClass.hInstance, this);
+        if (!window_)
+        {
+            throw std::runtime_error("The VST3 editor window could not be created.");
+        }
+
+        if (view_->setFrame(this) != Steinberg::kResultOk ||
+            view_->attached(window_, Steinberg::kPlatformTypeHWND) != Steinberg::kResultOk)
+        {
+            view_->removed();
+            DestroyWindow(window_);
+            window_ = nullptr;
+            throw std::runtime_error("The VST3 editor could not attach to its Windows host window.");
+        }
+
+        attached_ = true;
+        RECT clientBounds {};
+        GetClientRect(window_, &clientBounds);
+        Steinberg::ViewRect clientSize {0, 0, clientBounds.right, clientBounds.bottom};
+        view_->onSize(&clientSize);
+        SetTimer(window_, kEditorInputTimer, kEditorInputIntervalMilliseconds, nullptr);
+        ShowWindow(window_, SW_SHOW);
+        UpdateWindow(window_);
+        std::cout << "S READY\n" << std::flush;
+
+        MSG message {};
+        int messageResult = 0;
+        while ((messageResult = GetMessageW(&message, nullptr, 0, 0)) > 0)
+        {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        if (messageResult == -1)
+        {
+            throw std::runtime_error("The VST3 editor window message loop failed.");
+        }
+        return true;
+    }
+
+    Steinberg::tresult PLUGIN_API resizeView(IPlugView* view, Steinberg::ViewRect* newSize) override
+    {
+        if (view != view_ || !window_ || !newSize || resizing_ ||
+            newSize->right <= newSize->left || newSize->bottom <= newSize->top)
+        {
+            return Steinberg::kInvalidArgument;
+        }
+
+        RECT bounds {0, 0, newSize->right - newSize->left, newSize->bottom - newSize->top};
+        AdjustWindowRect(&bounds, windowStyle_, FALSE);
+        resizing_ = true;
+        SetWindowPos(window_, nullptr, 0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        Steinberg::tresult result = view_->onSize(newSize);
+        resizing_ = false;
+        return result;
+    }
+
+    Steinberg::tresult PLUGIN_API queryInterface(const Steinberg::TUID iid, void** object) override
+    {
+        if (!object)
+        {
+            return Steinberg::kInvalidArgument;
+        }
+        *object = nullptr;
+        if (Steinberg::FUnknownPrivate::iidEqual(iid, IPlugFrame::iid) ||
+            Steinberg::FUnknownPrivate::iidEqual(iid, Steinberg::FUnknown::iid))
+        {
+            *object = this;
+            addRef();
+            return Steinberg::kResultOk;
+        }
+        return Steinberg::kNoInterface;
+    }
+
+    Steinberg::uint32 PLUGIN_API addRef() override { return 1000; }
+    Steinberg::uint32 PLUGIN_API release() override { return 1000; }
+
+private:
+    static LRESULT CALLBACK WindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        auto* self = reinterpret_cast<EditorWindow*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (message == WM_NCCREATE)
+        {
+            auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+            self = static_cast<EditorWindow*>(create->lpCreateParams);
+            self->window_ = window;
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        }
+        return self ? self->HandleMessage(message, wParam, lParam)
+                    : DefWindowProcW(window, message, wParam, lParam);
+    }
+
+    LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        switch (message)
+        {
+        case WM_SIZE:
+            if (view_ && attached_ && !resizing_ && wParam != SIZE_MINIMIZED)
+            {
+                RECT bounds {};
+                GetClientRect(window_, &bounds);
+                Steinberg::ViewRect size {0, 0, bounds.right, bounds.bottom};
+                view_->onSize(&size);
+            }
+            return 0;
+        case WM_SIZING:
+            if (view_ && attached_ && resizable_)
+            {
+                auto* requestedBounds = reinterpret_cast<RECT*>(lParam);
+                RECT currentBounds {};
+                RECT currentClient {};
+                GetWindowRect(window_, &currentBounds);
+                GetClientRect(window_, &currentClient);
+                int frameWidth = currentBounds.right - currentBounds.left -
+                    (currentClient.right - currentClient.left);
+                int frameHeight = currentBounds.bottom - currentBounds.top -
+                    (currentClient.bottom - currentClient.top);
+                Steinberg::ViewRect requestedSize {
+                    0, 0,
+                    requestedBounds->right - requestedBounds->left - frameWidth,
+                    requestedBounds->bottom - requestedBounds->top - frameHeight,
+                };
+                if (view_->checkSizeConstraint(&requestedSize) == Steinberg::kResultOk)
+                {
+                    int width = requestedSize.right - requestedSize.left + frameWidth;
+                    int height = requestedSize.bottom - requestedSize.top + frameHeight;
+                    if (wParam == WMSZ_LEFT || wParam == WMSZ_TOPLEFT || wParam == WMSZ_BOTTOMLEFT)
+                    {
+                        requestedBounds->left = requestedBounds->right - width;
+                    }
+                    else
+                    {
+                        requestedBounds->right = requestedBounds->left + width;
+                    }
+                    if (wParam == WMSZ_TOP || wParam == WMSZ_TOPLEFT || wParam == WMSZ_TOPRIGHT)
+                    {
+                        requestedBounds->top = requestedBounds->bottom - height;
+                    }
+                    else
+                    {
+                        requestedBounds->bottom = requestedBounds->top + height;
+                    }
+                }
+            }
+            return TRUE;
+        case WM_SETFOCUS:
+            if (view_)
+            {
+                view_->onFocus(true);
+            }
+            return 0;
+        case WM_KILLFOCUS:
+            if (view_)
+            {
+                view_->onFocus(false);
+            }
+            return 0;
+        case WM_TIMER:
+            if (wParam == kEditorInputTimer)
+            {
+                ReadEditorCommands();
+            }
+            return 0;
+        case kApplyEditorParametersMessage:
+            ApplyEditorCommands();
+            return 0;
+        case WM_CLOSE:
+            KillTimer(window_, kEditorInputTimer);
+            if (view_)
+            {
+                view_->removed();
+            }
+            attached_ = false;
+            DestroyWindow(window_);
+            return 0;
+        case WM_DESTROY:
+            window_ = nullptr;
+            PostQuitMessage(0);
+            return 0;
+        default:
+            return DefWindowProcW(window_, message, wParam, lParam);
+        }
+    }
+
+    void ReadEditorCommands()
+    {
+        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+        DWORD available = 0;
+        if (input == INVALID_HANDLE_VALUE || !PeekNamedPipe(input, nullptr, 0, nullptr, &available, nullptr) ||
+            available == 0)
+        {
+            return;
+        }
+
+        char bytes[512];
+        DWORD read = 0;
+        if (!ReadFile(input, bytes, std::min<DWORD>(available, sizeof(bytes)), &read, nullptr) || read == 0)
+        {
+            return;
+        }
+
+        inputBuffer_.append(bytes, read);
+        size_t newline = 0;
+        while ((newline = inputBuffer_.find('\n')) != std::string::npos)
+        {
+            std::string command = inputBuffer_.substr(0, newline);
+            if (!command.empty() && command.back() == '\r')
+            {
+                command.pop_back();
+            }
+            pendingCommands_.push_back(std::move(command));
+            inputBuffer_.erase(0, newline + 1);
+        }
+        if (!pendingCommands_.empty())
+        {
+            PostMessageW(window_, kApplyEditorParametersMessage, 0, 0);
+        }
+    }
+
+    void ApplyEditorCommands()
+    {
+        for (const std::string& command : pendingCommands_)
+        {
+            size_t separator = command.find('=');
+            if (separator == std::string::npos)
+            {
+                std::cout << "E Invalid parameter update received from InkMotion.\n" << std::flush;
+                continue;
+            }
+            try
+            {
+                size_t idLength = 0;
+                size_t valueLength = 0;
+                unsigned long id = std::stoul(command.substr(0, separator), &idLength);
+                double value = std::stod(command.substr(separator + 1), &valueLength);
+                if (idLength == separator && valueLength == command.size() - separator - 1 &&
+                    id <= std::numeric_limits<Steinberg::Vst::ParamID>::max() &&
+                    std::isfinite(value) && value >= 0 && value <= 1)
+                {
+                    controller_->setParamNormalized(static_cast<Steinberg::Vst::ParamID>(id), value);
+                }
+            }
+            catch (const std::exception&)
+            {
+                std::cout << "E Invalid parameter update received from InkMotion.\n" << std::flush;
+            }
+        }
+        pendingCommands_.clear();
+    }
+
+    IPlugView* view_;
+    IEditController* controller_;
+    HWND window_ {};
+    DWORD windowStyle_ {};
+    bool resizable_ {};
+    bool attached_ {};
+    bool resizing_ {};
+    std::string inputBuffer_;
+    std::vector<std::string> pendingCommands_;
+};
+
+void ApplyInitialEditorParameters(IEditController* controller, const std::string& values)
+{
+    std::istringstream entries(values);
+    std::string entry;
+    while (std::getline(entries, entry, ';'))
+    {
+        size_t separator = entry.find('=');
+        if (separator == std::string::npos)
+        {
+            continue;
+        }
+        size_t idLength = 0;
+        size_t valueLength = 0;
+        unsigned long id = std::stoul(entry.substr(0, separator), &idLength);
+        double value = std::stod(entry.substr(separator + 1), &valueLength);
+        if (idLength != separator || valueLength != entry.size() - separator - 1 ||
+            id > std::numeric_limits<Steinberg::Vst::ParamID>::max() ||
+            !std::isfinite(value) || value < 0 || value > 1)
+        {
+            throw std::invalid_argument("The VST3 editor received an invalid parameter value.");
+        }
+        controller->setParamNormalized(static_cast<Steinberg::Vst::ParamID>(id), value);
+    }
+}
+
+int RunEditor(const std::string& path, const std::string& classId)
+{
+    try
+    {
+        std::string initialParameters;
+        if (!std::getline(std::cin, initialParameters))
+        {
+            throw std::runtime_error("The VST3 editor did not receive its initial parameters.");
+        }
+        if (!initialParameters.empty() && initialParameters.back() == '\r')
+        {
+            initialParameters.pop_back();
+        }
+
+        auto hostApplication = Steinberg::owned(new HostApplication());
+        Steinberg::Vst::PluginContextFactory::instance().setPluginContext(hostApplication);
+        std::string error;
+        auto module = VST3::Hosting::Module::create(path, error);
+        if (!module)
+        {
+            throw std::runtime_error(error.empty() ? "Could not load the VST3 module." : error);
+        }
+
+        const auto& factory = module->getFactory();
+        auto classInfos = factory.classInfos();
+        auto selected = std::find_if(classInfos.begin(), classInfos.end(), [&](const auto& info)
+        {
+            return info.category() == kVstAudioEffectClass && info.ID().toString() == classId;
+        });
+        if (selected == classInfos.end())
+        {
+            throw std::runtime_error("The requested audio effect class was not found in the VST3 module.");
+        }
+
+        auto provider = Steinberg::owned(new Steinberg::Vst::PlugProvider(factory, *selected));
+        if (!provider->initialize())
+        {
+            throw std::runtime_error("The VST3 component could not be initialised.");
+        }
+
+        IEditController* controller = provider->getControllerPtr();
+        if (!controller)
+        {
+            throw std::runtime_error("The VST3 effect does not expose an edit controller.");
+        }
+        EditorComponentHandler handler;
+        controller->setComponentHandler(&handler);
+        ApplyInitialEditorParameters(controller, initialParameters);
+
+        Steinberg::IPtr<IPlugView> view(controller->createView(Steinberg::Vst::ViewType::kEditor));
+        if (!view)
+        {
+            throw std::runtime_error("The VST3 effect does not provide a native editor.");
+        }
+
+        EditorWindow window(view, controller);
+        window.Open();
+        controller->setComponentHandler(nullptr);
+        Steinberg::Vst::PluginContextFactory::instance().setPluginContext(nullptr);
+        return 0;
+    }
+    catch (const std::exception& exception)
+    {
+        std::string message = exception.what();
+        std::replace(message.begin(), message.end(), '\n', ' ');
+        std::cout << "E " << message << '\n' << std::flush;
+        Steinberg::Vst::PluginContextFactory::instance().setPluginContext(nullptr);
+        return 2;
+    }
+}
+#endif
+
 int Run(int argumentCount, const std::vector<std::string>& arguments)
 {
     if (argumentCount == 2 && arguments[1] == "--version")
@@ -555,6 +1016,13 @@ int Run(int argumentCount, const std::vector<std::string>& arguments)
         return ScanModule(arguments[2]);
     }
 
+#if defined(_WIN32)
+    if (argumentCount == 4 && arguments[1] == "--editor")
+    {
+        return RunEditor(arguments[2], arguments[3]);
+    }
+#endif
+
     if (argumentCount == 7 && arguments[1] == "--worker")
     {
         try
@@ -569,7 +1037,7 @@ int Run(int argumentCount, const std::vector<std::string>& arguments)
         }
     }
 
-    std::cerr << "Usage: InkMotionVst3Host --version | --scan <module-path> | "
+    std::cerr << "Usage: InkMotionVst3Host --version | --scan <module-path> | --editor <module-path> <class-id> | "
         "--worker <module-path> <class-id> <sample-rate> <channels> <max-block>\n";
     return 1;
 }

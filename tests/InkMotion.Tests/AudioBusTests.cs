@@ -137,6 +137,26 @@ public sealed class AudioBusTests
     }
 
     [Fact]
+    public void InsertWithUnreadableApprovalIdentityIsBypassed()
+    {
+        var source = new ConstantSampleProvider(0.25f, 48000, 2);
+        var plugin = new AudioVst3PluginProject
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ModulePath = "\0invalid",
+            ClassId = "test-effect",
+            Name = "Invalid approval identity",
+            Enabled = true,
+        };
+        using var chain = new Vst3InsertChainSampleProvider(source, [plugin]);
+        var samples = new float[16];
+
+        Assert.Contains("approval could not be checked", chain.FailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(samples.Length, chain.Read(samples, 0, samples.Length));
+        Assert.All(samples, sample => Assert.Equal(0.25f, sample));
+    }
+
+    [Fact]
     public void ValidationRejectsInvalidBusesAndRoutes()
     {
         var bus = new AudioBusProject();

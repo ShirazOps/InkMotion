@@ -30,6 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly Stack<EditorProject> _undoHistory = [];
     private readonly Stack<EditorProject> _redoHistory = [];
     private readonly List<AudioTrackRuntime> _audioTracks = [];
+    private readonly Dictionary<AudioVst3PluginProject, Vst3PluginEditor> _vst3Editors = [];
     private readonly AudioPreviewBus _audioPreviewBus = new();
     private AudioChannelLayout _audioMixLayout = AudioChannelLayout.Stereo;
     private readonly DispatcherQueueTimer _playbackTimer;
@@ -837,6 +838,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ApplyAudioTrackEdit(track, edit, successMessage, failureMessage);
+    }
+
+    private void ApplyAudioTrackEdit(
+        AudioTrackRuntime track,
+        Func<AudioTrackRuntime, bool> edit,
+        string successMessage,
+        string failureMessage)
+    {
         PausePlayback();
         FinishActiveEdit();
         BeginEdit();
@@ -2488,6 +2498,7 @@ public sealed partial class MainWindow : Window
     {
         ClearAudioMasterAnalysis();
         PausePlayback();
+        DisposeVst3Editors();
         _isRestoringProject = true;
         _frames.Clear();
         _frames.AddRange(project.Frames.Select(CloneFrame));
@@ -2858,6 +2869,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        DisposeVst3Editors();
         CloseQuickStartGuide();
         _inkTrackingCancellation?.Cancel();
         StopAudioRecordingForClose();
