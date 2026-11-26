@@ -1192,12 +1192,13 @@ public sealed partial class MainWindow
             _compositionBaseFormat = format;
         }
 
-        double seconds = _playheadFramePosition / _frameRate;
+        double seconds = _characterRigPreviewSeconds ?? _playheadFramePosition / _frameRate;
         var project = new EditorProject
         {
             FrameRate = _frameRate,
             VideoTracks = _videoTracks,
-            InkLayers = _inkLayers,
+            InkLayers = _characterRigPreview?.InkLayers ?? _inkLayers,
+            CharacterRig = _characterRigPreview?.CharacterRig ?? _characterRig,
             CompositeGraph = _compositeGraph,
             Frames = _frames,
         };

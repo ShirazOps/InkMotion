@@ -7,6 +7,11 @@ public sealed partial class MainWindow
 {
     private bool EnsureInkLayerEditable()
     {
+        if (_characterRig is { Enabled: true } && CurrentInkLayer.RigBinding is not null)
+        {
+            StatusText.Text = "Turn animated rig preview off in Character rig before editing the original drawing; re-enable it to review poses.";
+            return false;
+        }
         if (CurrentInkLayer.ObjectTracking is { Enabled: true })
         {
             StatusText.Text = "Turn off Follow object before editing the original layer drawing; re-enable it to review the attached motion.";

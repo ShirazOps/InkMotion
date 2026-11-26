@@ -220,6 +220,10 @@ public static class InkEditing
 
         InkLayerProject source = layers[index];
         InkLayerProject target = layers[index - 1];
+        if (source.RigBinding is not null || target.RigBinding is not null)
+        {
+            throw new InvalidOperationException("Unbind both layers from the character rig before merging their drawings.");
+        }
         if (frames.SelectMany(frame => ExportPlanning.GetLayerStrokes(frame, source.Id))
             .Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur))
         {
@@ -330,6 +334,7 @@ public static class InkEditing
         IsHoldout = layer.IsHoldout,
         AutoMatte = layer.AutoMatte is null ? null : InkAutoMattes.Clone(layer.AutoMatte),
         ObjectTracking = layer.ObjectTracking is null ? null : InkObjectMotion.Clone(layer.ObjectTracking),
+        RigBinding = layer.RigBinding is null ? null : InkCharacterRigs.Clone(layer.RigBinding),
     };
 
     public static EditorFrame Clone(EditorFrame frame) => Clone(frame, preserveDrawingLink: false);

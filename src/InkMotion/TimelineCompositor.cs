@@ -488,7 +488,7 @@ public static partial class TimelineCompositor
         {
             if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
                 !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) continue;
-            IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+            IReadOnlyList<List<InkPoint>> strokes = InkCharacterRigs.Strokes(project, frameIndex, layer, seconds, width, height);
             InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
                 DrawInkStrokes(drawing, strokes,
                     point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
@@ -776,7 +776,7 @@ public static partial class TimelineCompositor
         float sizeScale,
         double seconds)
     {
-        IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+        IReadOnlyList<List<InkPoint>> strokes = InkCharacterRigs.Strokes(project, frameIndex, layer, seconds, width, height);
         InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
             DrawInkStrokes(drawing, strokes,
                 point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
@@ -843,7 +843,7 @@ public static partial class TimelineCompositor
         if (layer.IsHoldout) InkAutoMattes.Draw(session, layer.AutoMatte, project.VideoTracks, seconds, width, height, tint);
         if (!InkObjectMotion.IsVisible(layer.ObjectTracking, seconds) ||
             !InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, project.VideoTracks)) return;
-        IReadOnlyList<List<InkPoint>> strokes = InkObjectMotion.Strokes(project.Frames, frameIndex, layer, project.FrameRate);
+        IReadOnlyList<List<InkPoint>> strokes = InkCharacterRigs.Strokes(project, frameIndex, layer, seconds, width, height);
         InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
             DrawInkStrokes(drawing, strokes,
                 point => Color.FromArgb((byte)(tint.A * (point.BrushColour >> 24) / 255), tint.R, tint.G, tint.B),

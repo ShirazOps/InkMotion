@@ -25,6 +25,7 @@ public static class CompoundTimelines
             AudioMixLayout = project.AudioMixLayout,
             AudioBuses = project.AudioBuses.Select(AudioBuses.Clone).ToList(),
             InkLayers = project.InkLayers.Select(InkEditing.CloneLayer).ToList(),
+            CharacterRig = project.CharacterRig is null ? null : InkCharacterRigs.Clone(project.CharacterRig),
             ActiveInkLayerId = project.ActiveInkLayerId,
             CompositeGraph = project.CompositeGraph is null ? null : InkCompositeGraphs.Clone(project.CompositeGraph),
             SelectedFrameIndex = project.SelectedFrameIndex,

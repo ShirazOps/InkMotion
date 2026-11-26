@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 87;
+    public const int CurrentVersion = 88;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -28,6 +28,7 @@ public sealed class EditorProject
     /// <summary>Submix buses; tracks routed to none of them feed the master mix directly.</summary>
     public List<AudioBusProject> AudioBuses { get; set; } = [];
     public List<InkLayerProject> InkLayers { get; set; } = [new()];
+    public InkCharacterRig? CharacterRig { get; set; }
     public string ActiveInkLayerId { get; set; } = "ink-1";
     /// <summary>Optional node graph that replaces the layer stack while enabled; null in older projects.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -69,6 +70,7 @@ public sealed class InkLayerProject
     /// <summary>Holdout layers only: an automatically generated occlusion matte drawn with the painted one.</summary>
     public InkAutoMatte? AutoMatte { get; set; }
     public InkObjectTracking? ObjectTracking { get; set; }
+    public InkRigBinding? RigBinding { get; set; }
 }
 
 public sealed class AudioTrackProject
@@ -734,6 +736,10 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 87)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1287,6 +1293,10 @@ internal static class EditorProjectValidation
         if (InkCompositeGraphs.Validate(project.CompositeGraph) is string graphError)
         {
             throw new InvalidDataException(graphError);
+        }
+        if (InkCharacterRigs.Validate(project.CharacterRig, project.InkLayers) is string rigError)
+        {
+            throw new InvalidDataException(rigError);
         }
 
         if (project.Frames is null || project.Frames.Count == 0)

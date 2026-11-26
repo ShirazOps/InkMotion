@@ -2203,7 +2203,9 @@ public sealed partial class MainWindow : Window
 
                 InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
                     TimelineCompositor.DrawInkStrokes(drawing,
-                        InkObjectMotion.Strokes(_frames, guide.FrameIndex, layer, _frameRate),
+                        InkCharacterRigs.Strokes(new EditorProject { Frames = _frames, FrameRate = _frameRate,
+                            CharacterRig = _characterRig }, guide.FrameIndex, layer,
+                            InkTimeline.GetStartFramePosition(_frames, guide.FrameIndex) / _frameRate, width, height),
                         point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
                             layer.Opacity * guide.Opacity), width, height, 1));
             }
@@ -2233,6 +2235,7 @@ public sealed partial class MainWindow : Window
         DrawSelectedInkText(args.DrawingSession, width, height);
         DrawInkRulers(args.DrawingSession, width, height);
         DrawInkTrackingBox(args.DrawingSession, width, height);
+        DrawCharacterBones(args.DrawingSession, width, height);
     }
 
     private static Windows.UI.Color ToColour(uint argb) => TimelineCompositor.ToColour(argb);
@@ -2514,6 +2517,7 @@ public sealed partial class MainWindow : Window
             AudioMixLayout = _audioMixLayout,
             AudioBuses = _audioBuses.Select(AudioBuses.Clone).ToList(),
             InkLayers = _inkLayers.Select(CloneInkLayer).ToList(),
+            CharacterRig = _characterRig is null ? null : InkCharacterRigs.Clone(_characterRig),
             ActiveInkLayerId = _activeInkLayerId,
             CompositeGraph = _compositeGraph is null ? null : InkCompositeGraphs.Clone(_compositeGraph),
             SelectedFrameIndex = _selectedFrameIndex,
@@ -2552,6 +2556,7 @@ public sealed partial class MainWindow : Window
         _inkLayers.Clear();
         _inkLayers.AddRange(project.InkLayers.Select(CloneInkLayer));
         _activeInkLayerId = project.ActiveInkLayerId;
+        _characterRig = project.CharacterRig is null ? null : InkCharacterRigs.Clone(project.CharacterRig);
         _compositeGraph = project.CompositeGraph is null ? null : InkCompositeGraphs.Clone(project.CompositeGraph);
         _selectedFrameIndex = project.SelectedFrameIndex;
         _frameRate = project.FrameRate;
