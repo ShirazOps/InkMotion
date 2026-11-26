@@ -57,7 +57,7 @@ public static class OnDeviceModels
         "mobilesam-encoder.onnx",
         "Apache-2.0 (MobileSAM code and weights, ChaoningZhang/MobileSAM).",
         "https://github.com/ChaoningZhang/MobileSAM",
-        "Summarises each video frame for automatic occlusion mattes.",
+        "Summarises video frames and still images for automatic mattes and image cut-outs.",
         null, null, 300L * 1024 * 1024);
 
     public static readonly OnDeviceModelDescriptor SegmentationDecoder = new(
@@ -66,7 +66,7 @@ public static class OnDeviceModels
         "mobilesam-decoder.onnx",
         "Apache-2.0 (MobileSAM code and weights, ChaoningZhang/MobileSAM).",
         "https://github.com/ChaoningZhang/MobileSAM",
-        "Turns a box around a foreground object into an occlusion matte.",
+        "Turns a box around a foreground object into an occlusion matte or transparent image mask.",
         null, null, 100L * 1024 * 1024);
 
     public static IReadOnlyList<OnDeviceModelDescriptor> All { get; } =

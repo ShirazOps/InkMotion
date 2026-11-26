@@ -35,12 +35,14 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Add video clip…" Click="AddVideoClip_Click" />
                         <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
+                        <MenuFlyoutItem Text="AI cut-out image…" Click="CutOutImage_Click" />
                         <MenuFlyoutItem Text="Add title" Click="AddTitleClip_Click" />
                         <MenuFlyoutItem Text="Add subtitle…" Click="AddSubtitleClip_Click" />
                         <MenuFlyoutItem Text="Import subtitles (SRT)…" Click="ImportSubtitles_Click" />
                         <MenuFlyoutItem Text="Export subtitles (SRT)…" Click="ExportSubtitles_Click" />
                         <MenuFlyoutItem Text="Generate subtitles from speech…" Click="GenerateSpeechSubtitles_Click" />
                         <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
+                        <MenuFlyoutItem Text="Generate character voice…" Click="GenerateCharacterVoice_Click" />
                         <MenuFlyoutItem Text="Screen recorder…" Click="ScreenRecorder_Click" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Export…" Tag="Export" Click="Workspace_Click">
