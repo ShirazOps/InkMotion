@@ -8,6 +8,7 @@ public enum TimelineTrackKind
     Image,
     Text,
     Subtitle,
+    Compound,
 }
 
 public sealed class VideoMulticamGroup
@@ -158,6 +159,10 @@ public sealed class TimelineClipProject
     public string Id { get; set; } = VideoTimelineEditing.NewClipId();
     public int StartFrame { get; set; } = 1;
     public string? SourcePath { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NestedName { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EditorProject? NestedProject { get; set; }
     public string? ProxyPath { get; set; }
     public bool UseProxy { get; set; }
     public long? ProxySourceLength { get; set; }
@@ -275,6 +280,7 @@ public static class VideoTimelineEditing
         TimelineTrackKind.Image => "Image",
         TimelineTrackKind.Text => "Title",
         TimelineTrackKind.Subtitle => "Subtitle",
+        TimelineTrackKind.Compound => "Compound",
         _ => kind.ToString(),
     };
 
@@ -456,6 +462,12 @@ public static class VideoTimelineEditing
             return false;
         }
 
+        if (track.Kind == TimelineTrackKind.Compound &&
+            clip.DurationSeconds - offset < 1 / frameRate - Tolerance)
+        {
+            return false;
+        }
+
         if (track.Kind == TimelineTrackKind.Video)
         {
             double sourceOffset = VideoSpeedRamp.GetSourceElapsed(clip, offset);
@@ -474,6 +486,10 @@ public static class VideoTimelineEditing
         else
         {
             clip.DurationSeconds -= offset;
+            if (track.Kind == TimelineTrackKind.Compound)
+            {
+                clip.SourceInSeconds += offset;
+            }
         }
 
         VideoTransformKeyframes.TrimStart(clip, (int)Math.Round(offset * frameRate));
@@ -503,6 +519,11 @@ public static class VideoTimelineEditing
     public static bool TryTrimEnd(TimelineTrackProject track, TimelineClipProject clip, int playheadFrame, double frameRate)
     {
         if (!TryGetOffset(track, clip, playheadFrame, frameRate, out double offset))
+        {
+            return false;
+        }
+
+        if (track.Kind == TimelineTrackKind.Compound && offset < 1 / frameRate - Tolerance)
         {
             return false;
         }
@@ -556,6 +577,13 @@ public static class VideoTimelineEditing
             return null;
         }
 
+        if (track.Kind == TimelineTrackKind.Compound &&
+            (offset < 1 / frameRate - Tolerance ||
+             clip.DurationSeconds - offset < 1 / frameRate - Tolerance))
+        {
+            return null;
+        }
+
         TimelineClipProject right = Clone(clip);
         right.Id = NewClipId();
         right.StartFrame = playheadFrame;
@@ -602,6 +630,10 @@ public static class VideoTimelineEditing
         {
             right.DurationSeconds = clip.DurationSeconds - offset;
             clip.DurationSeconds = offset;
+            if (track.Kind == TimelineTrackKind.Compound)
+            {
+                right.SourceInSeconds += offset;
+            }
         }
 
         clip.FadeOutSeconds = 0;
@@ -967,7 +999,13 @@ public static class VideoTimelineEditing
         ArgumentNullException.ThrowIfNull(track);
         ArgumentNullException.ThrowIfNull(clip);
         if (track.IsLocked || track.Kind == TimelineTrackKind.Video ||
-            !double.IsFinite(seconds) || seconds <= 0 || seconds > MaximumStillDurationSeconds ||
+            !double.IsFinite(seconds) || seconds <= 0 ||
+            seconds > (track.Kind == TimelineTrackKind.Compound
+                ? CompoundTimelines.MaximumDurationSeconds
+                : MaximumStillDurationSeconds) ||
+            (track.Kind == TimelineTrackKind.Compound &&
+                (seconds < 1 / frameRate - Tolerance ||
+                 clip.SourceInSeconds + seconds > clip.SourceDurationSeconds + Tolerance)) ||
             !IsRangeFree(track, GetStartSeconds(clip, frameRate), seconds, frameRate, clip))
         {
             return false;
@@ -1090,6 +1128,8 @@ public static class VideoTimelineEditing
         Id = clip.Id,
         StartFrame = clip.StartFrame,
         SourcePath = clip.SourcePath,
+        NestedName = clip.NestedName,
+        NestedProject = clip.NestedProject is null ? null : CompoundTimelines.Clone(clip.NestedProject),
         ProxyPath = clip.ProxyPath,
         UseProxy = clip.UseProxy,
         ProxySourceLength = clip.ProxySourceLength,
@@ -1212,10 +1252,11 @@ public static class VideoTimelineEditing
                     return $"A clip on {track.Name} has invalid timing, source, or styling.";
                 }
 
-                if (track.Kind == TimelineTrackKind.Video && clip.SourceDurationSeconds > 0 &&
+                if (track.Kind is TimelineTrackKind.Video or TimelineTrackKind.Compound &&
+                    clip.SourceDurationSeconds > 0 &&
                     GetDurationSeconds(clip, track.Kind) < (1 / frameRate) - Tolerance)
                 {
-                    return $"A video clip on {track.Name} must span at least one project frame.";
+                    return $"A video or compound clip on {track.Name} must span at least one project frame.";
                 }
 
                 if (VideoTransformKeyframes.Validate(clip, track.Kind, frameRate) is string keyframeError)
@@ -1362,6 +1403,11 @@ public static class VideoTimelineEditing
 
     private static bool IsValidClip(TimelineClipProject clip, TimelineTrackKind kind)
     {
+        if (kind != TimelineTrackKind.Compound && (clip.NestedName is not null || clip.NestedProject is not null))
+        {
+            return false;
+        }
+
         bool common = clip.StartFrame >= 1 &&
             IsUnit(clip.Opacity) &&
             IsFiniteNonNegative(clip.FadeInSeconds) &&
@@ -1413,6 +1459,24 @@ public static class VideoTimelineEditing
                     double.IsFinite(clip.FontSize) &&
                     clip.FontSize is >= MinimumFontSize and <= MaximumFontSize &&
                     (clip.ObjectTracking is null || InkObjectMotion.IsValid(clip.ObjectTracking));
+            case TimelineTrackKind.Compound:
+                return clip.NestedProject is not null &&
+                    !string.IsNullOrWhiteSpace(clip.NestedName) && clip.NestedName.Length <= 64 &&
+                    clip.SourcePath is null && clip.ProxyPath is null && !clip.UseProxy &&
+                    clip.ObjectTracking is null && clip.SourceOutSeconds is null &&
+                    double.IsFinite(clip.SourceInSeconds) && clip.SourceInSeconds >= 0 &&
+                    double.IsFinite(clip.SourceDurationSeconds) &&
+                    clip.SourceDurationSeconds is > 0 and <= CompoundTimelines.MaximumDurationSeconds &&
+                    double.IsFinite(clip.DurationSeconds) && clip.DurationSeconds > 0 &&
+                    clip.SourceInSeconds + clip.DurationSeconds <= clip.SourceDurationSeconds + Tolerance &&
+                    IsUnit(clip.Volume) &&
+                    clip.PlaybackSpeed == 1 && !clip.IsReversed && clip.SpeedRamp is { Count: 0 } &&
+                    clip.TransitionInSeconds == 0 &&
+                    clip.X == 0.5 && clip.Y == 0.5 && clip.Scale == 1 &&
+                    clip.RotationDegrees == 0 && !clip.FlipHorizontal && !clip.FlipVertical &&
+                    VideoColourGrading.IsNeutral(clip) && string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
+                    !clip.ChromaKeyEnabled && clip.BlurAmount == 0 && clip.SharpenAmount == 0 &&
+                    clip.VignetteAmount == 0;
             default:
                 return clip.ObjectTracking is null;
         }

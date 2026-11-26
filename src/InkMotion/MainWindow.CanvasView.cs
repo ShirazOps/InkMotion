@@ -53,6 +53,11 @@ public sealed partial class MainWindow
 
     private void ApplyProjectColour_Click(object sender, RoutedEventArgs e)
     {
+        if (_compoundContexts.Count > 0)
+        {
+            StatusText.Text = "Compound timelines inherit colour settings from the parent project.";
+            return;
+        }
         string? tag = (ProjectColourSpaceSelector.SelectedItem as ComboBoxItem)?.Tag as string;
         ProjectColourSettings? colour = null;
         if (tag is not (null or "Sdr"))
@@ -74,6 +79,12 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         BeginEdit();
         _projectColour = colour;
+        foreach (EditorProject nested in _videoTracks.SelectMany(track => track.Clips)
+            .Select(clip => clip.NestedProject).OfType<EditorProject>()
+            .SelectMany(CompoundTimelines.Projects))
+        {
+            nested.Colour = colour;
+        }
         MarkEditChanged();
         FinishActiveEdit();
         UpdateProjectColourControls();

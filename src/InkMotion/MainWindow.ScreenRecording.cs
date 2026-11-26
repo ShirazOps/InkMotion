@@ -12,6 +12,11 @@ public sealed partial class MainWindow
 
     private void ScreenRecorder_Click(object sender, RoutedEventArgs e)
     {
+        if (_compoundContexts.Count > 0 || _switchingCompound)
+        {
+            StatusText.Text = "Return to the main timeline before opening screen recording.";
+            return;
+        }
         if (IsAudioRecordingInProgress)
         {
             StatusText.Text = "Stop the current audio take before opening screen recording.";
@@ -29,13 +34,14 @@ public sealed partial class MainWindow
     private bool IsRecordingSourceInUse(string directory)
     {
         string prefix = Path.GetFullPath(directory) + Path.DirectorySeparatorChar;
-        return _videoTracks.SelectMany(track => track.Clips).Select(clip => clip.SourcePath)
-            .Concat(_audioTracks.Select(track => track.Project.AudioPath))
-            .Any(path => path is not null && Path.GetFullPath(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return CompoundTimelines.ReferencedPaths(CreateProjectSnapshot())
+            .Any(path => Path.GetFullPath(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task OpenScreenRecordingAsync(string path)
     {
+        if (_compoundContexts.Count > 0 || _switchingCompound)
+            throw new InvalidOperationException("Return to the main timeline before opening a recording.");
         if (IsAudioRecordingInProgress)
             throw new InvalidOperationException("Stop the audio take before opening a recording project.");
         if (UnsavedIndicator.Visibility == Visibility.Visible)

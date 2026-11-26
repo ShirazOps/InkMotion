@@ -288,6 +288,7 @@ public static class VideoExporter
     internal sealed class FrameRenderer : IDisposable
     {
         private readonly CanvasDevice _device;
+        private readonly VideoExportRequest _request;
         private readonly EditorProject _project;
         private readonly VideoExportProfile _profile;
         private readonly List<string> _warnings;
@@ -300,6 +301,7 @@ public static class VideoExporter
         private readonly bool _hasInk;
         private readonly Dictionary<string, CanvasBitmap?> _images = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TimelineVideoFrameSource?> _videos = [];
+        private readonly Dictionary<string, FrameRenderer> _compounds = [];
         private readonly Dictionary<string, VideoColourGradingEffect> _colourGradingEffects = [];
         private readonly Dictionary<string, VideoChromaKeyEffect> _chromaKeyEffects = [];
         private readonly Dictionary<string, VideoBlurCanvasEffect> _blurEffects = [];
@@ -308,16 +310,21 @@ public static class VideoExporter
         private readonly HashSet<string> _missingProxyWarnings = new(StringComparer.Ordinal);
         private readonly ProjectColourSettings? _hdr;
         private readonly string? _ffmpegPath;
+        private readonly bool _previewSdr;
+        private CanvasRenderTarget? _lastComposite;
 
         /// <summary>True when <see cref="Render"/> returns HDR rgb48le frames instead of BGRA.</summary>
-        public bool IsHdr => _hdr is not null;
+        public bool IsHdr => _hdr is not null && !_previewSdr;
 
-        public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings, bool inkOnly = false)
+        public FrameRenderer(CanvasDevice device, VideoExportRequest request, List<string> warnings,
+            bool inkOnly = false, bool previewSdr = false, string? previewFfmpegPath = null)
         {
             _device = device;
+            _request = request;
             _project = request.Project;
             _profile = request.Profile;
             _warnings = warnings;
+            _previewSdr = previewSdr;
             foreach (InkLayerProject layer in _project.InkLayers.Where(layer => layer.IsVisible))
             {
                 if (!InkObjectMotion.IsSourceCurrent(layer.ObjectTracking, _project.VideoTracks))
@@ -354,8 +361,8 @@ public static class VideoExporter
             _canvasWidth = (float)_outputCanvasRect.Width;
             _canvasHeight = (float)_outputCanvasRect.Height;
             _hdr = inkOnly ? null : _project.Colour;
-            _ffmpegPath = request.FFmpeg?.ExecutablePath;
-            DirectXPixelFormat format = _hdr is null
+            _ffmpegPath = previewFfmpegPath ?? request.FFmpeg?.ExecutablePath;
+            DirectXPixelFormat format = _hdr is null || _previewSdr
                 ? DirectXPixelFormat.B8G8R8A8UIntNormalized
                 : DirectXPixelFormat.R16G16B16A16Float;
             _target = new CanvasRenderTarget(device,
@@ -400,9 +407,19 @@ public static class VideoExporter
             }
         }
 
-        public byte[] Render(int frame)
+        public byte[] Render(int frame) => Encode(RenderSurface(frame / _profile.FrameRate, transparent: false));
+
+        internal CanvasRenderTarget RenderSurface(double seconds, bool transparent)
         {
-            double seconds = frame / _profile.FrameRate;
+            if (!double.IsFinite(seconds) || seconds < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(seconds));
+            }
+
+            _lastComposite?.Dispose();
+            _lastComposite = null;
+            int projectFrame = (int)Math.Floor(seconds * _project.FrameRate + 1e-9);
+            int inkFrame = ExportPlanning.GetInkFrameIndex(_project, projectFrame);
             float width = _canvasWidth;
             float height = _canvasHeight;
             bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(_project);
@@ -412,9 +429,16 @@ public static class VideoExporter
                 _project.FrameRate,
                 _project.VideoMulticamGroups);
             ReleaseFinishedVideos(layers);
+            var activeCompounds = layers.Where(layer => layer.Track.Kind == TimelineTrackKind.Compound)
+                .Select(layer => layer.Clip.Id).ToHashSet(StringComparer.Ordinal);
+            foreach (string clipId in _compounds.Keys.Where(id => !activeCompounds.Contains(id)).ToArray())
+            {
+                _compounds[clipId].Dispose();
+                _compounds.Remove(clipId);
+            }
             using (CanvasDrawingSession session = _target.CreateDrawingSession())
             {
-                session.Clear(Microsoft.UI.Colors.Black);
+                session.Clear(transparent ? Microsoft.UI.Colors.Transparent : Microsoft.UI.Colors.Black);
                 foreach (TimelineClipLocation layer in layers)
                 {
                     float opacity = (float)VideoTimelineEditing.GetOpacity(layer, seconds, _project.FrameRate);
@@ -427,6 +451,9 @@ public static class VideoExporter
                     {
                         case TimelineTrackKind.Video:
                             DrawVideo(session, layer.Clip, seconds, width, height, opacity);
+                            break;
+                        case TimelineTrackKind.Compound:
+                            DrawCompound(session, layer.Clip, seconds, width, height, opacity);
                             break;
                         case TimelineTrackKind.Image when GetImage(layer.Clip.SourcePath) is CanvasBitmap image:
                             VideoTransformValue imageTransform = VideoTransformKeyframes.GetValueAtTime(
@@ -469,7 +496,7 @@ public static class VideoExporter
                     TimelineCompositor.DrawInkFrame(
                         session,
                         _project,
-                        ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
+                        inkFrame,
                         width,
                         height,
                         _inkScale,
@@ -479,18 +506,39 @@ public static class VideoExporter
 
             if (!_hasInk || !hasBlendModes)
             {
-                return Encode(FitOutput(_target, transparent: false));
+                return FitOutput(_target, transparent);
             }
 
-            using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+            _lastComposite = TimelineCompositor.CompositeInkFrame(
                 _device, _target, (float)_target.Size.Width, (float)_target.Size.Height, _project,
-                ExportPlanning.GetInkFrameIndex(_project, frame, _profile.FrameRate),
+                inkFrame,
                 width, height, _inkScale, seconds);
-            return Encode(FitOutput(composite, transparent: false));
+            return FitOutput(_lastComposite, transparent);
+        }
+
+        private void DrawCompound(CanvasDrawingSession session, TimelineClipProject clip, double seconds,
+            float width, float height, float opacity)
+        {
+            if (!_compounds.TryGetValue(clip.Id, out FrameRenderer? renderer))
+            {
+                EditorProject nested = clip.NestedProject ??
+                    throw new InvalidDataException("A compound clip is missing its nested timeline.");
+                var profile = new VideoExportProfile(ExportResolution.Custom,
+                    (int)Math.Ceiling(width), (int)Math.Ceiling(height), _profile.FrameRate);
+                renderer = new FrameRenderer(_device, _request with { Project = nested, Profile = profile },
+                    _warnings, previewSdr: _previewSdr, previewFfmpegPath: _ffmpegPath);
+                _compounds.Add(clip.Id, renderer);
+            }
+
+            double nestedSeconds = clip.SourceInSeconds +
+                seconds - VideoTimelineEditing.GetStartSeconds(clip, _project.FrameRate);
+            CanvasRenderTarget image = renderer.RenderSurface(Math.Max(0, nestedSeconds), transparent: true);
+            session.DrawImage(image, new Rect(0, 0, width, height),
+                new Rect(0, 0, image.Size.Width, image.Size.Height), opacity);
         }
 
         private byte[] Encode(CanvasRenderTarget output) =>
-            _hdr is null ? output.GetPixelBytes() : HdrColour.EncodeWorkingFrame(output.GetPixelBytes(), _hdr);
+            IsHdr ? HdrColour.EncodeWorkingFrame(output.GetPixelBytes(), _hdr!) : output.GetPixelBytes();
 
         private CanvasRenderTarget FitOutput(CanvasRenderTarget canvas, bool transparent)
         {
@@ -507,6 +555,11 @@ public static class VideoExporter
 
         public void Dispose()
         {
+            foreach (FrameRenderer compound in _compounds.Values)
+            {
+                compound.Dispose();
+            }
+
             foreach (TimelineVideoFrameSource? video in _videos.Values)
             {
                 video?.Dispose();
@@ -544,6 +597,7 @@ public static class VideoExporter
 
             _target.Dispose();
             _outputTarget?.Dispose();
+            _lastComposite?.Dispose();
         }
 
         private void DrawVideo(CanvasDrawingSession session, TimelineClipProject clip, double seconds, float width, float height, float opacity)
@@ -687,7 +741,7 @@ public static class VideoExporter
             {
                 HdrDecodeOptions? hdr = _hdr is null
                     ? null
-                    : HdrVideoProbe.GetDecodeOptions(_hdr, _ffmpegPath, path, workingFloat: true);
+                    : HdrVideoProbe.GetDecodeOptions(_hdr, _ffmpegPath, path, workingFloat: !_previewSdr);
                 var source = new TimelineVideoFrameSource(path, hdr);
                 if (hdr is not null && clip.RollingShutterProfile is { Count: > 1 })
                     _warnings.Add($"Rolling-shutter correction is not applied to HDR source {Path.GetFileName(path)}.");

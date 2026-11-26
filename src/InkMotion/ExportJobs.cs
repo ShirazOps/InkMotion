@@ -118,14 +118,18 @@ public sealed class ExportJobStore
 
         outputPath = Path.GetFullPath(outputPath);
         EditorProject snapshot = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
-        foreach (AudioTrackProject track in snapshot.AudioTracks.Where(track => !string.IsNullOrWhiteSpace(track.AudioPath)))
+        foreach (EditorProject nested in CompoundTimelines.Projects(snapshot))
         {
-            track.AudioPath = Path.GetFullPath(track.AudioPath!);
-        }
-        foreach (TimelineClipProject clip in snapshot.VideoTracks.SelectMany(track => track.Clips)
-            .Where(clip => !string.IsNullOrWhiteSpace(clip.SourcePath)))
-        {
-            clip.SourcePath = Path.GetFullPath(clip.SourcePath!);
+            foreach (AudioTrackProject track in nested.AudioTracks.Where(track => !string.IsNullOrWhiteSpace(track.AudioPath)))
+            {
+                track.AudioPath = Path.GetFullPath(track.AudioPath!);
+            }
+            foreach (TimelineClipProject clip in nested.VideoTracks.SelectMany(track => track.Clips))
+            {
+                if (!string.IsNullOrWhiteSpace(clip.SourcePath)) clip.SourcePath = Path.GetFullPath(clip.SourcePath);
+                if (!string.IsNullOrWhiteSpace(clip.ProxyPath)) clip.ProxyPath = Path.GetFullPath(clip.ProxyPath);
+                if (!string.IsNullOrWhiteSpace(clip.ColourLutPath)) clip.ColourLutPath = Path.GetFullPath(clip.ColourLutPath);
+            }
         }
         ExportPlanning.ValidateOutputPath(snapshot, outputPath);
         audio?.Validate();

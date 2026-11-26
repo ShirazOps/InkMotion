@@ -236,6 +236,11 @@ public sealed partial class MainWindow : Window
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        if (_compoundContexts.Count > 0 || _switchingCompound)
+        {
+            StatusText.Text = "Return to the main timeline before opening another project.";
+            return;
+        }
         if (IsAudioRecordingInProgress || _screenRecorderWindow?.IsRecording == true)
         {
             StatusText.Text = "Stop recording before opening another project.";
@@ -282,6 +287,11 @@ public sealed partial class MainWindow : Window
 
     private async void SaveProject_Click(object sender, RoutedEventArgs e)
     {
+        if (_compoundContexts.Count > 0 || _switchingCompound)
+        {
+            StatusText.Text = "Return to the main timeline before saving the project.";
+            return;
+        }
         PausePlayback();
         FinishActiveEdit();
         StorageFile? file = _projectFile;
@@ -378,6 +388,13 @@ public sealed partial class MainWindow : Window
     private void ShowWorkspace(string workspace)
     {
         if (InkSurface is not null && workspace != "Ink") CancelInkTrackingSelection();
+        if (_workspace != workspace)
+        {
+            VideoActionBar.IsOpen = false;
+            AudioActionBar.IsOpen = false;
+            InkActionBar.IsOpen = false;
+            ExportActionBar.IsOpen = false;
+        }
         if (_titleGesture is not null)
         {
             FinishActiveEdit();
@@ -1535,8 +1552,13 @@ public sealed partial class MainWindow : Window
         exception is IOException or UnauthorizedAccessException or
             ArgumentException or System.Runtime.InteropServices.COMException;
 
-    private void Play_Click(object sender, RoutedEventArgs e)
+    private async void Play_Click(object sender, RoutedEventArgs e)
     {
+        if (_compoundPreparation is not null)
+        {
+            _compoundPreparation.Cancel();
+            return;
+        }
         if (!HasTimelineClips && !HasLoadedAudio && _frames.Count == 1 &&
             _frames.All(frame => frame.ExposureFrames == 1 && frame.Strokes.Count == 0 &&
                 frame.LayerStrokes.Values.All(strokes => strokes.Count == 0) && frame.TextOverlays.Count == 0))
@@ -1551,32 +1573,43 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            FinishActiveEdit();
-            double end = GetPlaybackEndSeconds();
-            if (end > 0 && _timelinePosition.TotalSeconds >= end - (0.5 / _frameRate))
-            {
-                _timelinePosition = TimeSpan.Zero;
-                SelectFrame(0, seekVideo: false);
-            }
-
-            try
-            {
-                _audioPreviewBus.Play();
-            }
-            catch (Exception ex) when (ex is NAudio.MmException or InvalidOperationException or IOException)
-            {
-                StatusText.Text = $"Audio preview could not start: {ex.Message}";
-            }
-
-            _isPlaying = true;
-            _timelineStartPosition = _timelinePosition;
-            _timelineClock.Restart();
-            SyncAudioTracks(_timelineStartPosition, startPlayback: true);
-            SyncVideoPreview(_timelineStartPosition.TotalSeconds, forceSeek: true);
-            _playbackTimer.Start();
-            SetPlayButtonState(isPlaying: true);
-            ObserveQuickStartAction(QuickStartAction.PlaybackStarted);
+            await StartPlaybackAsync();
         }
+    }
+
+    private async Task StartPlaybackAsync()
+    {
+        FinishActiveEdit();
+        double end = GetPlaybackEndSeconds();
+        if (end > 0 && _timelinePosition.TotalSeconds >= end - (0.5 / _frameRate))
+        {
+            _timelinePosition = TimeSpan.Zero;
+            SelectFrame(0, seekVideo: false);
+        }
+
+        if (!await PrepareCompoundPlaybackAsync(_timelinePosition) || _compoundWindowClosed)
+        {
+            return;
+        }
+        try
+        {
+            _audioPreviewBus.Play();
+        }
+        catch (Exception ex) when (ex is NAudio.MmException or InvalidOperationException or IOException)
+        {
+            DisposeCompoundPlayback();
+            StatusText.Text = $"Audio preview could not start: {ex.Message}";
+            return;
+        }
+
+        _isPlaying = true;
+        _timelineStartPosition = _timelinePosition;
+        _timelineClock.Restart();
+        SyncAudioTracks(_timelineStartPosition, startPlayback: true);
+        SyncVideoPreview(_timelineStartPosition.TotalSeconds, forceSeek: true);
+        _playbackTimer.Start();
+        SetPlayButtonState(isPlaying: true);
+        ObserveQuickStartAction(QuickStartAction.PlaybackStarted);
     }
 
     private void PreviousFrame_Click(object sender, RoutedEventArgs e)
@@ -2342,6 +2375,12 @@ public sealed partial class MainWindow : Window
     private void SeekToCurrentFrame()
     {
         TimeSpan position = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
+        if (_isPlaying && _compoundPlayback.Count > 0)
+        {
+            PausePlayback(position);
+            _ = StartPlaybackAsync();
+            return;
+        }
         _timelinePosition = position;
         if (_isPlaying)
         {
@@ -2374,7 +2413,6 @@ public sealed partial class MainWindow : Window
                         !AudioBuses.IsAudible(_audioBuses, send.BusId));
                 }
             }
-
             if (IsOriginalPreview)
             {
                 player.Pause();
@@ -2438,6 +2476,7 @@ public sealed partial class MainWindow : Window
                 }
             }
         }
+        SyncCompoundPlayback(timelinePosition, startPlayback);
     }
 
     private bool HasLoadedAudio => _audioTracks.Any(track => track.HasSource);
@@ -2596,6 +2635,11 @@ public sealed partial class MainWindow : Window
 
     private void BeginEdit()
     {
+        if (_compoundPreparation is not null ||
+            (_isPlaying && _videoTracks.Any(track => track.Kind == TimelineTrackKind.Compound)))
+        {
+            PausePlayback();
+        }
         if (_pendingEdit is null)
         {
             _pendingEdit = CreateProjectSnapshot();
@@ -2761,8 +2805,10 @@ public sealed partial class MainWindow : Window
 
     private void PausePlayback(TimeSpan? finalPosition = null)
     {
+        _compoundPreparation?.Cancel();
         if (!_isPlaying)
         {
+            DisposeCompoundPlayback();
             return;
         }
 
@@ -2772,6 +2818,7 @@ public sealed partial class MainWindow : Window
             track.Player?.Pause();
         }
         _audioPreviewBus.Pause();
+        DisposeCompoundPlayback();
 
         if (_timelineClock.IsRunning)
         {
@@ -2877,6 +2924,9 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _compoundWindowClosed = true;
+        _compoundPreparation?.Cancel();
+        DisposeCompoundPlayback();
         DisposeVst3Editors();
         CloseQuickStartGuide();
         _inkTrackingCancellation?.Cancel();

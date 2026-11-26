@@ -99,6 +99,7 @@ public sealed partial class MainWindow
     private VideoRgbHistogramData? _videoRgbHistogram;
     private long _lastVideoScopeSampleMilliseconds;
     private readonly Dictionary<string, (string Path, TimelineVideoFrameSource Source)> _previewVideoFrameSources = [];
+    private readonly Dictionary<string, CompoundPreviewRenderer> _compoundPreviewRenderers = [];
     private MediaSource? _previewMediaSource;
     private string? _previewSourcePath;
     private bool _previewReady;
@@ -151,6 +152,7 @@ public sealed partial class MainWindow
 
     private void RestoreVideoTracks(IEnumerable<TimelineTrackProject> tracks)
     {
+        DisposeCompoundPreviewRenderers();
         DisposePreviewVideoFrameSources();
         _unavailablePreviewVideoSources.Clear();
         _videoTracks.Clear();
@@ -659,10 +661,12 @@ public sealed partial class MainWindow
         _unavailableTimelineSources.Clear();
         _unavailablePreviewVideoSources.Clear();
         DisposePreviewVideoFrameSources();
-        string[] paths = _videoTracks
-            .Where(track => track.Kind is not (TimelineTrackKind.Text or TimelineTrackKind.Subtitle))
-            .SelectMany(track => track.Clips)
-            .Select(clip => clip.SourcePath)
+        var current = new EditorProject { VideoTracks = _videoTracks };
+        EditorProject[] projects = CompoundTimelines.Projects(current).ToArray();
+        string[] paths = projects.SelectMany(project => project.VideoTracks)
+            .Where(track => track.Kind is TimelineTrackKind.Video or TimelineTrackKind.Image)
+            .SelectMany(track => track.Clips).Select(clip => clip.SourcePath)
+            .Concat(projects.Skip(1).SelectMany(project => project.AudioTracks).Select(track => track.AudioPath))
             .OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -684,7 +688,7 @@ public sealed partial class MainWindow
         }
 
         var probed = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (TimelineClipProject clip in _videoTracks
+        foreach (TimelineClipProject clip in projects.SelectMany(project => project.VideoTracks)
             .Where(track => track.Kind == TimelineTrackKind.Video)
             .SelectMany(track => track.Clips)
             .Where(clip => clip.SourceDurationSeconds <= 0 && clip.SourcePath is not null))
@@ -1099,6 +1103,7 @@ public sealed partial class MainWindow
         HdrPreviewSurface.SwapChain = null;
         DisposeOverlayBitmaps();
         DisposePreviewVideoFrameSources();
+        DisposeCompoundPreviewRenderers();
         DisposeVideoScopeSampleTarget();
     }
 
@@ -1292,6 +1297,10 @@ public sealed partial class MainWindow
                         updateScopes: !requireComplete && layer.Clip.Id == scopeClipId,
                     requireComplete: requireComplete, hdrPreview: hdrPreview);
                     break;
+                case TimelineTrackKind.Compound:
+                    DrawCompoundPreview(canvas, session, layer.Clip, seconds, width, height, opacity,
+                        requireComplete, hdrPreview);
+                    break;
                 case TimelineTrackKind.Image:
                     DrawImageOverlay(canvas, session, layer.Clip, width, height, opacity, requireComplete);
                     break;
@@ -1305,6 +1314,66 @@ public sealed partial class MainWindow
             }
         }
     }
+
+    private void DrawCompoundPreview(CanvasControl canvas, CanvasDrawingSession session, TimelineClipProject clip,
+        double seconds, float width, float height, float opacity, bool requireComplete, bool hdrPreview)
+    {
+        int pixelWidth = Math.Max(1, (int)Math.Ceiling(width));
+        int pixelHeight = Math.Max(1, (int)Math.Ceiling(height));
+        try
+        {
+            if (!_compoundPreviewRenderers.TryGetValue(clip.Id, out CompoundPreviewRenderer? cached) ||
+                !ReferenceEquals(cached.Project, clip.NestedProject) || cached.Width != pixelWidth ||
+                cached.Height != pixelHeight || cached.HdrPreview != hdrPreview)
+            {
+                cached?.Renderer.Dispose();
+                EditorProject nested = clip.NestedProject ??
+                    throw new InvalidDataException("A compound clip is missing its nested timeline.");
+                var profile = new VideoExportProfile(ExportResolution.Custom, pixelWidth, pixelHeight, _frameRate);
+                var warnings = new List<string>();
+                var request = new VideoExportRequest(nested, profile, VideoExportCodec.H264, string.Empty, height);
+                cached = new CompoundPreviewRenderer(nested, pixelWidth, pixelHeight, hdrPreview, warnings,
+                    new VideoExporter.FrameRenderer(canvas.Device, request, warnings,
+                        previewSdr: !hdrPreview, previewFfmpegPath: _ffmpegCapabilities?.ExecutablePath));
+                _compoundPreviewRenderers[clip.Id] = cached;
+            }
+
+            double nestedSeconds = clip.SourceInSeconds +
+                seconds - VideoTimelineEditing.GetStartSeconds(clip, _frameRate);
+            CanvasRenderTarget image = cached.Renderer.RenderSurface(Math.Max(0, nestedSeconds), transparent: true);
+            if (cached.Warnings.Count > 0)
+            {
+                if (requireComplete)
+                {
+                    throw new InvalidOperationException(cached.Warnings[0]);
+                }
+                StatusText.Text = $"Compound preview: {cached.Warnings[0]}";
+            }
+            session.DrawImage(image, new Rect(0, 0, width, height),
+                new Rect(0, 0, image.Size.Width, image.Size.Height), opacity);
+        }
+        catch (Exception ex) when (!requireComplete &&
+            (ex is COMException or IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException))
+        {
+            if (_compoundPreviewRenderers.Remove(clip.Id, out CompoundPreviewRenderer? failed))
+            {
+                failed.Renderer.Dispose();
+            }
+            StatusText.Text = $"Could not render compound preview: {ex.Message}";
+        }
+    }
+
+    private void DisposeCompoundPreviewRenderers()
+    {
+        foreach (CompoundPreviewRenderer cached in _compoundPreviewRenderers.Values)
+        {
+            cached.Renderer.Dispose();
+        }
+        _compoundPreviewRenderers.Clear();
+    }
+
+    private sealed record CompoundPreviewRenderer(EditorProject Project, int Width, int Height, bool HdrPreview,
+        List<string> Warnings, VideoExporter.FrameRenderer Renderer);
 
     private void DrawComposedVideoClip(
         CanvasControl canvas,
@@ -1836,6 +1905,7 @@ public sealed partial class MainWindow
     {
         DisposeSourceMonitor();
         ClearPreviewSource();
+        DisposeCompoundPreviewRenderers();
         DisposePreviewVideoFrameSources();
         DisposeVideoScopeSampleTarget();
         _compositionBaseTarget?.Dispose();
@@ -1858,6 +1928,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        DisposeCompoundPreviewRenderers();
         RefreshVideoTrackHeaders();
         RefreshMarkers();
         UpdateVideoInspector();
@@ -2174,9 +2245,12 @@ public sealed partial class MainWindow
     }
 
     private static string GetClipLabel(TimelineTrackProject track, TimelineClipProject clip) =>
-        track.Kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle
-        ? clip.Text.Split('\n', 2)[0].Trim()
-        : Path.GetFileName(clip.SourcePath) ?? "Clip";
+        track.Kind switch
+        {
+            TimelineTrackKind.Text or TimelineTrackKind.Subtitle => clip.Text.Split('\n', 2)[0].Trim(),
+            TimelineTrackKind.Compound => clip.NestedName ?? "Compound",
+            _ => Path.GetFileName(clip.SourcePath) ?? "Clip",
+        };
 
     private static void CopyInteractiveEdit(TimelineClipProject source, TimelineClipProject destination)
     {
@@ -2683,7 +2757,7 @@ public sealed partial class MainWindow
 
             AddTrackToggle(header, 1, track.IsVisible ? "\uE890" : "\uED1A", track.IsVisible ? $"Hide {track.Name}" : $"Show {track.Name}", track.IsVisible ? "hidden" : "shown", trackId, item => item.IsVisible = !item.IsVisible);
             AddTrackToggle(header, 2, track.IsLocked ? "\uE72E" : "\uE785", track.IsLocked ? $"Unlock {track.Name}" : $"Lock {track.Name}", track.IsLocked ? "unlocked" : "locked", trackId, item => item.IsLocked = !item.IsLocked);
-            if (track.Kind == TimelineTrackKind.Video)
+            if (track.Kind is TimelineTrackKind.Video or TimelineTrackKind.Compound)
             {
                 AddTrackToggle(header, 3, track.IsMuted ? "\uE74F" : "\uE767", track.IsMuted ? $"Unmute {track.Name}" : $"Mute {track.Name}", track.IsMuted ? "unmuted" : "muted", trackId, item => item.IsMuted = !item.IsMuted);
             }
@@ -3030,7 +3104,7 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         if (!TryGetEditableClip(out TimelineClipLocation selected) ||
-            selected.Track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle))
+            selected.Track.Kind is not (TimelineTrackKind.Video or TimelineTrackKind.Image))
         {
             return;
         }
@@ -3131,10 +3205,25 @@ public sealed partial class MainWindow
         MoveTrackUpButton.IsEnabled = trackIndex > 0;
         MoveTrackDownButton.IsEnabled = trackIndex >= 0 && trackIndex < _videoTracks.Count - 1;
         DeleteTrackButton.IsEnabled = _videoTracks.Count > 1 && track is { IsLocked: false };
-        ToolbarClipActions.IsEnabled = SelectedTimelineClip is { Track.IsLocked: false };
+        TimelineClipLocation? selected = SelectedTimelineClip;
+        bool editableClip = selected is { Track.IsLocked: false };
+        ToolbarTrimStartButton.IsEnabled = editableClip;
+        ToolbarTrimEndButton.IsEnabled = editableClip;
+        ToolbarSplitButton.IsEnabled = editableClip;
+        ToolbarDuplicateButton.IsEnabled = editableClip;
+        ToolbarRippleDeleteButton.IsEnabled = editableClip;
+        CreateCompoundButton.IsEnabled = editableClip && !_switchingCompound;
+        bool selectedCompound = selected is { Track.Kind: TimelineTrackKind.Compound };
+        OpenCompoundButton.Visibility = selectedCompound ? Visibility.Visible : Visibility.Collapsed;
+        OpenCompoundButton.IsEnabled = selectedCompound && editableClip && !_switchingCompound;
 
-        if (SelectedTimelineClip is not TimelineClipLocation location)
+        if (selected is not TimelineClipLocation location)
         {
+            CreateMulticamGroupButton.IsEnabled = false;
+            SwitchMulticamAngleButton.IsEnabled = false;
+            GenerateVideoProxyButton.IsEnabled = false;
+            GenerateOpticalFlowProxyButton.IsEnabled = false;
+            ToggleVideoProxyButton.IsEnabled = false;
             SelectedClipLabel.Text = "No clip selected. Click a clip on the timeline.";
             ClipActionsGrid.Visibility = Visibility.Collapsed;
             ClipPropertiesPanel.Visibility = Visibility.Collapsed;
@@ -3156,6 +3245,7 @@ public sealed partial class MainWindow
         ClipPropertiesPanel.Opacity = location.Track.IsLocked ? 0.5 : 1;
 
         bool isVideo = kind == TimelineTrackKind.Video;
+        bool isCompound = kind == TimelineTrackKind.Compound;
         bool isImage = kind == TimelineTrackKind.Image;
         bool isTitle = kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle;
         bool supportsTransform = isVideo || isImage || isTitle;
@@ -3200,13 +3290,13 @@ public sealed partial class MainWindow
         CrossDissolveDurationBox.Value = clip.TransitionInSeconds > 0 ? clip.TransitionInSeconds : 1;
         VideoSourceInBox.Value = clip.SourceInSeconds;
         VideoSourceOutBox.Value = clip.SourceOutSeconds ?? clip.SourceDurationSeconds;
-        RelinkTimelineClipButton.Visibility = isTitle ? Visibility.Collapsed : Visibility.Visible;
+        RelinkTimelineClipButton.Visibility = isTitle || isCompound ? Visibility.Collapsed : Visibility.Visible;
         RelinkMatchingSourcesButton.Visibility = RelinkTimelineClipButton.Visibility;
         ClipSourceRangeText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipSourceRangeText.Text = isVideo
             ? $"Source {FormatSeconds(clip.SourceInSeconds)} - {FormatSeconds(clip.SourceOutSeconds ?? clip.SourceDurationSeconds)}"
             : string.Empty;
-        ClipVolumeSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        ClipVolumeSlider.Visibility = isVideo || isCompound ? Visibility.Visible : Visibility.Collapsed;
         ClipAudioBalanceSlider.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipAudioBalanceKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipVolumeKeyframeActions.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
@@ -3216,6 +3306,7 @@ public sealed partial class MainWindow
         ClipReverseAudioCheck.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipPlaybackHintText.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ClipDurationBox.Visibility = isVideo ? Visibility.Collapsed : Visibility.Visible;
+        ClipDurationBox.Maximum = isCompound ? CompoundTimelines.MaximumDurationSeconds : 3600;
         ClipTextBox.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         TitleBackgroundControls.Visibility = isTitle ? Visibility.Visible : Visibility.Collapsed;
         TitleBackgroundPicker.Color = ToColour(clip.TextBackgroundColour);
@@ -3592,7 +3683,11 @@ public sealed partial class MainWindow
         TimelineClipProject clip = location.Clip;
         if (ReferenceEquals(sender, ClipOpacitySlider))
         {
-            if (!VideoOpacityKeyframes.SetValueAtTime(
+            if (location.Track.Kind == TimelineTrackKind.Compound)
+            {
+                clip.Opacity = Math.Clamp(e.NewValue, 0, 1);
+            }
+            else if (!VideoOpacityKeyframes.SetValueAtTime(
                 clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate, Math.Clamp(e.NewValue, 0, 1)))
             {
                 CommitEdit();
@@ -3602,7 +3697,11 @@ public sealed partial class MainWindow
         }
         else if (ReferenceEquals(sender, ClipVolumeSlider))
         {
-            if (!VideoClipVolumeKeyframes.SetVolumeAtTime(
+            if (location.Track.Kind == TimelineTrackKind.Compound)
+            {
+                clip.Volume = Math.Clamp(e.NewValue, 0, 1);
+            }
+            else if (!VideoClipVolumeKeyframes.SetVolumeAtTime(
                 clip, location.Track.Kind, CurrentPlaybackSeconds, _frameRate,
                 Math.Clamp(e.NewValue, 0, ClipVolumeSlider.Maximum)))
             {
@@ -5933,7 +6032,7 @@ public sealed partial class MainWindow
         {
             if (!VideoTimelineEditing.TrySetStillDuration(location.Track, clip, value, _frameRate))
             {
-                StatusText.Text = "That duration would overlap the next clip on this track.";
+                StatusText.Text = "That duration would overlap the next clip or exceed the available source.";
                 CommitEdit();
                 UpdateVideoInspector();
                 return;

@@ -287,9 +287,7 @@ public static class FFmpegVideoExporter
             request.Profile, request.Codec, request.InkReferenceHeight, request.Quality,
             request.AudioSampleRate, request.AudioBitRate, request.FFmpeg, CheckpointVersion = 1,
         }));
-        IEnumerable<string?> paths = request.Project.AudioTracks.Select(track => track.AudioPath)
-            .Concat(request.Project.VideoTracks.SelectMany(track => track.Clips)
-                .SelectMany(clip => new[] { clip.SourcePath, clip.ProxyPath, clip.ColourLutPath }))
+        IEnumerable<string?> paths = CompoundTimelines.ReferencedPaths(request.Project)
             .Append(request.FFmpeg!.ExecutablePath)
             .Append(request.FFmpeg.Hdr10PlusMetadataPath);
         foreach (string? path in paths.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct())
