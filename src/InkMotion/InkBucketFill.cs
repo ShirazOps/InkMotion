@@ -10,7 +10,7 @@ public static class InkBucketFill
 
     public static List<InkPoint> Create(ICanvasResourceCreator device,
         IReadOnlyList<List<InkPoint>> strokes, double canvasWidth, double canvasHeight,
-        double x, double y, uint colour)
+        double x, double y, uint colour, bool alphaLocked = false)
     {
         InkColourSampling.GetPixel(x, y, canvasWidth, canvasHeight);
         if ((colour >> 24) == 0)
@@ -33,16 +33,18 @@ public static class InkBucketFill
         var blocked = new bool[width * height];
         for (int index = 0; index < blocked.Length; index++)
         {
-            blocked[index] = pixels[index * 4 + 3] > BoundaryAlpha;
+            blocked[index] = alphaLocked ? pixels[index * 4 + 3] <= BoundaryAlpha : pixels[index * 4 + 3] > BoundaryAlpha;
         }
 
-        return CreateFromMask(blocked, width, height,
+        List<InkPoint> fill = CreateFromMask(blocked, width, height,
             Math.Min(width - 1, (int)(x / canvasWidth * width)),
-            Math.Min(height - 1, (int)(y / canvasHeight * height)), colour);
+            Math.Min(height - 1, (int)(y / canvasHeight * height)), colour, allowCanvasEdge: alphaLocked);
+        foreach (InkPoint point in fill) point.AlphaLocked = alphaLocked;
+        return fill;
     }
 
     public static List<InkPoint> CreateFromMask(bool[] blocked, int width, int height,
-        int x, int y, uint colour)
+        int x, int y, uint colour, bool allowCanvasEdge = false)
     {
         if (width < 1 || height < 1 || width > MaximumDimension || height > MaximumDimension ||
             blocked.Length != width * height || x < 0 || x >= width || y < 0 || y >= height ||
@@ -53,7 +55,9 @@ public static class InkBucketFill
         int seed = y * width + x;
         if (blocked[seed])
         {
-            throw new InvalidOperationException("Click an empty enclosed area, not an existing stroke or fill.");
+            throw new InvalidOperationException(allowCanvasEdge
+                ? "With alpha lock on, click existing artwork rather than an empty area."
+                : "Click an empty enclosed area, not an existing stroke or fill.");
         }
 
         var region = new bool[blocked.Length];
@@ -75,14 +79,14 @@ public static class InkBucketFill
             int current = queue[read++];
             int px = current % width;
             int py = current / width;
-            if (px == 0 || py == 0 || px == width - 1 || py == height - 1)
+            if (!allowCanvasEdge && (px == 0 || py == 0 || px == width - 1 || py == height - 1))
             {
                 throw new InvalidOperationException("The area reaches the canvas edge. Close the boundary on the active layer before filling.");
             }
-            Visit(current - 1);
-            Visit(current + 1);
-            Visit(current - width);
-            Visit(current + width);
+            if (px > 0) Visit(current - 1);
+            if (px < width - 1) Visit(current + 1);
+            if (py > 0) Visit(current - width);
+            if (py < height - 1) Visit(current + width);
         }
 
         int stride = width + 1;
@@ -93,10 +97,10 @@ public static class InkBucketFill
             int px = current % width;
             int py = current / width;
             int topLeft = py * stride + px;
-            if (!region[current - width]) edges.Add((topLeft, 0));
-            if (!region[current + 1]) edges.Add((topLeft + 1, 1));
-            if (!region[current + width]) edges.Add((topLeft + stride + 1, 2));
-            if (!region[current - 1]) edges.Add((topLeft + stride, 3));
+            if (py == 0 || !region[current - width]) edges.Add((topLeft, 0));
+            if (px == width - 1 || !region[current + 1]) edges.Add((topLeft + 1, 1));
+            if (py == height - 1 || !region[current + width]) edges.Add((topLeft + stride + 1, 2));
+            if (px == 0 || !region[current - 1]) edges.Add((topLeft + stride, 3));
             if (edges.Count > MaximumBoundaryPoints * 4)
             {
                 throw new InvalidOperationException("This area is too complex to fill safely. Simplify the active layer's boundary and retry.");

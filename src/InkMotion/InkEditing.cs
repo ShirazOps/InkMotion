@@ -225,9 +225,10 @@ public static class InkEditing
             throw new InvalidOperationException("Unbind both layers from character rigs and clear lip-sync before merging their drawings.");
         }
         if (frames.SelectMany(frame => ExportPlanning.GetLayerStrokes(frame, source.Id))
-            .Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur))
+            .Any(stroke => stroke.Count > 0 && (stroke[0].AlphaLocked ||
+                stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur)))
         {
-            throw new InvalidOperationException("Remove drawing modifiers from the upper layer before merging; merging would change which pixels they sample.");
+            throw new InvalidOperationException("Remove drawing modifiers and alpha-locked strokes from the upper layer before merging; merging would change their preceding artwork.");
         }
         if (source.ClipToLayerBelow || target.ClipToLayerBelow ||
             (index + 1 < layers.Count && layers[index + 1].ClipToLayerBelow))
@@ -324,6 +325,7 @@ public static class InkEditing
         Name = layer.Name,
         IsVisible = layer.IsVisible,
         IsLocked = layer.IsLocked,
+        AlphaLock = layer.AlphaLock,
         Opacity = layer.Opacity,
         BlendMode = layer.BlendMode,
         GlowRadius = layer.GlowRadius,
@@ -373,6 +375,7 @@ public static class InkEditing
             BrushColour = point.BrushColour,
             BrushTexture = point.BrushTexture,
             IsFilled = point.IsFilled,
+            AlphaLocked = point.AlphaLocked,
         }).ToList()).ToList();
 
     public static int InsertCopy(List<EditorFrame> frames, int afterIndex, EditorFrame source)

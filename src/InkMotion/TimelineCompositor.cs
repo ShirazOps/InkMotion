@@ -311,6 +311,15 @@ public static partial class TimelineCompositor
         float height,
         float widthScale)
     {
+        if (stroke.Count > 0 && stroke[0].AlphaLocked)
+            throw new InvalidOperationException("Alpha-locked strokes need preceding layer pixels; use DrawInkStrokes.");
+        DrawInkStrokeCore(session, stroke, colour, width, height, widthScale);
+    }
+
+    private static void DrawInkStrokeCore(
+        CanvasDrawingSession session, IReadOnlyList<InkPoint> stroke, Color colour,
+        float width, float height, float widthScale)
+    {
         if (stroke.Count > 0 && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur)
         {
             throw new InvalidOperationException("Drawing modifiers require preceding drawing-layer pixels; use DrawInkStrokes.");
@@ -365,13 +374,14 @@ public static partial class TimelineCompositor
     }
 
     public static void DrawInkStrokes(CanvasDrawingSession session, IReadOnlyList<List<InkPoint>> strokes,
-        Func<InkPoint, Color> colour, float width, float height, float sizeScale)
+        Func<InkPoint, Color> colour, float width, float height, float sizeScale, double opacity = 1)
     {
+        bool hasAlphaLock = strokes.Any(stroke => stroke.Count > 0 && stroke[0].AlphaLocked);
         if (!strokes.Any(stroke => stroke.Count > 0 && stroke[0].BrushTexture is
-            InkBrushTexture.Smudge or InkBrushTexture.Blur))
+            InkBrushTexture.Smudge or InkBrushTexture.Blur) && !hasAlphaLock)
         {
             foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
-                DrawInkStroke(session, stroke, colour(stroke[0]), width, height, sizeScale);
+                DrawInkStroke(session, stroke, WithOpacity(colour(stroke[0]), opacity), width, height, sizeScale);
             return;
         }
 
@@ -380,8 +390,11 @@ public static partial class TimelineCompositor
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession drawing = layer.CreateDrawingSession())
             drawing.Clear(Microsoft.UI.Colors.Transparent);
+        using CanvasRenderTarget? paint = hasAlphaLock ? new(session, MathF.Ceiling(width), MathF.Ceiling(height), 96,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied) : null;
         foreach (List<InkPoint> stroke in strokes.Where(stroke => stroke.Count > 0))
         {
+            byte[]? previous = stroke[0].AlphaLocked ? layer.GetPixelBytes() : null;
             if (stroke[0].BrushTexture == InkBrushTexture.Smudge)
             {
                 byte[] pixels = layer.GetPixelBytes();
@@ -394,8 +407,23 @@ public static partial class TimelineCompositor
             }
             else
             {
-                using CanvasDrawingSession drawing = layer.CreateDrawingSession();
-                DrawInkStroke(drawing, stroke, colour(stroke[0]), width, height, sizeScale);
+                using (CanvasDrawingSession drawing = (previous is null ? layer : paint!).CreateDrawingSession())
+                {
+                    if (previous is not null) drawing.Clear(Microsoft.UI.Colors.Transparent);
+                    DrawInkStrokeCore(drawing, stroke,
+                        previous is not null ? colour(stroke[0]) : WithOpacity(colour(stroke[0]), opacity), width, height, sizeScale);
+                }
+                if (previous is not null)
+                {
+                    InkAlphaLock.Paint(previous, paint!.GetPixelBytes());
+                    layer.SetPixelBytes(previous);
+                }
+            }
+            if (previous is not null && stroke[0].BrushTexture is InkBrushTexture.Smudge or InkBrushTexture.Blur)
+            {
+                byte[] modified = layer.GetPixelBytes();
+                InkAlphaLock.RestoreAlpha(previous, modified);
+                layer.SetPixelBytes(modified);
             }
         }
         session.DrawImage(layer);
@@ -491,7 +519,7 @@ public static partial class TimelineCompositor
             IReadOnlyList<List<InkPoint>> strokes = InkCharacterRigs.Strokes(project, frameIndex, layer, seconds, width, height);
             InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
                 DrawInkStrokes(drawing, strokes,
-                    point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
+                    point => ToColour(point.BrushColour), width, height, sizeScale, layer.Opacity));
         }
 
         foreach (InkTextOverlay overlay in project.Frames[frameIndex].TextOverlays)
@@ -779,7 +807,7 @@ public static partial class TimelineCompositor
         IReadOnlyList<List<InkPoint>> strokes = InkCharacterRigs.Strokes(project, frameIndex, layer, seconds, width, height);
         InkObjectMotion.Draw(session, layer.ObjectTracking, seconds, width, height, drawing =>
             DrawInkStrokes(drawing, strokes,
-                point => WithOpacity(ToColour(point.BrushColour), layer.Opacity), width, height, sizeScale));
+                point => ToColour(point.BrushColour), width, height, sizeScale, layer.Opacity));
     }
 
     /// <summary>

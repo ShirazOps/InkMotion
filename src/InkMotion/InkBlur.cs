@@ -23,7 +23,11 @@ internal static class InkBlur
         }
 
         List<InkPoint> footprint = InkEditing.CloneStrokes([stroke.ToList()])[0];
-        foreach (InkPoint point in footprint) point.BrushTexture = InkBrushTexture.Round;
+        foreach (InkPoint point in footprint)
+        {
+            point.BrushTexture = InkBrushTexture.Round;
+            point.AlphaLocked = false;
+        }
         using (CanvasDrawingSession drawing = mask.CreateDrawingSession())
         {
             drawing.Clear(Microsoft.UI.Colors.Transparent);

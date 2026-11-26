@@ -196,6 +196,7 @@
                     <AppBarElementContainer><Button Content="Add ink layer" Click="AddInkLayer_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Character rig…" Click="CharacterRig_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Lip-sync…" Click="LipSync_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><ToggleButton x:Name="InkAlphaLockToggle" Content="Alpha lock" Click="InkAlphaLock_Click" ToolTipService.ToolTip="New painting recolours existing artwork without extending its alpha; erasing and selection remain available" /></AppBarElementContainer>
                     <AppBarElementContainer><ToggleButton x:Name="CharacterBonesToggle" Content="Show bones" Click="CharacterBones_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Lower layer" Tag="-1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer earlier in the bottom-to-top rendering order" /></AppBarElementContainer>
                     <AppBarElementContainer><Button Content="Raise layer" Tag="1" Click="MoveInkLayer_Click" ToolTipService.ToolTip="Move the layer later in the bottom-to-top rendering order" /></AppBarElementContainer>

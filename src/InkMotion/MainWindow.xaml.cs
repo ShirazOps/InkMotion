@@ -163,6 +163,8 @@ public sealed partial class MainWindow : Window
         InkLayerVisibilityButton.Content = CurrentInkLayer.IsVisible ? "Hide layer" : "Show layer";
         InkLayerLockButton.IsChecked = CurrentInkLayer.IsLocked;
         InkLayerLockButton.Content = CurrentInkLayer.IsLocked ? "Unlock drawing" : "Lock drawing";
+        InkAlphaLockToggle.IsChecked = CurrentInkLayer.AlphaLock;
+        UpdateLipSyncReadout();
         InkLayerNameBox.Text = CurrentInkLayer.Name;
         if (InkTrackNameText is not null)
         {
@@ -1953,6 +1955,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (CurrentInkLayer.AlphaLock && !_isEraser &&
+            !GetDisplayedLayerStrokes(_selectedFrameIndex, _activeInkLayerId).Any(stroke =>
+                stroke.Any(point => !point.AlphaLocked && (point.BrushColour >> 24) > 0)))
+        {
+            StatusText.Text = "Alpha lock needs existing artwork on this cel. Turn it off to draw the first marks.";
+            e.Handled = true;
+            return;
+        }
+
         ClearInkSelection();
         BeginEdit();
         PromoteInterpolatedFrameForEditing();
@@ -2124,6 +2135,7 @@ public sealed partial class MainWindow : Window
             BrushWidth = _brushWidth,
             BrushColour = _brushColour,
             BrushTexture = _inkModifierTool ?? (InkBrushTexture)InkBrushTextureSelector.SelectedIndex,
+            AlphaLocked = CurrentInkLayer.AlphaLock,
         };
         inkPoint = InkStrokeEditing.Stabilise(inkPoint, _activeStroke.LastOrDefault(),
             finalPoint ? 0 : InkStabilisationSlider.Value);
@@ -2210,8 +2222,7 @@ public sealed partial class MainWindow : Window
                         InkCharacterRigs.Strokes(new EditorProject { Frames = _frames, FrameRate = _frameRate,
                             CharacterRig = _characterRig, AudioTracks = _audioTracks.Select(track => track.Project).ToList() }, guide.FrameIndex, layer,
                             InkTimeline.GetStartFramePosition(_frames, guide.FrameIndex) / _frameRate, width, height),
-                        point => TimelineCompositor.WithOpacity(ToColour(colour ?? point.BrushColour),
-                            layer.Opacity * guide.Opacity), width, height, 1));
+                        point => ToColour(colour ?? point.BrushColour), width, height, 1, layer.Opacity * guide.Opacity));
             }
 
             if (OnionTextToggle?.IsChecked != false)
@@ -2307,6 +2318,7 @@ public sealed partial class MainWindow : Window
         foreach (InkPoint shapePoint in points)
         {
             shapePoint.BrushTexture = (InkBrushTexture)InkBrushTextureSelector.SelectedIndex;
+            shapePoint.AlphaLocked = CurrentInkLayer.AlphaLock;
         }
         _activeStroke.Clear();
         _activeStroke.AddRange(points);
@@ -2875,6 +2887,7 @@ public sealed partial class MainWindow : Window
                     BrushColour = point.BrushColour,
                     BrushTexture = point.BrushTexture,
                     IsFilled = point.IsFilled,
+                    AlphaLocked = point.AlphaLocked,
                 }).ToList())
                 .ToList());
         }

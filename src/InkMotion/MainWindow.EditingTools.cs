@@ -5,6 +5,22 @@ namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private void InkAlphaLock_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentInkLayer.IsLocked)
+        {
+            InkAlphaLockToggle.IsChecked = CurrentInkLayer.AlphaLock;
+            StatusText.Text = "Unlock the drawing layer before changing alpha lock.";
+            return;
+        }
+        PausePlayback(); FinishActiveEdit(); BeginEdit();
+        CurrentInkLayer.AlphaLock = InkAlphaLockToggle.IsChecked == true;
+        MarkEditChanged(); CommitEdit();
+        StatusText.Text = CurrentInkLayer.AlphaLock
+            ? "Alpha lock on: new painting recolours existing alpha. Erase and selection still edit original paths."
+            : "Alpha lock off: new painting can extend artwork. Existing alpha-locked strokes retain their restriction.";
+    }
+
     private bool EnsureInkLayerEditable()
     {
         if (CurrentInkLayer.LipSync is { Enabled: true })
