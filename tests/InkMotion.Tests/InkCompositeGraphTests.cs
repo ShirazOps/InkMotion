@@ -299,6 +299,7 @@ public sealed class InkCompositeGraphTests
         Assert.Equal(0u, Sample(project, 70, 50, seconds: 1));
         Assert.Equal(0xFF00FF00u, Sample(project, 50, 70, seconds: 1));
         Assert.Equal(2, ExportPlanning.GetInkDurationSeconds(project));
+        Assert.Equal(2, VideoExporter.GetDurationSeconds(project, 0));
         project.CompositeGraph.Nodes[^1].Inputs[0] = null;
         Assert.Equal(0, ExportPlanning.GetInkDurationSeconds(project));
         project.CompositeGraph.Nodes[^1].Inputs[0] = scene.Id;
@@ -351,6 +352,7 @@ public sealed class InkCompositeGraphTests
         node.Particles.Seed = 7;
         Assert.False(first.SequenceEqual(Render(project, 1.5)));
         Assert.Equal(2, ExportPlanning.GetInkDurationSeconds(project));
+        Assert.Equal(2, VideoExporter.GetDurationSeconds(project, 0));
         project.CompositeGraph.Nodes[^1].Inputs[0] = null;
         Assert.Equal(0, ExportPlanning.GetInkDurationSeconds(project));
         project.CompositeGraph.Nodes[^1].Inputs[0] = node.Id;
@@ -362,5 +364,141 @@ public sealed class InkCompositeGraphTests
         node.Particles.Lifetime = 2;
         node.Particles.Rate = 201;
         Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+    }
+
+    [Fact]
+    public void TransformMovesRotatesPersistsAndSamplesTheInput()
+    {
+        EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1" });
+        InkCompositeNode layer = Node(InkCompositeNodeKind.InkLayer, "ink");
+        layer.LayerId = "ink-1";
+        InkCompositeNode transform = Node(InkCompositeNodeKind.Transform, "transform", layer.Id);
+        transform.Transform!.OffsetX = 0.2;
+        project.CompositeGraph = LinearGraph(layer, transform);
+
+        Assert.Equal(0u, Sample(project, 30, 50));
+        AssertClose(0xFF2040E0, Sample(project, 90, 50));
+        using var device = new CanvasDevice(true);
+        AssertClose(Sample(project, 90, 50), InkColourSampling.Sample(device, project, 0, 100, 100, 90, 50));
+        EditorProject restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+        Assert.Equal(0.2, restored.CompositeGraph!.Nodes[1].Transform!.OffsetX);
+        InkCompositeGraph clone = InkCompositeGraphs.Clone(project.CompositeGraph);
+        clone.Nodes[1].Transform!.OffsetX = 0.5;
+        Assert.Equal(0.2, transform.Transform.OffsetX);
+        Assert.Equal(EditorProject.CurrentVersion, EditorProjectSerialiser.Deserialise("""{"Version":85}""").Version);
+
+        transform.Transform.OffsetX = 0;
+        transform.Transform.Rotation = 90;
+        AssertClose(0xFF2040E0, Sample(project, 50, 20));
+        Assert.Equal(0u, Sample(project, 20, 50));
+        transform.Transform.ScaleX = 0;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+    }
+
+    [Theory]
+    [InlineData(InkCompositeNodeKind.InvertColours, 0xFFDFBF1Fu)]
+    [InlineData(InkCompositeNodeKind.Sepia, 0xFF685D48u)]
+    public void ColourEffectsPreserveTransparencyAndHaveAnIdentityStrength(InkCompositeNodeKind kind, uint expected)
+    {
+        EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1" });
+        InkCompositeNode layer = Node(InkCompositeNodeKind.InkLayer, "ink");
+        layer.LayerId = "ink-1";
+        InkCompositeNode effect = Node(kind, "effect", layer.Id);
+        project.CompositeGraph = LinearGraph(layer, effect);
+
+        AssertClose(expected, Sample(project, 50, 50), 4);
+        Assert.Equal(0u, Sample(project, 5, 5));
+        effect.Intensity = 0;
+        AssertClose(0xFF2040E0, Sample(project, 50, 50));
+        effect.Intensity = 1.01;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+    }
+
+    [Fact]
+    public void ColourAdjustmentKeepsSemiTransparentPixelsPremultiplied()
+    {
+        EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1", Opacity = 0.5 });
+        InkCompositeNode layer = Node(InkCompositeNodeKind.InkLayer, "ink");
+        layer.LayerId = "ink-1";
+        InkCompositeNode adjust = Node(InkCompositeNodeKind.ColourAdjust, "adjust", layer.Id);
+        adjust.Brightness = 0.2;
+        project.CompositeGraph = LinearGraph(layer, adjust);
+
+        AssertClose(0x7F5373FF, Sample(project, 50, 50), 3);
+        byte[] pixels = Render(project, 0);
+        Assert.Equal(0, pixels[0]);
+        Assert.Equal(0, pixels[1]);
+        Assert.Equal(0, pixels[2]);
+        Assert.Equal(0, pixels[3]);
+        int centre = ((50 * 100) + 50) * 4;
+        Assert.True(pixels[centre] <= pixels[centre + 3]);
+        Assert.True(pixels[centre + 1] <= pixels[centre + 3]);
+        Assert.True(pixels[centre + 2] <= pixels[centre + 3]);
+    }
+
+    [Fact]
+    public void ShadowUsesSourceAlphaAndBlurSamplingMatchesTheFullFrame()
+    {
+        EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1" });
+        InkCompositeNode layer = Node(InkCompositeNodeKind.InkLayer, "ink");
+        layer.LayerId = "ink-1";
+        InkCompositeNode shadow = Node(InkCompositeNodeKind.DropShadow, "shadow", layer.Id);
+        shadow.Radius = 0;
+        shadow.ShadowOffsetX = 0;
+        shadow.ShadowOffsetY = 20;
+        shadow.Colour = 0xFFFF0000;
+        shadow.Opacity = 0.5;
+        project.CompositeGraph = LinearGraph(layer, shadow);
+
+        AssertClose(0xFF2040E0, Sample(project, 50, 50));
+        AssertClose(0x80FF0000, Sample(project, 50, 70), 3);
+        using var device = new CanvasDevice(true);
+        AssertClose(Sample(project, 50, 70), InkColourSampling.Sample(device, project, 0, 100, 100, 50, 70));
+        shadow.ShadowOffsetY = 501;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+
+        InkCompositeNode blur = Node(InkCompositeNodeKind.Blur, "blur", layer.Id);
+        blur.Radius = 12;
+        project.CompositeGraph = LinearGraph(layer, blur);
+        uint blurred = Sample(project, 50, 42);
+        Assert.NotEqual(0u, blurred);
+        AssertClose(blurred, InkColourSampling.Sample(device, project, 0, 100, 100, 50, 42));
+    }
+
+    [Fact]
+    public void SharpenAndVignetteAffectTheImageWithoutChangingTheirSources()
+    {
+        EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1" });
+        InkCompositeNode layer = Node(InkCompositeNodeKind.InkLayer, "ink");
+        layer.LayerId = "ink-1";
+        InkCompositeNode sharpen = Node(InkCompositeNodeKind.Sharpen, "sharpen", layer.Id);
+        sharpen.Intensity = 0;
+        project.CompositeGraph = LinearGraph(layer, sharpen);
+        byte[] original = Render(project, 0);
+        sharpen.Intensity = 10;
+        Assert.False(original.SequenceEqual(Render(project, 0)));
+        Assert.Null(InkCompositeGraphs.Validate(project.CompositeGraph));
+        sharpen.Intensity = 11;
+        Assert.NotNull(InkCompositeGraphs.Validate(project.CompositeGraph));
+
+        InkCompositeNode picture = Node(InkCompositeNodeKind.Picture, "picture");
+        InkCompositeNode vignette = Node(InkCompositeNodeKind.Vignette, "vignette", picture.Id);
+        vignette.Intensity = 1;
+        project.CompositeGraph = LinearGraph(picture, vignette);
+        uint centre = Sample(project, 50, 50, 0xFFFFFFFF);
+        uint corner = Sample(project, 1, 1, 0xFFFFFFFF);
+        Assert.Equal(255u, corner >> 24);
+        Assert.True((corner & 0xFF) < (centre & 0xFF));
+        vignette.Intensity = 0;
+        Assert.Equal(0xFFFFFFFFu, Sample(project, 1, 1, 0xFFFFFFFF));
+        vignette.Inputs[0] = layer.Id;
+        vignette.Intensity = 1;
+        project.CompositeGraph = LinearGraph(layer, vignette);
+        Assert.Equal(0u, Sample(project, 1, 1));
+        project.InkLayers[0].Opacity = 0.5;
+        uint vignetted = Sample(project, 25, 50);
+        vignette.Intensity = 0;
+        uint unchanged = Sample(project, 25, 50);
+        Assert.Equal(unchanged >> 24, vignetted >> 24);
     }
 }

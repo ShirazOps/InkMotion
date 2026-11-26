@@ -9,7 +9,7 @@ namespace InkMotion.Tests;
 public sealed class PngSequenceExportTests
 {
     [Fact]
-    public async Task Export_ParticleFramesMatchPreviewAtTheSameTimes()
+    public async Task Export_ParticleEffectsMatchPreviewAtTheSameTimes()
     {
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion particles {Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -19,12 +19,14 @@ public sealed class PngSequenceExportTests
         particles.Particles.Speed = 2;
         particles.Particles.Spread = 0;
         particles.Particles.Size = 0.15;
+        InkCompositeNode invert = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.InvertColours, "invert", 0, 0);
+        invert.Inputs[0] = particles.Id;
         InkCompositeNode result = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
-        result.Inputs[0] = particles.Id;
+        result.Inputs[0] = invert.Id;
         var project = new EditorProject
         {
             Frames = [new() { ExposureFrames = 2 }],
-            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [particles, result] },
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [particles, invert, result] },
         };
 
         try

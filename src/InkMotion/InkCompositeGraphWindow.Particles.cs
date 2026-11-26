@@ -1,6 +1,3 @@
-using Microsoft.UI.Xaml.Controls;
-using Windows.UI;
-
 namespace InkMotion;
 
 public sealed partial class InkCompositeGraphWindow
@@ -20,20 +17,6 @@ public sealed partial class InkCompositeGraphWindow
         AddSlider("Gravity (% of height per second squared)", -200, 200, 1, particles.Gravity * 100, value => particles.Gravity = value / 100);
         AddSlider("Size (% of height)", 0.2, 20, 0.2, particles.Size * 100, value => particles.Size = value / 100);
         AddSlider("Random seed", 0, 10000, 1, particles.Seed, value => particles.Seed = (int)Math.Round(value));
-        var picker = new ColorPicker
-        {
-            Color = TimelineCompositor.ToColour(particles.Colour), IsAlphaEnabled = false, IsMoreButtonVisible = false,
-            IsColorChannelTextInputVisible = false, IsHexInputVisible = true, ColorSpectrumShape = ColorSpectrumShape.Box,
-        };
-        picker.ColorChanged += (_, args) =>
-        {
-            if (_loading) return;
-            Color colour = args.NewColor;
-            particles.Colour = 0xFF000000u | ((uint)colour.R << 16) | ((uint)colour.G << 8) | colour.B;
-            Commit("Particle colour changed.", commit: false);
-        };
-        picker.LostFocus += (_, _) => _commitPending();
-        _properties.Children.Add(new TextBlock { Text = "Particle colour" });
-        _properties.Children.Add(picker);
+        AddOpaqueColourPicker("Particle colour", particles.Colour, value => particles.Colour = value, "Particle colour changed.");
     }
 }

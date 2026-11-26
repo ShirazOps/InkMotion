@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.UI;
 
 namespace InkMotion;
 
@@ -108,24 +107,6 @@ public sealed partial class InkCompositeGraphWindow
         AddSlider("Spin X", -360, 360, 1, item.SpinX, value => item.SpinX = value);
         AddSlider("Spin Y", -360, 360, 1, item.SpinY, value => item.SpinY = value);
         AddSlider("Spin Z", -360, 360, 1, item.SpinZ, value => item.SpinZ = value);
-        var colour = new ColorPicker
-        {
-            Color = TimelineCompositor.ToColour(item.Colour),
-            IsAlphaEnabled = false,
-            IsMoreButtonVisible = false,
-            IsColorChannelTextInputVisible = false,
-            IsHexInputVisible = true,
-            ColorSpectrumShape = ColorSpectrumShape.Box,
-        };
-        colour.ColorChanged += (_, args) =>
-        {
-            if (_loading) return;
-            Color selected = args.NewColor;
-            item.Colour = 0xFF000000u | ((uint)selected.R << 16) | ((uint)selected.G << 8) | selected.B;
-            Commit("3D object colour changed.", commit: false);
-        };
-        colour.LostFocus += (_, _) => _commitPending();
-        _properties.Children.Add(new TextBlock { Text = "Object colour" });
-        _properties.Children.Add(colour);
+        AddOpaqueColourPicker("Object colour", item.Colour, value => item.Colour = value, "3D object colour changed.");
     }
 }

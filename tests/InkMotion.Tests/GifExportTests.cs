@@ -8,6 +8,45 @@ namespace InkMotion.Tests;
 public sealed class GifExportTests
 {
     [Fact]
+    public async Task Export_SceneOnlyGraphWritesAnAnimatedGif()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion 3D GIF {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string outputPath = Path.Combine(root, "scene.gif");
+        InkCompositeNode scene = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Scene3D, "scene", 0, 0);
+        scene.Scene3D!.AmbientLight = 1;
+        scene.Scene3D.Objects[0].Colour = 0xFFFF0000;
+        InkCompositeNode output = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
+        output.Inputs[0] = scene.Id;
+        var project = new EditorProject
+        {
+            Frames = [new() { ExposureFrames = 2 }],
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [scene, output] },
+        };
+
+        try
+        {
+            GifExportResult result = await GifExporter.ExportAsync(project,
+                new(VideoExportProfile.Create(32, 32, 24), 32), outputPath, null, CancellationToken.None);
+            Assert.Equal(2, result.FrameCount);
+            StorageFile file = await StorageFile.GetFileFromPathAsync(outputPath);
+            using IRandomAccessStream stream = await file.OpenAsync(FileAccessMode.Read);
+            BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+            Assert.Equal(2u, decoder.FrameCount);
+            byte[] pixels = (await decoder.GetPixelDataAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Straight, new BitmapTransform(),
+                ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage)).DetachPixelData();
+            Assert.Equal(0, pixels[3]);
+            Assert.Equal(255, pixels[((16 * 32) + 16) * 4 + 3]);
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+            Directory.Delete(root);
+        }
+    }
+
+    [Fact]
     public async Task Export_WritesLoopingAnimatedGifWithTransparentBackground()
     {
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion GIF {Guid.NewGuid():N}");

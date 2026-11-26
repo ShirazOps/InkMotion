@@ -15,6 +15,23 @@ public static class InkColourSampling
     {
         ArgumentNullException.ThrowIfNull(drawMedia);
         (int pixelX, int pixelY) = GetPixel(x, y, width, height);
+        if (project.CompositeGraph is { Enabled: true })
+        {
+            float targetWidth = (float)Math.Ceiling(width);
+            float targetHeight = (float)Math.Ceiling(height);
+            using var backgroundImage = new CanvasRenderTarget(device, targetWidth, targetHeight, 96,
+                Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
+            using (CanvasDrawingSession session = backgroundImage.CreateDrawingSession())
+            {
+                session.Clear(TimelineCompositor.ToColour(background));
+                drawMedia(session, (float)width, (float)height);
+            }
+            using CanvasRenderTarget graph = TimelineCompositor.CompositeInkFrame(device, backgroundImage,
+                targetWidth, targetHeight, project, frameIndex, (float)width, (float)height, 1, timelineSeconds);
+            byte[] graphPixel = graph.GetPixelBytes(pixelX, pixelY, 1, 1);
+            return FromPremultipliedBgra(graphPixel[0], graphPixel[1], graphPixel[2], graphPixel[3]);
+        }
+
         using var pixel = new CanvasRenderTarget(device, 1, 1, 96,
             Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, CanvasAlphaMode.Premultiplied);
         bool hasBlendModes = TimelineCompositor.RequiresLayerCompositing(project);

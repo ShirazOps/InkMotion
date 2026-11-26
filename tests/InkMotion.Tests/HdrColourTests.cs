@@ -132,6 +132,31 @@ public sealed class HdrColourTests
     }
 
     [Fact]
+    public void SepiaNodePreservesHdrHighlights()
+    {
+        using var device = new CanvasDevice(true);
+        using var background = new CanvasRenderTarget(device, 32, 32, 96, DirectXPixelFormat.R16G16B16A16Float,
+            CanvasAlphaMode.Premultiplied);
+        Half[] bright = Enumerable.Range(0, 32 * 32).SelectMany(_ => new[] { (Half)2, (Half)1.5, (Half)0.5, (Half)1 }).ToArray();
+        background.SetPixelBytes(MemoryMarshal.AsBytes(bright.AsSpan()).ToArray());
+        InkCompositeNode picture = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Picture, "picture", 0, 0);
+        InkCompositeNode sepia = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Sepia, "sepia", 0, 0);
+        sepia.Inputs[0] = picture.Id;
+        InkCompositeNode output = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
+        output.Inputs[0] = sepia.Id;
+        var project = new EditorProject
+        {
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [picture, sepia, output] },
+        };
+
+        using CanvasRenderTarget composite = TimelineCompositor.CompositeInkFrame(
+            device, background, 32, 32, project, 0, 32, 32, 1);
+        Half[] pixel = MemoryMarshal.Cast<byte, Half>(composite.GetPixelBytes(16, 16, 1, 1).AsSpan()).ToArray();
+        Assert.InRange((double)pixel[0], 2.0, 2.1);
+        Assert.Equal(1, (double)pixel[3], 3);
+    }
+
+    [Fact]
     public void HalfFloatPixelationAveragesWithoutClipping()
     {
         Half[] pixels = [(Half)3, (Half)0, (Half)0, (Half)1, (Half)1, (Half)0, (Half)0, (Half)1];
