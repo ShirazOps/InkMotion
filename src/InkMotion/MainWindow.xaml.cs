@@ -2880,6 +2880,8 @@ public sealed partial class MainWindow : Window
         DisposeVst3Editors();
         CloseQuickStartGuide();
         _inkTrackingCancellation?.Cancel();
+        _opticalFlowClosed = true;
+        _opticalFlowCancellation?.Cancel();
         StopAudioRecordingForClose();
         _mediaBinClosed = true;
         _mediaDiscoveryCancellation?.Cancel();

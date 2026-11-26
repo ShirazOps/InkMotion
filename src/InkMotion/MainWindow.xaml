@@ -130,6 +130,9 @@
                                 <Button x:Name="CreateMulticamGroupButton" Content="Group cameras" Click="CreateMulticamGroup_Click" />
                                 <Button x:Name="SwitchMulticamAngleButton" Content="Switch angle" Click="SwitchMulticamAngle_Click" />
                                 <Button x:Name="GenerateVideoProxyButton" Content="Generate proxy" Click="GenerateVideoProxy_Click" />
+                                <Button x:Name="GenerateOpticalFlowProxyButton" Content="Generate optical-flow proxy"
+                                        Click="GenerateOpticalFlowProxy_Click"
+                                        ToolTipService.ToolTip="Generate a high-frame-rate SDR proxy using the selected local FFmpeg. Preview and export use the proxy; embedded audio stays linked to the original source." />
                                 <Button x:Name="ToggleVideoProxyButton" Content="Use proxy" Click="ToggleVideoProxy_Click" />
                             </StackPanel>
                         </UserControl>

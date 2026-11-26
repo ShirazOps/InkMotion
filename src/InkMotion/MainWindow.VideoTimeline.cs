@@ -76,6 +76,10 @@ public sealed partial class MainWindow
     private readonly Dictionary<string, VideoSharpenCanvasEffect> _previewSharpenEffects = [];
     private readonly Dictionary<string, VideoVignetteCanvasEffect> _previewVignetteEffects = [];
     private bool _isStabilisationRunning;
+    private bool _isOpticalFlowProxyRunning;
+    private bool _isVideoProxyRunning;
+    private bool _opticalFlowClosed;
+    private CancellationTokenSource? _opticalFlowCancellation;
     private bool _isMaskTrackingRunning;
     private readonly MediaPlayer _previewMediaPlayer = new() { AutoPlay = false, IsLoopingEnabled = false };
     private readonly VideoAudioPreviewState _videoAudioPreview = new();
@@ -440,7 +444,8 @@ public sealed partial class MainWindow
 
     private async void GenerateVideoProxy_Click(object sender, RoutedEventArgs e)
     {
-        if (SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+        if (_isVideoProxyRunning || _isOpticalFlowProxyRunning ||
+            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
             string.IsNullOrWhiteSpace(selected.Clip.SourcePath) ||
             !File.Exists(selected.Clip.SourcePath) ||
             selected.Track.IsLocked)
@@ -454,7 +459,9 @@ public sealed partial class MainWindow
         double duration = selected.Clip.SourceDurationSeconds;
         PausePlayback();
         FinishActiveEdit();
+        _isVideoProxyRunning = true;
         GenerateVideoProxyButton.IsEnabled = false;
+        GenerateOpticalFlowProxyButton.IsEnabled = false;
         StatusText.Text = "Generating a 24 fps proxy at up to 960 pixels…";
         try
         {
@@ -486,7 +493,107 @@ public sealed partial class MainWindow
         }
         finally
         {
-            GenerateVideoProxyButton.IsEnabled = true;
+            _isVideoProxyRunning = false;
+            UpdateVideoInspector();
+        }
+    }
+
+    private async void GenerateOpticalFlowProxy_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isOpticalFlowProxyRunning || _isVideoProxyRunning ||
+            SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Video } selected ||
+            selected.Track.IsLocked || string.IsNullOrWhiteSpace(selected.Clip.SourcePath) ||
+            !File.Exists(selected.Clip.SourcePath))
+        {
+            StatusText.Text = "Select an unlocked video clip with an available source.";
+            return;
+        }
+        if (_ffmpegCapabilities is null ||
+            !string.Equals(FFmpegPathBox.Text.Trim(), _ffmpegCapabilities.ExecutablePath, StringComparison.OrdinalIgnoreCase))
+        {
+            StatusText.Text = "Choose a local FFmpeg executable and check its capabilities on the Export page first.";
+            return;
+        }
+
+        string clipId = selected.Clip.Id;
+        string sourcePath = selected.Clip.SourcePath;
+        double duration = selected.Clip.SourceDurationSeconds;
+        string? existingProxyPath = selected.Clip.ProxyPath;
+        bool existingProxyEnabled = selected.Clip.UseProxy;
+        double frameRate = _frameRate;
+        string executable = _ffmpegCapabilities.ExecutablePath;
+        string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "InkMotion", "Proxies");
+        PausePlayback();
+        FinishActiveEdit();
+        using var cancellation = new CancellationTokenSource();
+        _opticalFlowCancellation = cancellation;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = "Generating optical-flow proxy",
+            Content = "Motion interpolation may take a while and use substantial disk space.",
+            CloseButtonText = "Cancel",
+        };
+        bool finished = false;
+        dialog.Closing += (_, _) =>
+        {
+            if (!finished) cancellation.Cancel();
+        };
+        _isOpticalFlowProxyRunning = true;
+        GenerateOpticalFlowProxyButton.IsEnabled = false;
+        GenerateVideoProxyButton.IsEnabled = false;
+        StatusText.Text = "Generating an optical-flow proxy; this may take a while…";
+        _ = dialog.ShowAsync();
+        try
+        {
+            VideoProxyResult proxy = await Task.Run(() =>
+                VideoOpticalFlowProxy.Generate(sourcePath, duration, frameRate, executable, directory, cancellation.Token));
+            if (_opticalFlowClosed || cancellation.IsCancellationRequested)
+            {
+                File.Delete(proxy.Path);
+                if (!_opticalFlowClosed) StatusText.Text = "Optical-flow proxy generation was cancelled.";
+                return;
+            }
+            TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
+            if (current is null || current.Track.IsLocked ||
+                !string.Equals(current.Clip.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase) ||
+                current.Clip.SourceDurationSeconds != duration ||
+                !string.Equals(current.Clip.ProxyPath, existingProxyPath, StringComparison.OrdinalIgnoreCase) ||
+                current.Clip.UseProxy != existingProxyEnabled)
+            {
+                File.Delete(proxy.Path);
+                StatusText.Text = "The clip changed before its optical-flow proxy could be attached.";
+                return;
+            }
+
+            BeginEdit();
+            current.Clip.ProxyPath = proxy.Path;
+            current.Clip.ProxySourceLength = proxy.SourceLength;
+            current.Clip.ProxySourceLastWriteUtcTicks = proxy.SourceLastWriteUtcTicks;
+            current.Clip.UseProxy = true;
+            MarkEditChanged();
+            CommitEdit();
+            RefreshVideoTimeline();
+            SeekToCurrentFrame();
+            StatusText.Text = $"Optical-flow proxy created and enabled: {Path.GetFileName(proxy.Path)}";
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            if (!_opticalFlowClosed) StatusText.Text = "Optical-flow proxy generation was cancelled.";
+        }
+        catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException or
+            InvalidOperationException or NotSupportedException or ArgumentException)
+        {
+            if (!_opticalFlowClosed) StatusText.Text = $"Could not generate the optical-flow proxy: {ex.Message}";
+        }
+        finally
+        {
+            finished = true;
+            if (!_opticalFlowClosed) dialog.Hide();
+            _opticalFlowCancellation = null;
+            _isOpticalFlowProxyRunning = false;
+            if (!_opticalFlowClosed) UpdateVideoInspector();
         }
     }
 
@@ -3040,6 +3147,7 @@ public sealed partial class MainWindow
         CreateMulticamGroupButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         SwitchMulticamAngleButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         GenerateVideoProxyButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
+        GenerateOpticalFlowProxyButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         ToggleVideoProxyButton.Visibility = isVideo ? Visibility.Visible : Visibility.Collapsed;
         CreateMulticamGroupButton.IsEnabled = isVideo && !location.Track.IsLocked;
         VideoMulticamGroup? selectedGroup = isVideo
@@ -3047,7 +3155,10 @@ public sealed partial class MainWindow
             : null;
         SwitchMulticamAngleButton.IsEnabled = selectedGroup is not null &&
             PlayheadFrameNumber >= selectedGroup.StartFrame && !location.Track.IsLocked;
-        GenerateVideoProxyButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning;
+        GenerateVideoProxyButton.IsEnabled = isVideo && !location.Track.IsLocked && !_isStabilisationRunning &&
+            !_isVideoProxyRunning && !_isOpticalFlowProxyRunning;
+        GenerateOpticalFlowProxyButton.IsEnabled = isVideo && !location.Track.IsLocked &&
+            !_isOpticalFlowProxyRunning && !_isVideoProxyRunning && !_isStabilisationRunning;
         bool proxyAvailable = VideoProxy.IsAvailable(clip);
         ToggleVideoProxyButton.IsEnabled = isVideo && !location.Track.IsLocked && (clip.UseProxy || proxyAvailable);
         ToggleVideoProxyButton.Content = clip.UseProxy
