@@ -24,6 +24,7 @@ public sealed record AudioEffectSettings
     public double NoiseReductionStrengthDecibels { get; init; } = 12;
     public AudioNoiseProfile? NoiseProfile { get; init; }
     public bool LimiterEnabled { get; init; }
+    public bool LimiterTruePeak { get; init; }
     public double LimiterCeilingDecibels { get; init; } = -1;
     public double LimiterReleaseMilliseconds { get; init; } = 100;
     public bool DelayEnabled { get; init; }
@@ -346,7 +347,7 @@ public sealed class AudioEffectsSampleProvider : ISampleProvider
                 }
 
                 double outputGain = 1;
-                if (_settings.LimiterEnabled)
+                if (_settings.LimiterEnabled && !_settings.LimiterTruePeak)
                 {
                     double limit = peak > limiterCeiling ? limiterCeiling / peak : 1;
                     _limiterGain = Math.Min(limit, limiterRelease * _limiterGain + (1 - limiterRelease));

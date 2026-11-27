@@ -110,6 +110,7 @@ public sealed class AudioClipPlayer : IDisposable
     private readonly AudioEffectsSampleProvider _effects;
     private readonly Vst3InsertChainSampleProvider _vst3;
     private ChannelMixingSampleProvider _monitorMix;
+    private AudioTruePeakStage _truePeak;
     private AudioMeterSampleProvider _meter;
     private readonly AudioPreviewBus _previewBus;
     private AudioPreviewInput _previewInput;
@@ -155,7 +156,9 @@ public sealed class AudioClipPlayer : IDisposable
             _effects.SetSuppressed(_gainSettings.LinearGain == 0);
             _submix = submix;
             _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
-            _outputGain = new VolumeSampleProvider(_monitorMix);
+            _truePeak = CreateTruePeakStage(project.Effects);
+            _truePeak.SetSuppressed(_gainSettings.LinearGain == 0);
+            _outputGain = new VolumeSampleProvider(_truePeak);
             SetOutputGain(outputGain);
             _meter = new AudioMeterSampleProvider(_outputGain);
             _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
@@ -212,8 +215,10 @@ public sealed class AudioClipPlayer : IDisposable
             _previewInput.Reset();
         }
         _effects.Update(GetCompatibleEffects(project.Effects));
+        _truePeak.Update(project.Effects);
         _vst3.Update(project.Vst3Plugins);
         _effects.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
+        _truePeak.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
         _monitorMix.UpdateMatrix(CreateRouteMatrix(project, mixLayout));
     }
 
@@ -232,7 +237,9 @@ public sealed class AudioClipPlayer : IDisposable
         _previewInput.Dispose();
         _submix = submix;
         _monitorMix = new ChannelMixingSampleProvider(_vst3, CreateRouteMatrix(project, mixLayout));
-        _outputGain = new VolumeSampleProvider(_monitorMix) { Volume = _outputGainLinear };
+        _truePeak = CreateTruePeakStage(project.Effects);
+        _truePeak.SetSuppressed(_soloSuppressed || _gainSettings.LinearGain == 0);
+        _outputGain = new VolumeSampleProvider(_truePeak) { Volume = _outputGainLinear };
         _meter = new AudioMeterSampleProvider(_outputGain);
         _previewInput = submix?.AddInput(_meter) ?? _previewBus.AddInput(_meter);
         _previewInput.SetEnabled(enabled);
@@ -256,6 +263,9 @@ public sealed class AudioClipPlayer : IDisposable
             : CreateMonitorMatrix(ChannelCount, mixLayout, project.Balance,
                 project.SpatialPanEnabled, project.SpatialPanAzimuthDegrees);
 
+    private AudioTruePeakStage CreateTruePeakStage(AudioEffectSettings settings) =>
+        new(_monitorMix, settings, AudioPreviewBus.SampleRate);
+
     public void UpdateGainEnvelope(Func<double, double>? gainEnvelope) =>
         _clip.UpdateGainEnvelope(gainEnvelope);
 
@@ -269,12 +279,14 @@ public sealed class AudioClipPlayer : IDisposable
         _soloSuppressed = suppressed;
         _clip.UpdateSettings(suppressed ? _gainSettings with { LinearGain = 0 } : _gainSettings);
         _effects.SetSuppressed(suppressed || _gainSettings.LinearGain == 0);
+        _truePeak.SetSuppressed(suppressed || _gainSettings.LinearGain == 0);
     }
 
     public void Seek(double sourceSeconds)
     {
         _stretch.Seek(sourceSeconds);
         _effects.Reset();
+        _truePeak.Reset();
         _previewInput.Reset();
     }
 

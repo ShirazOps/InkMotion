@@ -1067,7 +1067,7 @@
                                               ToolTipService.ToolTip="Includes a direct-master stem and one solo stem per bus. Parent stems include their child buses; bus mutes and track solos are honoured, while bus solo states are ignored so every bus is exported." />
                                 <CheckBox x:Name="AudioTruePeakLimiterToggle" Content="Apply a 4× true-peak limiter to exported audio"
                                           Checked="AudioTruePeakLimiter_Changed" Unchecked="AudioTruePeakLimiter_Changed"
-                                          ToolTipService.ToolTip="Output-only limiter, off by default. Uses linked channels, 4× 12-tap windowed-sinc detection, seven frames of look-ahead and a 100 ms release." />
+                                          ToolTipService.ToolTip="Output-only limiter, off by default. Linked channels, 4× 48-tap windowed-sinc detection, 48-frame look-ahead, 100 ms release and 0.8 dB reconstruction headroom. Not a certified meter or a post-encoding peak guarantee." />
                                 <NumberBox x:Name="AudioTruePeakCeilingBox" Header="True-peak ceiling (dBTP)" Value="-1"
                                            Minimum="-24" Maximum="0" SmallChange="0.1" IsEnabled="False" />
                                 <ComboBox x:Name="AudioExportCodecSelector" Header="Audio codec / container" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="AudioExportCodec_Changed">
@@ -1298,10 +1298,12 @@
                                 <NumberBox x:Name="AudioDelayFeedbackBox" Header="Delay feedback (0-0.95)" Minimum="0" Maximum="0.95" Value="0.3" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <NumberBox x:Name="AudioDelayWetBox" Header="Echo gain (0-1; dry unchanged)" Minimum="0" Maximum="1" Value="0.25" SmallChange="0.05" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <TextBlock Text="Independent channel echoes after compression, before the limiter. Dry audio is retained. Delay is rounded to the nearest source-rate sample; seek, mute, bypass or setting changes clear its history. Echoes are cut at the clip end; this does not extend the timeline." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                                <ToggleButton x:Name="AudioLimiterEnabled" Content="Sample-peak limiter" Click="AudioEffectsChanged" />
-                                <NumberBox x:Name="AudioLimiterCeilingBox" Header="Limiter ceiling (dBFS)" Minimum="-24" Maximum="0" Value="-1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
+                                <ToggleButton x:Name="AudioLimiterEnabled" Content="Enable limiter" Click="AudioEffectsChanged" />
+                                <ToggleButton x:Name="AudioLimiterTruePeak" Content="4× true-peak mode (post-inserts)" Click="AudioEffectsChanged" />
+                                <TextBlock Text="Off: legacy sample-peak limiter inside effects. On: linked-channel true-peak limiting after inserts, track pan/resampling or bus gain, before sends/parent routing. Later sends, bus sums and stereo downmix can raise peaks; use export limiting for the final file." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <NumberBox x:Name="AudioLimiterCeilingBox" Header="Limiter ceiling (dBFS / dBTP in true-peak mode)" Minimum="-24" Maximum="0" Value="-1" SmallChange="0.5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
                                 <NumberBox x:Name="AudioLimiterReleaseBox" Header="Limiter release (ms)" Minimum="5" Maximum="2000" Value="100" SmallChange="5" SpinButtonPlacementMode="Compact" ValueChanged="AudioEffectNumberChanged" />
-                                <TextBlock Text="Instant linked gain reduction at the end of this track's chain. No look-ahead or inter-sample/true-peak protection. Downmix, resampling and summed tracks can still exceed full scale." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                <TextBlock Text="True-peak mode uses 48-tap oversampled detection and 48-frame look-ahead, reserving 0.8 dB below the ceiling for reconstruction uncertainty. Sample-peak mode has no look-ahead. Neither guarantees peaks after lossy encoding; this is not a certified meter." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Button Content="Reset effects" Click="ResetAudioEffects_Click" />
                                 <Border Style="{StaticResource DividerStyle}" />
                                 <TextBlock Text="VST3 PLUG-IN INSERTS" Style="{StaticResource SectionHeaderTextStyle}" />
