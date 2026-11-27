@@ -40,6 +40,7 @@
                         <MenuFlyoutItem Text="Add subtitle…" Click="AddSubtitleClip_Click" />
                         <MenuFlyoutItem Text="Import subtitles (SRT, WebVTT, ASS)…" Click="ImportSubtitles_Click" />
                         <MenuFlyoutItem Text="Export subtitles (SRT, WebVTT, ASS)…" Click="ExportSubtitles_Click" />
+                        <MenuFlyoutItem Text="Translate subtitles (local model)…" Click="TranslateSubtitles_Click" />
                         <MenuFlyoutItem Text="Generate subtitles from speech…" Click="GenerateSpeechSubtitles_Click" />
                         <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
                         <MenuFlyoutItem Text="Generate character voice…" Click="GenerateCharacterVoice_Click" />

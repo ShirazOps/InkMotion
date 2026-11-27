@@ -54,3 +54,14 @@ Imported with a warning:
 - Events using vector drawings (`\p1` and above) are skipped. Out-of-range font sizes and positions are clamped.
 
 Export writes `PlayResX: 1920` and `PlayResY: 1080`, one style per distinct font, size, text colour, upcoming colour and background colour (`BorderStyle` 3), `\pos` and `\fad` for every event, and `\r`-separated runs with `\b1`, `\i1`, `\u1`, `\c`/`\1a` and `\k` karaoke durations rounded to centiseconds. Clip rotation is reported. Words without a reveal time that follow timed words take the preceding time, with a warning. Text containing `{`, `}`, `\N`, `\n` or `\h` is rejected because ASS would reinterpret it.
+
+## Local subtitle translation
+
+**Translate subtitles (local model)…** (File menu) translates the selected subtitle track, or every subtitle track with cues when none is selected, using an OpenAI-compatible chat completions server that is already running on this computer:
+
+- Supported servers include [Foundry Local](https://github.com/microsoft/Foundry-Local), Ollama, LM Studio and llama.cpp `llama-server`. Enter the server's `/v1` address; only `localhost` and loopback IP addresses are accepted, and proxies and redirects are not followed.
+- The model must already be installed and, where the server requires it, loaded (for example `foundry model load <model>`). InkMotion never downloads models. **Find models on this server** lists what the server reports; Foundry Local also lists catalogue models that are not downloaded, so check `foundry cache list`. Instruction-tuned models of 7B parameters or more give the most reliable results.
+- Each translation is added as a new track named "*Track* (*Language*)" with the same cue timings, positions, styles and fades. The original tracks are not changed and the edit can be undone.
+- Each cue is sent once (identical cues are translated once) and its reply must keep the cue's line count. Blank lines the source does not contain are ignored. A mismatched reply is retried once with a firmer prompt; if it still does not match, or the server reports an error, nothing is added and the error is shown.
+- Word timing and per-word styling cannot be mapped onto translated words, so translated cues use the whole-cue style; this is reported after translation.
+- Quality depends entirely on the local model. Review the translations before export.
