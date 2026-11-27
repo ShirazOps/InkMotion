@@ -319,9 +319,15 @@ public sealed partial class MainWindow
             {
                 BeginEdit();
                 selected.Clip.Text = input.Text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+                bool clearedRuns = SubtitleRichText.HasRuns(selected.Clip);
+                selected.Clip.SubtitleRuns.Clear();
                 ApplyClipPreview();
                 CommitEdit();
                 UpdateVideoInspector();
+                if (clearedRuns)
+                {
+                    StatusText.Text = "Text changed, so word timing and styling were cleared. Undo restores them.";
+                }
             }
         }
         finally

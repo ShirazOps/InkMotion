@@ -16,6 +16,8 @@ public sealed record SpeechCueOptions
     public double PauseSeconds { get; init; } = 0.8;
     public double CommaPauseSeconds { get; init; } = 0.35;
     public double MinimumConfidence { get; init; } = 0.25;
+    /// <summary>When true, each recognised word becomes a timed run that is revealed as it is spoken.</summary>
+    public bool WordTiming { get; init; }
 }
 
 public sealed record SpeechRecogniserInfo(string CultureName, string DisplayName);
@@ -107,7 +109,27 @@ public static class SpeechSubtitles
                 text = $"Speaker {speakerId + 1}: {text}";
             }
 
-            cues.Add(new SubtitleCueText(start, end, WrapLines(text, options.MaximumLineCharacters)));
+            string wrapped = WrapLines(text, options.MaximumLineCharacters);
+            List<SubtitleRun>? runs = null;
+            if (options.WordTiming)
+            {
+                runs = SubtitleRichText.SplitWords(wrapped);
+                int prefixRuns = runs.Count - group.Count;
+                if (prefixRuns >= 0 && group.All(word => !word.Text.Any(char.IsWhiteSpace)))
+                {
+                    for (int wordIndex = 0; wordIndex < group.Count; wordIndex++)
+                    {
+                        runs[prefixRuns + wordIndex].RevealSeconds =
+                            Math.Clamp(group[wordIndex].StartSeconds - start, 0, end - start);
+                    }
+                }
+                else
+                {
+                    runs = null;
+                }
+            }
+
+            cues.Add(new SubtitleCueText(start, end, wrapped) { Runs = runs });
         }
 
         return cues;

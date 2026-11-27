@@ -248,7 +248,10 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".srt");
+        foreach (string extension in SubtitleFormats.ImportExtensions)
+        {
+            picker.FileTypeFilter.Add(extension);
+        }
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSingleFileAsync();
         if (file is null)
@@ -258,8 +261,9 @@ public sealed partial class MainWindow
 
         try
         {
-            IReadOnlyList<TimelineTrackProject> imported =
-                SubtitleSrt.Import(await FileIO.ReadTextAsync(file), _frameRate);
+            SubtitleImportResult result =
+                SubtitleFormats.Import(file.FileType, await FileIO.ReadTextAsync(file), _frameRate);
+            IReadOnlyList<TimelineTrackProject> imported = result.Tracks;
             BeginEdit();
             for (int index = imported.Count - 1; index >= 0; index--)
             {
@@ -272,12 +276,40 @@ public sealed partial class MainWindow
             RefreshVideoTimeline();
             SeekToCurrentFrame();
             int cueCount = imported.Sum(track => track.Clips.Count);
-            StatusText.Text = $"Imported {cueCount} subtitle cue(s) from {file.Name} into {imported.Count} track(s). Cue times were aligned to {_frameRate:0.###} fps.";
+            StatusText.Text = $"Imported {cueCount} subtitle cue(s) from {file.Name} into {imported.Count} track(s). Cue times were aligned to {_frameRate:0.###} fps." +
+                (result.Warnings.Count > 0 ? $" {result.Warnings.Count} construct(s) could not be represented exactly." : string.Empty);
+            await ShowSubtitleWarningsAsync($"Imported {file.Name} with changes", result.Warnings);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
         {
             StatusText.Text = $"Could not import subtitles: {ex.Message}";
         }
+    }
+
+    private async Task ShowSubtitleWarningsAsync(string title, IReadOnlyList<string> warnings)
+    {
+        if (warnings.Count == 0 || Content.XamlRoot is null)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Content.XamlRoot,
+            Title = title,
+            Content = new ScrollViewer
+            {
+                MaxHeight = 360,
+                Content = new TextBlock
+                {
+                    Text = string.Join("\n", warnings.Select(warning => "• " + warning)),
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true,
+                },
+            },
+            CloseButtonText = "OK",
+        };
+        await dialog.ShowAsync();
     }
 
     private async void ExportSubtitles_Click(object sender, RoutedEventArgs e)
@@ -296,6 +328,8 @@ public sealed partial class MainWindow
             SuggestedFileName = "subtitles",
         };
         picker.FileTypeChoices.Add("SubRip subtitles", new List<string> { ".srt" });
+        picker.FileTypeChoices.Add("WebVTT subtitles", new List<string> { ".vtt" });
+        picker.FileTypeChoices.Add("Advanced SubStation Alpha subtitles", new List<string> { ".ass" });
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null)
@@ -305,8 +339,12 @@ public sealed partial class MainWindow
 
         try
         {
-            await FileIO.WriteTextAsync(file, SubtitleSrt.Export(tracks, _frameRate));
-            StatusText.Text = $"Exported subtitles to {file.Name}.";
+            SubtitleExportResult result = SubtitleFormats.Export(file.FileType, tracks, _frameRate);
+            await FileIO.WriteTextAsync(file, result.Content);
+            StatusText.Text = result.Warnings.Count > 0
+                ? $"Exported subtitles to {file.Name}. {result.Warnings.Count} feature(s) could not be written exactly."
+                : $"Exported subtitles to {file.Name}.";
+            await ShowSubtitleWarningsAsync($"Exported {file.Name} with changes", result.Warnings);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
         {
@@ -1311,7 +1349,8 @@ public sealed partial class MainWindow
                     TimelineCompositor.DrawTitle(
                         session, layer.Clip, width, height, opacity,
                         VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate),
-                        seconds, _videoTracks);
+                        seconds, _videoTracks,
+                        seconds - VideoTimelineEditing.GetStartSeconds(layer.Clip, _frameRate));
                     break;
             }
         }
@@ -6207,6 +6246,11 @@ public sealed partial class MainWindow
         }
 
         location.Clip.Text = text;
+        if (SubtitleRichText.HasRuns(location.Clip))
+        {
+            location.Clip.SubtitleRuns.Clear();
+            StatusText.Text = "Text changed, so word timing and styling were cleared. Undo restores them.";
+        }
         ApplyClipPreview();
     }
 

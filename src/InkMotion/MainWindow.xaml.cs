@@ -2967,6 +2967,7 @@ public sealed partial class MainWindow : Window
         _audioMasterClosed = true;
         ClearAudioMasterAnalysis();
         CancelSpeechSubtitles();
+        CancelSubtitleTranslation();
         SaveEditorLayout();
         _exportJobsClosed = true;
         _exportJobsTimer?.Stop();
