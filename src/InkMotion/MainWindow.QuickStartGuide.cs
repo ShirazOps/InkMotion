@@ -218,6 +218,8 @@ public sealed partial class MainWindow
             StopQuickStartGuide();
             e.Handled = true;
         }
+        if (!_quickStartGuide.IsActive)
+            HandleVideoEditingShortcut(e);
     }
 
     private void StopQuickStartGuide()

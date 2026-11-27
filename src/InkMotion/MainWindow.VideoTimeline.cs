@@ -107,7 +107,13 @@ public sealed partial class MainWindow
     private string? _selectedTimelineClipId;
     private double _timelinePixelsPerSecond = 60;
     private TimelineDrag? _timelineDrag;
+    private string? _timelineClipActionWarning;
     private bool _isScrubbingTimeline;
+    private readonly TimelineScrubRequests _timelineScrubRequests = new();
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _timelineScrubTimer;
+    private TimelineMarkerProject? _draggedTimelineMarker;
+    private int _markerDragFrame;
+    private double _markerGrabOffsetSeconds;
     private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
     private TimelineClipProject? _draggedCurveClip;
     private VideoColourCurveChannel _draggedCurveChannel;
@@ -131,6 +137,9 @@ public sealed partial class MainWindow
 
     private void InitialiseVideoTimeline()
     {
+        _timelineScrubTimer = DispatcherQueue.CreateTimer();
+        _timelineScrubTimer.Interval = TimeSpan.FromMilliseconds(33);
+        _timelineScrubTimer.Tick += (_, _) => FlushTimelineScrub();
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
         _previewVideoTransform.ScaleX = _previewVideoTransform.ScaleY = 1;
         PreviewPlayer.RenderTransformOrigin = new Point(0, 0);
@@ -2009,6 +2018,7 @@ public sealed partial class MainWindow
         TrackLayoutContent.Width = width;
         TrackLayoutContent.Height = contentHeight;
         InkTrackCanvas.Width = width;
+        LayoutAudioClips();
         foreach (Grid lane in AudioTracksPanel.Children.OfType<Grid>())
         {
             lane.Width = width;
@@ -2085,7 +2095,8 @@ public sealed partial class MainWindow
 
         foreach (TimelineMarkerProject marker in _timelineMarkers)
         {
-            float x = (float)((marker.Frame - 1d) / _frameRate * _timelinePixelsPerSecond);
+            int markerFrame = ReferenceEquals(marker, _draggedTimelineMarker) ? _markerDragFrame : marker.Frame;
+            float x = (float)((markerFrame - 1d) / _frameRate * _timelinePixelsPerSecond);
             if (x >= left - 4 && x <= right + 4)
             {
                 var colour = Color.FromArgb(255, 0xFF, 0xCB, 0x66);
@@ -2094,13 +2105,6 @@ public sealed partial class MainWindow
             }
         }
 
-        float playheadX = (float)(_playheadFramePosition / _frameRate * _timelinePixelsPerSecond);
-        if (playheadX >= left - 6 && playheadX <= right + 6)
-        {
-            var playheadColour = Color.FromArgb(255, 0xFF, 0x4D, 0x4F);
-            session.DrawLine(playheadX, 0, playheadX, (float)VideoTimelineCanvas.ActualHeight, playheadColour, 1.5f);
-            session.FillRectangle(playheadX - 4, 0, 8, 7, playheadColour);
-        }
     }
 
     private void DrawTimelineClip(
@@ -2394,6 +2398,25 @@ public sealed partial class MainWindow
         UpdateVideoInspector();
     }
 
+    private void QueueTimelineScrub(double seconds)
+    {
+        int frame = Math.Max(0, (int)Math.Floor(seconds * _frameRate + 1e-6));
+        _timelineScrubRequests.Request(frame);
+        _playheadFramePosition = frame;
+        UpdateTrackPlayheads();
+        _timelineScrubTimer?.Start();
+    }
+
+    private void FlushTimelineScrub()
+    {
+        if (!_timelineScrubRequests.TryTake(out int frame))
+            return;
+        _playheadFramePosition = frame;
+        SelectFrame(InkTimeline.GetFrameIndexAtPosition(_frames, frame), seekVideo: false, preservePlayhead: true);
+        SeekToCurrentFrame(updateTimeline: false);
+        CompositionSurface.Invalidate();
+    }
+
     private void VideoTimelineCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         Microsoft.UI.Input.PointerPoint point = e.GetCurrentPoint(VideoTimelineCanvas);
@@ -2405,6 +2428,7 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
+        VideoTimelineFocusTarget.Focus(FocusState.Programmatic);
         e.Handled = true;
         VideoTimelineCanvas.CapturePointer(e.Pointer);
         double seconds = Math.Max(0, point.Position.X / _timelinePixelsPerSecond);
@@ -2412,7 +2436,14 @@ public sealed partial class MainWindow
         if (index < 0)
         {
             _isScrubbingTimeline = true;
-            MoveTimelinePlayhead(seconds);
+            _timelineScrubRequests.Reset();
+            _draggedTimelineMarker = _timelineMarkers
+                .Where(marker => Math.Abs((marker.Frame - 1d) / _frameRate - seconds) * _timelinePixelsPerSecond <= 6)
+                .MinBy(marker => Math.Abs((marker.Frame - 1d) / _frameRate - seconds));
+            _markerGrabOffsetSeconds = _draggedTimelineMarker is null
+                ? 0 : seconds - (_draggedTimelineMarker.Frame - 1d) / _frameRate;
+            _markerDragFrame = _draggedTimelineMarker?.Frame ?? 1;
+            QueueTimelineScrub(Math.Max(0, seconds - _markerGrabOffsetSeconds));
             return;
         }
 
@@ -2424,6 +2455,7 @@ public sealed partial class MainWindow
             / _timelinePixelsPerSecond;
         bool edgeTool = _timelineToolMode is TimelineToolMode.Select or TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll;
         if (edgeTool && SelectedTimelineClip is { } selected && selected.Track == track &&
+            (location is null || location.Clip == selected.Clip) &&
             (Math.Abs(seconds - VideoTimelineEditing.GetStartSeconds(selected.Clip, _frameRate)) <= handleTolerance ||
                 Math.Abs(seconds - VideoTimelineEditing.GetEndSeconds(selected.Clip, track.Kind, _frameRate)) <= handleTolerance))
         {
@@ -2433,14 +2465,18 @@ public sealed partial class MainWindow
         {
             _selectedTimelineClipId = null;
             _isScrubbingTimeline = true;
+            _timelineScrubRequests.Reset();
             RefreshVideoTrackHeaders();
-            MoveTimelinePlayhead(seconds);
+            UpdateVideoInspector();
+            InvalidateVideoTimeline();
+            QueueTimelineScrub(seconds);
             return;
         }
 
         _selectedTimelineClipId = location.Clip.Id;
         double start = VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate);
         double end = VideoTimelineEditing.GetEndSeconds(location.Clip, track.Kind, _frameRate);
+        handleTolerance = Math.Min(handleTolerance, (end - start) / 4);
         double startDistance = Math.Abs(seconds - start);
         double endDistance = Math.Abs(seconds - end);
         bool nearStart = _timelineToolMode != TimelineToolMode.Roll && startDistance <= handleTolerance;
@@ -2475,7 +2511,7 @@ public sealed partial class MainWindow
             {
                 int bladeFrame = Math.Max(1, (int)Math.Round(seconds * _frameRate) + 1);
                 BeginEdit();
-                TimelineClipProject? right = VideoTimelineEditing.Split(track, location.Clip, bladeFrame, _frameRate);
+                TimelineClipProject? right = SplitTimelineClip(location, bladeFrame);
                 if (right is not null)
                 {
                     MarkEditChanged();
@@ -2483,12 +2519,13 @@ public sealed partial class MainWindow
                     _selectedTimelineClipId = right.Id;
                     RefreshVideoTimeline();
                     SeekToCurrentFrame();
-                    StatusText.Text = $"Split {VideoTimelineEditing.KindLabel(track.Kind)} at frame {bladeFrame}.";
+                    StatusText.Text = $"Split {VideoTimelineEditing.KindLabel(track.Kind)} at frame {bladeFrame}." +
+                        (_timelineClipActionWarning is null ? string.Empty : $" {_timelineClipActionWarning}");
                 }
                 else
                 {
                     CommitEdit();
-                    StatusText.Text = "Blade cuts must be inside a clip, away from its edges.";
+                    StatusText.Text = "Blade cuts must be inside a clip, away from its edges. Linked audio needs a known source length or out point.";
                 }
             }
             return;
@@ -2545,7 +2582,7 @@ public sealed partial class MainWindow
         double seconds = Math.Max(0, position.X / _timelinePixelsPerSecond);
         if (_isScrubbingTimeline)
         {
-            MoveTimelinePlayhead(seconds);
+            MoveTimelineScrubPointer(seconds);
             return;
         }
 
@@ -2623,7 +2660,7 @@ public sealed partial class MainWindow
             drag.LastChange = change;
             drag.Moved = true;
             drag.Blocked = false;
-            MarkEditChanged();
+            UnsavedIndicator.Visibility = Visibility.Visible;
             InvalidateVideoTimeline();
             CompositionSurface.Invalidate();
             UpdateVideoInspector();
@@ -2699,7 +2736,7 @@ public sealed partial class MainWindow
         if (moved)
         {
             drag.Moved = true;
-            MarkEditChanged();
+            UnsavedIndicator.Visibility = Visibility.Visible;
             InvalidateVideoTimeline();
             CompositionSurface.Invalidate();
         }
@@ -2707,6 +2744,8 @@ public sealed partial class MainWindow
 
     private void VideoTimelineCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_isScrubbingTimeline)
+            MoveTimelineScrubPointer(Math.Max(0, e.GetCurrentPoint(VideoTimelineCanvas).Position.X / _timelinePixelsPerSecond));
         EndTimelinePointer();
         VideoTimelineCanvas.ReleasePointerCapture(e.Pointer);
     }
@@ -2718,6 +2757,24 @@ public sealed partial class MainWindow
 
     private void EndTimelinePointer()
     {
+        if (_isScrubbingTimeline)
+        {
+            FlushTimelineScrub();
+            _timelineScrubTimer?.Stop();
+            _timelineScrubRequests.Reset();
+            if (_draggedTimelineMarker is { } marker && marker.Frame != _markerDragFrame)
+            {
+                BeginEdit();
+                marker.Frame = _markerDragFrame;
+                MarkEditChanged();
+                CommitEdit();
+                RefreshMarkers(marker.Id);
+            }
+            _draggedTimelineMarker = null;
+            _markerGrabOffsetSeconds = 0;
+            UpdateVideoInspector();
+            InvalidateVideoTimeline();
+        }
         _isScrubbingTimeline = false;
         if (_timelineDrag is not TimelineDrag drag)
         {
@@ -2730,6 +2787,8 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (drag.Moved)
+            MarkEditChanged();
         CommitEdit();
         if (drag.Moved)
         {
@@ -2751,6 +2810,28 @@ public sealed partial class MainWindow
             : drag.Operation == TimelineDragOperation.Move
                 ? $"Moved clip to {FormatTimelineTime(VideoTimelineEditing.GetStartSeconds(drag.Clip, _frameRate), true)} on {drag.Track.Name}."
                 : $"{drag.Operation} applied on {drag.Track.Name}.";
+    }
+
+    private void MoveTimelineScrubPointer(double seconds)
+    {
+        seconds = Math.Max(0, seconds - _markerGrabOffsetSeconds);
+        if (_draggedTimelineMarker is not null)
+        {
+            int frame = Math.Max(1, (int)Math.Floor(seconds * _frameRate + 1e-6) + 1);
+            if (_markerDragFrame != frame)
+            {
+                InvalidateMarkerPosition(_markerDragFrame);
+                _markerDragFrame = frame;
+                InvalidateMarkerPosition(frame);
+            }
+        }
+        QueueTimelineScrub(seconds);
+    }
+
+    private void InvalidateMarkerPosition(int frame)
+    {
+        double x = (frame - 1d) / _frameRate * _timelinePixelsPerSecond;
+        VideoTimelineCanvas.Invalidate(new Rect(Math.Max(0, x - 4), 0, 9, VideoTimelineCanvas.Height));
     }
 
     private void RefreshVideoTrackHeaders()
@@ -3027,11 +3108,13 @@ public sealed partial class MainWindow
             return;
         }
 
+        _timelineClipActionWarning = null;
         BeginEdit();
         if (action(location))
         {
             MarkEditChanged();
-            StatusText.Text = success;
+            StatusText.Text = success +
+                (_timelineClipActionWarning is null ? string.Empty : $" {_timelineClipActionWarning}");
         }
         else
         {
@@ -3071,12 +3154,13 @@ public sealed partial class MainWindow
     private void SplitClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location =>
         {
-            TimelineClipProject? right = VideoTimelineEditing.Split(
-                location.Track, location.Clip, PlayheadFrameNumber, _frameRate);
+            TimelineClipProject? right = SplitTimelineClip(location, PlayheadFrameNumber);
+            if (right is not null)
+                _selectedTimelineClipId = right.Id;
             return right is not null;
         },
-        "Split the clip at the playhead.",
-        "Move the playhead inside the selected clip to split it.");
+        "Split the clip and any overlapping linked audio at the playhead; the right segment is selected.",
+        "Move the playhead inside the selected clip to split it. Linked audio needs a known source length or out point.");
 
     private void SlipVideoClip_Click(object sender, RoutedEventArgs e)
     {
@@ -3220,14 +3304,14 @@ public sealed partial class MainWindow
         "No whole-frame gap can be closed. Use an unlocked valid track with known clip durations; fractional-frame gaps may remain.");
 
     private void DeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.Delete(location.Track, location.Clip),
-        "Clip deleted.",
+        location => DeleteTimelineClip(location, ripple: false),
+        "Clip and any linked audio deleted; the source files are unchanged.",
         "Could not delete the clip.");
 
     private void RippleDeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.RippleDelete(location.Track, location.Clip, _frameRate),
-        "Clip deleted and the gap closed.",
-        "Could not delete the clip.");
+        location => DeleteTimelineClip(location, ripple: true),
+        "Clip and any linked audio deleted; later clips and their linked audio shifted to close the gap.",
+        "Could not delete the clip without moving linked audio outside the timeline.");
 
     private void UpdateVideoInspector()
     {

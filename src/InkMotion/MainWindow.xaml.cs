@@ -2432,7 +2432,7 @@ public sealed partial class MainWindow : Window
         UpdateFrameStatus();
     }
 
-    private void SeekToCurrentFrame()
+    private void SeekToCurrentFrame(bool updateTimeline = true)
     {
         TimeSpan position = TimeSpan.FromSeconds(_playheadFramePosition / _frameRate);
         if (_isPlaying && _compoundPlayback.Count > 0)
@@ -2450,7 +2450,10 @@ public sealed partial class MainWindow : Window
 
         SyncAudioTracks(position, startPlayback: _isPlaying);
         SyncVideoPreview(position.TotalSeconds, forceSeek: true);
-        InvalidateVideoTimeline();
+        if (updateTimeline)
+            InvalidateVideoTimeline();
+        else
+            UpdateTrackPlayheads();
         FollowTrackPlayhead();
     }
 
@@ -2842,15 +2845,22 @@ public sealed partial class MainWindow : Window
         SyncAudioTracks(position, startPlayback: true);
         SyncVideoPreview(position.TotalSeconds, forceSeek: false);
         int framePosition = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
+        if (framePosition == _playheadFramePosition)
+        {
+            return;
+        }
+        int previousFrameCount = _frames.Count;
         EnsureFrameExists(framePosition);
         _playheadFramePosition = framePosition;
         SelectFrame(
             InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
             seekVideo: false,
             preservePlayhead: true);
-        UpdateFrameReadout();
         CompositionSurface.Invalidate();
-        InvalidateVideoTimeline();
+        if (_frames.Count != previousFrameCount)
+            InvalidateVideoTimeline();
+        else
+            UpdateTrackPlayheads();
     }
 
     private void EnsureFrameExists(int framePosition)
@@ -2987,6 +2997,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _timelineScrubTimer?.Stop();
+        _timelineScrubRequests.Reset();
         CloseLanForWindow();
         _colourImportClosed = true;
         _colourImportCancellation?.Cancel();

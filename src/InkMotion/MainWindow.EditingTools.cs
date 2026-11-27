@@ -1,10 +1,55 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Windows.System;
 
 namespace InkMotion;
 
 public sealed partial class MainWindow
 {
+    private void HandleVideoEditingShortcut(KeyRoutedEventArgs e)
+    {
+        if (e.Handled || _workspace != "Video" || !VideoActionBar.IsEnabled)
+            return;
+        DependencyObject? focused = FocusManager.GetFocusedElement(Content.XamlRoot) as DependencyObject;
+        for (DependencyObject? element = focused; element is not null; element = VisualTreeHelper.GetParent(element))
+        {
+            if (element is TextBox or RichEditBox or PasswordBox or NumberBox or ComboBox or Slider or ContentDialog)
+                return;
+        }
+        bool control = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        bool shift = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        bool alt = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu) &
+            Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (alt)
+            return;
+        RoutedEventHandler? command = control ? e.Key switch
+        {
+            VirtualKey.C when !shift => CopyVideoClip_Click,
+            VirtualKey.X when !shift => CutVideoClip_Click,
+            VirtualKey.V when !shift => PasteVideoClip_Click,
+            VirtualKey.B when !shift => SplitClip_Click,
+            VirtualKey.Z when !shift => Undo_Click,
+            VirtualKey.Z when shift => Redo_Click,
+            VirtualKey.Y => Redo_Click,
+            _ => null,
+        } : e.Key switch
+        {
+            VirtualKey.Delete => DeleteClip_Click,
+            VirtualKey.V => (_, args) => TimelineToolMode_Click(SelectTimelineToolButton, args),
+            VirtualKey.B => (_, args) => TimelineToolMode_Click(BladeTimelineToolButton, args),
+            _ => null,
+        };
+        if (command is null)
+            return;
+        PausePlayback();
+        command(VideoTimelineFocusTarget, new RoutedEventArgs());
+        e.Handled = true;
+    }
+
     private void InkAlphaLock_Click(object sender, RoutedEventArgs e)
     {
         if (CurrentInkLayer.IsLocked)
@@ -66,6 +111,8 @@ public sealed partial class MainWindow
     private float[] _copiedAudioPeaks = [];
     private TimelineClipProject? _copiedVideo;
     private TimelineTrackKind _copiedVideoKind;
+    private AudioTrackProject? _copiedVideoAudio;
+    private float[] _copiedVideoAudioPeaks = [];
 
     private void ClearEditingClipboard()
     {
@@ -78,6 +125,8 @@ public sealed partial class MainWindow
         _copiedAudio = null;
         _copiedAudioPeaks = [];
         _copiedVideo = null;
+        _copiedVideoAudio = null;
+        _copiedVideoAudioPeaks = [];
         PasteCelButton.IsEnabled = false;
         PasteAudioClipButton.IsEnabled = false;
         PasteVideoClipButton.IsEnabled = false;
@@ -154,8 +203,19 @@ public sealed partial class MainWindow
 
         _copiedVideo = VideoTimelineEditing.Clone(selected.Clip);
         _copiedVideoKind = selected.Track.Kind;
+        AudioTrackRuntime? linked = _audioTracks.FirstOrDefault(audio => audio.Project.LinkedVideoClipId == selected.Clip.Id);
+        _copiedVideoAudio = linked is null ? null : AudioClipEditing.Clone(linked.Project);
+        _copiedVideoAudioPeaks = linked?.WaveformPeaks ?? [];
         PasteVideoClipButton.IsEnabled = true;
-        StatusText.Text = "Clip copied with its source range and properties.";
+        StatusText.Text = "Clip copied with its source range, properties and any linked audio.";
+    }
+
+    private void CutVideoClip_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetEditableClip(out _))
+            return;
+        CopyVideoClip_Click(sender, e);
+        DeleteClip_Click(sender, e);
     }
 
     private void PasteVideoClip_Click(object sender, RoutedEventArgs e)
@@ -166,7 +226,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        PlaceVideoCopy(_copiedVideo, _copiedVideoKind, PlayheadFrameNumber);
+        PlaceVideoCopy(_copiedVideo, _copiedVideoKind, PlayheadFrameNumber, _copiedVideoAudio, _copiedVideoAudioPeaks);
     }
 
     private void DuplicateVideoClip_Click(object sender, RoutedEventArgs e)
@@ -177,23 +237,84 @@ public sealed partial class MainWindow
         }
 
         int start = (int)Math.Ceiling(VideoTimelineEditing.GetEndSeconds(selected.Clip, selected.Track.Kind, _frameRate) * _frameRate - 1e-6) + 1;
-        PlaceVideoCopy(selected.Clip, selected.Track.Kind, start);
+        AudioTrackRuntime? linked = _audioTracks.FirstOrDefault(audio => audio.Project.LinkedVideoClipId == selected.Clip.Id);
+        PlaceVideoCopy(selected.Clip, selected.Track.Kind, start, linked?.Project, linked?.WaveformPeaks);
     }
 
-    private void PlaceVideoCopy(TimelineClipProject source, TimelineTrackKind kind, int startFrame)
+    private void PlaceVideoCopy(TimelineClipProject source, TimelineTrackKind kind, int startFrame,
+        AudioTrackProject? linkedAudio = null, float[]? peaks = null)
     {
         PausePlayback();
         FinishActiveEdit();
-        BeginEdit();
         TimelineClipProject copy = VideoTimelineEditing.CopyForPlacement(source, startFrame);
+        if (!LinkedAudioVideoEditing.TryCopyLinkedAudio(source, copy, linkedAudio, out AudioTrackProject? audioCopy))
+        {
+            StatusText.Text = "The linked audio would start outside the timeline. Paste later or unlink the clips before copying.";
+            return;
+        }
+        BeginEdit();
         TimelineTrackProject track = VideoTimelineEditing.PlaceClip(_videoTracks, kind, SelectedTimelineTrack, copy, _frameRate);
+        AudioTrackRuntime? runtime = null;
+        if (audioCopy is not null)
+        {
+            runtime = new AudioTrackRuntime(audioCopy) { WaveformPeaks = peaks ?? [] };
+            OpenAudioPlayer(runtime);
+            _audioTracks.Add(runtime);
+            RefreshAudioTracks();
+            UpdateSelectedAudioTrack();
+        }
         _selectedTimelineTrackId = track.Id;
         _selectedTimelineClipId = copy.Id;
         MarkEditChanged();
         CommitEdit();
         RefreshVideoTimeline();
         SeekToCurrentFrame();
-        StatusText.Text = "Clip copy placed; overlapping content is preserved on another track.";
+        StatusText.Text = runtime?.LoadError is { } error
+            ? $"Clip copy placed, but its linked audio could not be loaded: {error}"
+            : "Clip copy placed with any linked audio; overlapping content is preserved on another track.";
+    }
+
+    private TimelineClipProject? SplitTimelineClip(TimelineClipLocation location, int frame)
+    {
+        _timelineClipActionWarning = null;
+        AudioTrackRuntime? linked = _audioTracks.FirstOrDefault(audio => audio.Project.LinkedVideoClipId == location.Clip.Id);
+        TimelineClipProject? right = LinkedAudioVideoEditing.SplitVideo(location.Track, location.Clip, frame,
+            _frameRate, linked?.Project, linked?.SourceDurationSeconds ?? 0, out AudioTrackProject? rightAudio);
+        if (right is null)
+            return null;
+        if (linked is not null)
+        {
+            UpdateAudioTrackPlayers(linked);
+            if (rightAudio is not null)
+            {
+                var runtime = new AudioTrackRuntime(rightAudio) { WaveformPeaks = linked.WaveformPeaks };
+                OpenAudioPlayer(runtime);
+                _audioTracks.Insert(_audioTracks.IndexOf(linked) + 1, runtime);
+                _timelineClipActionWarning = runtime.LoadError is { } rightError
+                    ? $"Linked audio could not be loaded: {rightError}" : null;
+            }
+            _timelineClipActionWarning ??= linked.LoadError is { } leftError
+                ? $"Linked audio is unavailable: {leftError}" : null;
+            RefreshAudioTracks();
+            UpdateSelectedAudioTrack();
+        }
+        return right;
+    }
+
+    private bool DeleteTimelineClip(TimelineClipLocation location, bool ripple)
+    {
+        List<AudioTrackProject> audio = _audioTracks.Select(runtime => runtime.Project).ToList();
+        if (!LinkedAudioVideoEditing.DeleteVideo(location.Track, location.Clip, audio, _frameRate, ripple))
+            return false;
+        foreach (AudioTrackRuntime removed in _audioTracks.Where(runtime => !audio.Contains(runtime.Project)).ToArray())
+        {
+            _audioTracks.Remove(removed);
+            removed.Dispose();
+        }
+        _selectedAudioTrackIndex = _audioTracks.Count == 0 ? -1 : Math.Clamp(_selectedAudioTrackIndex, 0, _audioTracks.Count - 1);
+        RefreshAudioTracks();
+        UpdateSelectedAudioTrack();
+        return true;
     }
 
     private void CopyAudioClip_Click(object sender, RoutedEventArgs e)

@@ -5,6 +5,72 @@ namespace InkMotion.Tests;
 public sealed class ClipClipboardTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SplitVideo_CopyMoveCutPasteAndSnapshotsKeepIndependentRanges(bool reversed)
+    {
+        var video = new TimelineClipProject
+        {
+            SourcePath = "scene.mp4", SourceDurationSeconds = 20, SourceInSeconds = 2, SourceOutSeconds = 12,
+            StartFrame = 25, IsReversed = reversed, ProxyPath = "proxy.mp4", UseProxy = true,
+            BlurAmount = 0.2,
+            TransformKeyframes =
+            [
+                new() { FrameOffset = 0, X = 0.2, Y = 0.3 },
+                new() { FrameOffset = 96, Scale = 1.5, X = 0.6, Y = 0.7, RotationDegrees = 20 },
+            ],
+        };
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [video] };
+        Assert.True(VideoTimelineEditing.TrySetSpeedRamp(track, video, [new(0, 1), new(1, 3)], 24));
+        var audio = new AudioTrackProject
+        {
+            AudioPath = "dialogue.wav", LinkedVideoClipId = video.Id, StartFrame = 31,
+            SourceInSeconds = 1, SourceOutSeconds = 7, TempoPercent = 125, Volume = 0.7,
+        };
+        var project = new EditorProject { VideoTracks = [track], AudioTracks = [audio] };
+        string beforeSplit = EditorProjectSerialiser.Serialise(project);
+        double sourceAtFour = VideoTimelineEditing.GetSourceBoundarySeconds(video, 4, 24);
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            LinkedAudioVideoEditing.SplitVideo(track, video, 73, 24, audio, 10, out AudioTrackProject? rightAudio));
+        project.AudioTracks.Add(Assert.IsType<AudioTrackProject>(rightAudio));
+        Assert.Same(video, VideoTimelineEditing.FindClipAt(track, 3 - 1d / 24, 24)!.Clip);
+        Assert.Same(right, VideoTimelineEditing.FindClipAt(track, 3, 24)!.Clip);
+        Assert.Equal(sourceAtFour, VideoTimelineEditing.GetSourceBoundarySeconds(right, 4, 24), 9);
+        Assert.Equal(3.1875, rightAudio.SourceInSeconds, 9);
+        Assert.Equal(rightAudio.SourceInSeconds, audio.SourceOutSeconds);
+        Assert.Equal(right.Id, rightAudio.LinkedVideoClipId);
+        TimelineClipProject clipboard = VideoTimelineEditing.Clone(right);
+        AudioTrackProject audioClipboard = AudioClipEditing.Clone(rightAudio);
+        string beforeCut = EditorProjectSerialiser.Serialise(project);
+        Assert.True(LinkedAudioVideoEditing.DeleteVideo(track, right, project.AudioTracks, 24));
+        Assert.Single(track.Clips);
+        Assert.Single(project.AudioTracks);
+
+        TimelineClipProject paste = VideoTimelineEditing.CopyForPlacement(clipboard, 193);
+        Assert.True(LinkedAudioVideoEditing.TryCopyLinkedAudio(clipboard, paste, audioClipboard, out AudioTrackProject? pastedAudio));
+        Assert.Same(track, VideoTimelineEditing.PlaceClip(project.VideoTracks, track.Kind, track, paste, 24));
+        project.AudioTracks.Add(Assert.IsType<AudioTrackProject>(pastedAudio));
+        Assert.Equal(193, pastedAudio.StartFrame);
+        Assert.True(LinkedAudioVideoEditing.TryMoveVideo(track, paste, 241, project.AudioTracks, 24));
+        Assert.Equal(241, pastedAudio.StartFrame);
+        Assert.Equal(clipboard.SourceInSeconds, paste.SourceInSeconds);
+        Assert.Equal(clipboard.SourceOutSeconds, paste.SourceOutSeconds);
+        Assert.Equal(clipboard.ProxyPath, paste.ProxyPath);
+        Assert.Equal(clipboard.BlurAmount, paste.BlurAmount);
+        Assert.Equal(clipboard.SpeedRamp, paste.SpeedRamp);
+        Assert.NotSame(clipboard.SpeedRamp, paste.SpeedRamp);
+        Assert.NotSame(clipboard.TransformKeyframes, paste.TransformKeyframes);
+        Assert.NotEqual(clipboard.Id, paste.Id);
+        Assert.Equal(0.7, pastedAudio.Volume);
+        Assert.Null(LinkedAudioVideoEditing.Validate(project.VideoTracks, project.AudioTracks));
+        Assert.Null(VideoTimelineEditing.Validate(project.VideoTracks, 24));
+        Assert.Equal(2, EditorProjectSerialiser.Deserialise(beforeCut).VideoTracks[0].Clips.Count);
+        Assert.Equal(2, EditorProjectSerialiser.Deserialise(beforeCut).AudioTracks.Count);
+        Assert.Single(EditorProjectSerialiser.Deserialise(beforeSplit).VideoTracks[0].Clips);
+        Assert.Equal(2, EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project)).AudioTracks.Count);
+    }
+
+    [Theory]
     [InlineData(TimelineTrackKind.Video)]
     [InlineData(TimelineTrackKind.Image)]
     [InlineData(TimelineTrackKind.Text)]

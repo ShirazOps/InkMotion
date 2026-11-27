@@ -166,6 +166,8 @@
                     <AppBarElementContainer><Button x:Name="ToggleVideoProxyButton" Content="Use proxy" Click="ToggleVideoProxy_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarSeparator />
                     <AppBarElementContainer><Button Content="Copy clip" Click="CopyVideoClip_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Cut clip" Click="CutVideoClip_Click" /></AppBarElementContainer>
+                    <AppBarElementContainer><Button Content="Delete clip" Click="DeleteClip_Click" /></AppBarElementContainer>
                     <AppBarElementContainer><Button x:Name="PasteVideoClipButton" Content="Paste at playhead" Click="PasteVideoClip_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarElementContainer><Button x:Name="LinkAudioVideoButton" Content="Link selected audio" Click="LinkSelectedAudioVideo_Click" IsEnabled="False" /></AppBarElementContainer>
                     <AppBarElementContainer><Button x:Name="UnlinkAudioVideoButton" Content="Unlink selected audio" Click="UnlinkSelectedAudioVideo_Click" IsEnabled="False" /></AppBarElementContainer>
@@ -1760,6 +1762,9 @@
                         <ScrollViewer x:Name="VideoTimelineScroller" Grid.Column="1" VerticalAlignment="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" SizeChanged="VideoTimelineScroller_SizeChanged">
                             <Grid x:Name="TrackLayoutContent" HorizontalAlignment="Left" VerticalAlignment="Top">
                                 <StackPanel>
+                                    <ContentControl x:Name="VideoTimelineFocusTarget" IsTabStop="True"
+                                                    HorizontalContentAlignment="Left" VerticalContentAlignment="Top"
+                                                    AutomationProperties.Name="Video timeline">
                                     <canvas:CanvasVirtualControl
                                         x:Name="VideoTimelineCanvas"
                                         HorizontalAlignment="Left"
@@ -1773,6 +1778,7 @@
                                         PointerMoved="VideoTimelineCanvas_PointerMoved"
                                         PointerReleased="VideoTimelineCanvas_PointerReleased"
                                         PointerCaptureLost="VideoTimelineCanvas_PointerCaptureLost" />
+                                    </ContentControl>
                                     <StackPanel x:Name="AudioTracksPanel" />
                                     <canvas:CanvasVirtualControl
                                         x:Name="InkTrackCanvas"
@@ -1795,6 +1801,7 @@
                                     </canvas:CanvasVirtualControl>
                                 </StackPanel>
                                 <Rectangle x:Name="TrackPlayheadLine" Width="2" Fill="#FF4D4F" HorizontalAlignment="Left" VerticalAlignment="Stretch" IsHitTestVisible="False" />
+                                <Rectangle x:Name="TrackPlayheadHead" Width="8" Height="7" Fill="#FF4D4F" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False" />
                             </Grid>
                         </ScrollViewer>
                     </Grid>

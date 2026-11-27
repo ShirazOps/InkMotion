@@ -29,7 +29,25 @@ public sealed partial class MainWindow
             var clipProperties = new MenuFlyoutItem { Text = $"{VideoTimelineEditing.KindLabel(track.Kind)} clip properties..." };
             clipProperties.Click += (_, _) => ShowTimelineClipProperties(track, clip);
             menu.Items.Add(clipProperties);
+            menu.Items.Add(new MenuFlyoutSeparator());
+            AddClipCommand("Copy", "Ctrl+C", CopyVideoClip_Click, true);
+            AddClipCommand("Cut", "Ctrl+X", CutVideoClip_Click, !track.IsLocked);
+            AddClipCommand("Delete", "Delete", DeleteClip_Click, !track.IsLocked);
+            AddClipCommand("Split at playhead", "Ctrl+B", SplitClip_Click, !track.IsLocked);
+            AddClipCommand("Duplicate", string.Empty, DuplicateVideoClip_Click, !track.IsLocked);
+            AddClipCommand("Move to playhead", string.Empty, MoveClipToPlayhead_Click, !track.IsLocked);
         }
+        var paste = new MenuFlyoutItem
+        {
+            Text = "Paste at playhead", KeyboardAcceleratorTextOverride = "Ctrl+V",
+            IsEnabled = _copiedVideo is not null,
+        };
+        paste.Click += (_, args) =>
+        {
+            _selectedTimelineTrackId = track.Id;
+            PasteVideoClip_Click(paste, args);
+        };
+        menu.Items.Add(paste);
         if (track.Kind is (TimelineTrackKind.Text or TimelineTrackKind.Subtitle) && track.Clips.Count > 0)
         {
             string itemText = track.Kind == TimelineTrackKind.Subtitle ? "Edit subtitle text..." : "Edit title text...";
@@ -63,6 +81,18 @@ public sealed partial class MainWindow
             menu.Items.Add(words);
         }
         return menu;
+
+        void AddClipCommand(string text, string shortcut, RoutedEventHandler handler, bool enabled)
+        {
+            var item = new MenuFlyoutItem { Text = text, KeyboardAcceleratorTextOverride = shortcut, IsEnabled = enabled };
+            item.Click += (_, args) =>
+            {
+                _selectedTimelineTrackId = track.Id;
+                _selectedTimelineClipId = clip!.Id;
+                handler(item, args);
+            };
+            menu.Items.Add(item);
+        }
     }
 
     private void VideoTimelineCanvas_RightTapped(object sender, RightTappedRoutedEventArgs e)
@@ -81,6 +111,7 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         _selectedTimelineTrackId = track.Id;
         _selectedTimelineClipId = clip?.Id;
+        VideoTimelineFocusTarget.Focus(FocusState.Programmatic);
         RefreshVideoTrackHeaders();
         UpdateVideoInspector();
         InvalidateVideoTimeline();
