@@ -101,6 +101,7 @@ Compound tracks embed editable child timelines with up to four levels, track-lev
 - Package 1.0.46.0 / schema 92: opt-in directional shadows with per-object cast/receive switches and adjustable strength. Fixed-resolution, filtered CPU shadow maps match preview/export and may exhibit coarse edges or depth-bias artefacts.
 - Package 1.0.47.0 / schema 93: optional particle attraction, repulsion and bounce against visible objects in a selected scene. Particles remain 2D and interact with projected circular bounding proxies, not precise 3D surfaces or depth; seeking is deterministic and legacy emitters remain unchanged.
 - Package 1.0.48.0: report invalid OBJ/MTL and texture data in the import status instead of leaving an unhandled exception.
+- Package 1.0.49.0: keep Store release notes within the listing limit.
 
 1. **Shared layout and preview comparison**
    - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes and headers share scrolling and align to the video/ink ruler. Page action toolbars use the full row and move individual excess buttons into the command-bar overflow rather than scrolling horizontally. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
