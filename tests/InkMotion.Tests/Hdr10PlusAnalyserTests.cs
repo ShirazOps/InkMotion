@@ -40,6 +40,30 @@ public sealed class Hdr10PlusAnalyserTests
             (int)Math.Ceiling(average)), analyser.LightLevel);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void StaticLightLevelsUseMaxRgbForSaturatedPrimaries(int channel)
+    {
+        // CTA-861.3 Annex A: MaxCLL and MaxFALL use max(R, G, B), so a pure 1000 cd/m² primary counts as
+        // 1000 cd/m² although its Rec.2020 luminance is only 59 to 678 cd/m².
+        ushort bright = Code(1000);
+        (ushort, ushort, ushort) primary = channel switch
+        {
+            0 => (bright, 0, 0),
+            1 => (0, bright, 0),
+            _ => (0, 0, bright),
+        };
+        byte[] frame = Frame([.. Enumerable.Repeat(primary, 4), .. Enumerable.Repeat(((ushort)0, (ushort)0, (ushort)0), 4)]);
+        var analyser = new Hdr10PlusAnalyser(Width, Height);
+        analyser.Add(frame);
+
+        double nits = Hdr10PlusAnalyser.CodeToNits(bright);
+        Assert.Equal(new Hdr10LightLevel((int)Math.Ceiling(nits), (int)Math.Ceiling(nits / 2)), analyser.LightLevel);
+        Assert.InRange(analyser.LightLevel.MaxCll, 999, 1001);
+    }
+
     [Fact]
     public void AbruptDistributionChangeStartsANewSceneAndSlicesAreIndexedFromZero()
     {
