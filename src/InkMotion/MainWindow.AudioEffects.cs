@@ -64,6 +64,7 @@ public sealed partial class MainWindow
         AudioNoiseReductionEnabled.IsChecked = settings.NoiseReductionEnabled;
         AudioNoiseReductionStrengthBox.Value = settings.NoiseReductionStrengthDecibels;
         AudioLimiterEnabled.IsChecked = settings.LimiterEnabled;
+        AudioLimiterTruePeak.IsChecked = settings.LimiterTruePeak;
         AudioLimiterCeilingBox.Value = settings.LimiterCeilingDecibels;
         AudioLimiterReleaseBox.Value = settings.LimiterReleaseMilliseconds;
         AudioDelayEnabled.IsChecked = settings.DelayEnabled;
@@ -166,6 +167,7 @@ public sealed partial class MainWindow
             NoiseReductionStrengthDecibels = effectsBus?.Effects.NoiseReductionStrengthDecibels ?? AudioNoiseReductionStrengthBox.Value,
             NoiseProfile = track?.Project.Effects.NoiseProfile,
             LimiterEnabled = AudioLimiterEnabled.IsChecked == true,
+            LimiterTruePeak = AudioLimiterTruePeak.IsChecked == true,
             LimiterCeilingDecibels = AudioLimiterCeilingBox.Value,
             LimiterReleaseMilliseconds = AudioLimiterReleaseBox.Value,
             DelayEnabled = AudioDelayEnabled.IsChecked == true,

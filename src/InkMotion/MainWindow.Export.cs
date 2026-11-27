@@ -372,13 +372,15 @@ public sealed partial class MainWindow
     private void UpdateAudioExportOptions()
     {
         if (AudioExportRateSelector is null || AudioExportDepthSelector is null || AudioExportBitRateSelector is null ||
-            AudioStemExportToggle is null || AudioTruePeakLimiterToggle is null || AudioTruePeakCeilingBox is null)
+            AudioStemExportToggle is null || AudioTruePeakLimiterToggle is null || AudioTruePeakCeilingBox is null ||
+            AudioAdditiveStemsToggle is null)
         {
             return;
         }
 
         AudioTruePeakCeilingBox.IsEnabled = AudioTruePeakLimiterToggle.IsChecked == true;
         bool stems = AudioStemExportToggle.IsOn;
+        AudioAdditiveStemsToggle.IsEnabled = stems;
         if (stems && AudioExportCodecSelector.SelectedIndex > 1)
         {
             AudioExportCodecSelector.SelectedIndex = 0;
@@ -419,7 +421,8 @@ public sealed partial class MainWindow
 
         var settings = new AudioExportSettings((AudioExportCodec)AudioExportCodecSelector.SelectedIndex, rate,
             int.Parse(depth), int.Parse(bitRate), FFmpegPathBox.Text.Trim(), AudioStemExportToggle.IsOn,
-            AudioTruePeakLimiterToggle.IsChecked == true, AudioTruePeakCeilingBox.Value);
+            AudioTruePeakLimiterToggle.IsChecked == true, AudioTruePeakCeilingBox.Value,
+            AdditiveStems: AudioStemExportToggle.IsOn && AudioAdditiveStemsToggle.IsOn);
         if (!double.IsFinite(settings.TruePeakCeilingDecibels) ||
             settings.TruePeakCeilingDecibels is < -24 or > 0)
         {

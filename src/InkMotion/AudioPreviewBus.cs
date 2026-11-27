@@ -247,6 +247,7 @@ public sealed class AudioPreviewSubmix : IDisposable
     private readonly AudioEffectsSampleProvider _effects;
     private readonly Vst3InsertChainSampleProvider _vst3;
     private readonly VolumeSampleProvider _gain;
+    private readonly AudioTruePeakStage _truePeak;
     private readonly AudioPreviewInput _outputInput;
     private readonly List<AudioPreviewInput> _inputs = [];
     private readonly object _sync = new();
@@ -262,8 +263,9 @@ public sealed class AudioPreviewSubmix : IDisposable
         _vst3 = new Vst3InsertChainSampleProvider(_effects, vst3Plugins);
         _gain = new VolumeSampleProvider(_vst3);
         SetGain(gainDecibels);
-        var fold = new ChannelMixingSampleProvider(_gain, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
-        _outputInput = parent?.AddInput(_gain) ?? bus.AddInput(fold);
+        _truePeak = new AudioTruePeakStage(_gain, effects);
+        var fold = new ChannelMixingSampleProvider(_truePeak, AudioChannelLayouts.CreateMixMatrix(layout, AudioChannelLayout.Stereo));
+        _outputInput = parent?.AddInput(_truePeak) ?? bus.AddInput(fold);
         _outputInput.SetEnabled(true);
     }
 
@@ -298,6 +300,7 @@ public sealed class AudioPreviewSubmix : IDisposable
     public void Update(AudioEffectSettings effects, double gainDecibels)
     {
         _effects.Update(effects);
+        _truePeak.Update(effects);
         SetGain(gainDecibels);
     }
 
@@ -307,12 +310,17 @@ public sealed class AudioPreviewSubmix : IDisposable
         IReadOnlyList<AudioVst3PluginProject> vst3Plugins)
     {
         _effects.Update(effects);
+        _truePeak.Update(effects);
         _vst3.Update(vst3Plugins);
         SetGain(gainDecibels);
     }
 
     /// <summary>Clears delay and reverb state, for example after seeking.</summary>
-    public void Reset() => _effects.Reset();
+    public void Reset()
+    {
+        _effects.Reset();
+        _truePeak.Reset();
+    }
 
     public void Dispose()
     {

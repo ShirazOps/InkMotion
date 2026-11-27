@@ -26,7 +26,7 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly bool _reportVideoReadFailures;
 
     public ExportAudioMixer(EditorProject project, int sampleRate = ExportPlanning.AudioSampleRate,
-        bool reportVideoReadFailures = false)
+        bool reportVideoReadFailures = false, IReadOnlySet<string?>? includedDestinationBusIds = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         if (!AudioExportSettings.SampleRates.Contains(sampleRate))
@@ -51,18 +51,21 @@ public sealed class ExportAudioMixer : IDisposable
             foreach (AudioTrackProject track in project.AudioTracks)
             {
                 bool trackSuppressed = hasSolo && !track.Solo;
-                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId),
+                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId) ||
+                    (includedDestinationBusIds is not null && !includedDestinationBusIds.Contains(track.BusId)),
                     track.BusId, outputGain: 1);
                 foreach (AudioAuxSendProject send in track.AuxSends ?? [])
                 {
                     AddAudioTrack(track,
-                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId),
+                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId) ||
+                            (includedDestinationBusIds is not null && !includedDestinationBusIds.Contains(send.BusId)),
                         send.BusId, AudioClipEditing.DecibelsToLinear(send.GainDecibels));
                 }
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
                 !hasSolo && track.Kind is (TimelineTrackKind.Video or TimelineTrackKind.Compound) && !track.IsMuted &&
+                (includedDestinationBusIds is null || includedDestinationBusIds.Contains(track.AudioBusId)) &&
                 AudioBuses.IsAudible(_buses, track.AudioBusId)))
             {
                 foreach (TimelineClipProject clip in track.Clips)
@@ -181,12 +184,10 @@ public sealed class ExportAudioMixer : IDisposable
         var vst3 = new Vst3InsertChainSampleProvider(effects, track.Vst3Plugins, preservePluginTails: true);
         _readers.Add(vst3);
         _vst3Providers.Add(vst3);
-        ISampleProvider output = outputGain == 1
-            ? vst3
-            : new VolumeSampleProvider(vst3) { Volume = (float)outputGain };
-        AddSource(output, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
+        AddSource(vst3, AudioClipEditing.GetClipStartSeconds(track, _frameRate),
             timelineDuration + effects.TailDurationSeconds + vst3.TailDurationSeconds,
-            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId);
+            track.Balance, track.SpatialPanEnabled, track.SpatialPanAzimuthDegrees, outputBusId,
+            track.Effects, outputGain);
     }
 
     private void AddCompoundAudio(TimelineClipProject clip, string? busId)
@@ -318,7 +319,8 @@ public sealed class ExportAudioMixer : IDisposable
     }
 
     private void AddSource(ISampleProvider source, double startSeconds, double durationSeconds,
-        double balance = 0, bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0, string? busId = null)
+        double balance = 0, bool spatialPanEnabled = false, double spatialPanAzimuthDegrees = 0, string? busId = null,
+        AudioEffectSettings? limiterSettings = null, double outputGain = 1)
     {
         ISampleProvider mixed = new ChannelMixingSampleProvider(
             source,
@@ -327,6 +329,14 @@ public sealed class ExportAudioMixer : IDisposable
         if (mixed.WaveFormat.SampleRate != SampleRate)
         {
             mixed = new WdlResamplingSampleProvider(mixed, SampleRate);
+        }
+        if (limiterSettings is not null)
+        {
+            mixed = new AudioTruePeakStage(mixed, limiterSettings);
+        }
+        if (outputGain != 1)
+        {
+            mixed = new VolumeSampleProvider(mixed) { Volume = (float)outputGain };
         }
 
         double start = Math.Max(0, startSeconds);
@@ -376,8 +386,8 @@ public sealed class ExportAudioMixer : IDisposable
         _readers.Add(vst3);
         _vst3Providers.Add(vst3);
         _busVst3TailDurationSeconds[bus.Id] = vst3.TailDurationSeconds;
-        GetBusMixer(bus.ParentBusId).AddMixerInput(
-            new VolumeSampleProvider(vst3) { Volume = AudioBuses.GetLinearGain(bus) });
+        GetBusMixer(bus.ParentBusId).AddMixerInput(new AudioTruePeakStage(
+            new VolumeSampleProvider(vst3) { Volume = AudioBuses.GetLinearGain(bus) }, bus.Effects));
         _buildingBusMixers.Remove(bus.Id);
         return busMixer;
     }
