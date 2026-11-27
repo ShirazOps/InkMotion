@@ -223,7 +223,8 @@ public static partial class TimelineCompositor
         float opacity,
         VideoTransformValue transform,
         double? timelineSeconds = null,
-        IReadOnlyList<TimelineTrackProject>? videoTracks = null)
+        IReadOnlyList<TimelineTrackProject>? videoTracks = null,
+        double? clipSeconds = null)
     {
         float fontSize = (float)(clip.FontSize * transform.Scale * height / TitleReferenceHeight);
         double seconds = timelineSeconds ?? clip.ObjectTracking?.StartSeconds ?? 0;
@@ -239,7 +240,7 @@ public static partial class TimelineCompositor
             drawing.Transform = Matrix3x2.CreateRotation(
                 (float)(transform.RotationDegrees * Math.PI / 180),
                 new Vector2((float)(transform.X * width), (float)(transform.Y * height))) * drawing.Transform;
-            DrawTitleText(drawing, clip, width, height, opacity, fontSize, transform);
+            DrawTitleText(drawing, clip, width, height, opacity, fontSize, transform, clipSeconds);
         });
     }
 
@@ -250,7 +251,8 @@ public static partial class TimelineCompositor
         float height,
         float opacity,
         float fontSize,
-        VideoTransformValue transform)
+        VideoTransformValue transform,
+        double? clipSeconds)
     {
         float boxWidth = width * 0.9f * (float)transform.Scale;
         float boxHeight = height * (float)transform.Scale;
@@ -258,14 +260,35 @@ public static partial class TimelineCompositor
         var origin = new Vector2(
             (float)(transform.X * width) - (boxWidth / 2),
             (float)(transform.Y * height) - (boxHeight / 2));
+        float clampedOpacity = Math.Clamp(opacity, 0, 1);
         Color colour = ToColour(clip.Colour);
-        byte alpha = (byte)(colour.A * Math.Clamp(opacity, 0, 1));
+        byte alpha = (byte)(colour.A * clampedOpacity);
         Color background = ToColour(clip.TextBackgroundColour);
         Rect textBounds = GetTitleBounds(layout, origin, fontSize);
         session.FillRectangle(textBounds, Color.FromArgb(
-            (byte)(background.A * Math.Clamp(opacity, 0, 1)), background.R, background.G, background.B));
+            (byte)(background.A * clampedOpacity), background.R, background.G, background.B));
         float shadowOffset = Math.Max(1, fontSize * 0.04f);
-        session.DrawTextLayout(layout, origin + new Vector2(shadowOffset), Color.FromArgb((byte)(alpha * 0.6), 0, 0, 0));
+        Color shadow = Color.FromArgb((byte)(alpha * 0.6), 0, 0, 0);
+        if (!SubtitleRichText.HasRuns(clip))
+        {
+            session.DrawTextLayout(layout, origin + new Vector2(shadowOffset), shadow);
+            session.DrawTextLayout(layout, origin, Color.FromArgb(alpha, colour.R, colour.G, colour.B));
+            return;
+        }
+
+        IReadOnlyList<SubtitleStyledRange> ranges = SubtitleRichText.GetStyledRanges(clip, clipSeconds);
+        foreach (SubtitleStyledRange range in ranges)
+        {
+            Color runColour = ToColour(range.Colour);
+            layout.SetColor(range.Start, range.Length, Color.FromArgb((byte)(runColour.A * 0.6 * clampedOpacity), 0, 0, 0));
+        }
+        session.DrawTextLayout(layout, origin + new Vector2(shadowOffset), shadow);
+        foreach (SubtitleStyledRange range in ranges)
+        {
+            Color runColour = ToColour(range.Colour);
+            layout.SetColor(range.Start, range.Length,
+                Color.FromArgb((byte)(runColour.A * clampedOpacity), runColour.R, runColour.G, runColour.B));
+        }
         session.DrawTextLayout(layout, origin, Color.FromArgb(alpha, colour.R, colour.G, colour.B));
     }
 
@@ -291,7 +314,27 @@ public static partial class TimelineCompositor
             VerticalAlignment = CanvasVerticalAlignment.Center,
             WordWrapping = CanvasWordWrapping.WholeWord,
         };
-        return new CanvasTextLayout(device, clip.Text, format, boxWidth, boxHeight);
+        var layout = new CanvasTextLayout(device, clip.Text, format, boxWidth, boxHeight);
+        if (SubtitleRichText.HasRuns(clip))
+        {
+            foreach (SubtitleStyledRange range in SubtitleRichText.GetStyledRanges(clip, null))
+            {
+                if (range.Bold)
+                {
+                    layout.SetFontWeight(range.Start, range.Length, Microsoft.UI.Text.FontWeights.Bold);
+                }
+                if (range.Italic)
+                {
+                    layout.SetFontStyle(range.Start, range.Length, Windows.UI.Text.FontStyle.Italic);
+                }
+                if (range.Underline)
+                {
+                    layout.SetUnderline(range.Start, range.Length, true);
+                }
+            }
+        }
+
+        return layout;
     }
 
     private static Rect GetTitleBounds(CanvasTextLayout layout, Vector2 origin, float fontSize)

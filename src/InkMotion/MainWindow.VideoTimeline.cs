@@ -306,7 +306,9 @@ public sealed partial class MainWindow
         try
         {
             await FileIO.WriteTextAsync(file, SubtitleSrt.Export(tracks, _frameRate));
-            StatusText.Text = $"Exported subtitles to {file.Name}.";
+            StatusText.Text = tracks.Any(track => track.Clips.Any(SubtitleRichText.HasRuns))
+                ? $"Exported subtitles to {file.Name}. SubRip keeps plain text only, so word timing and styling were not written."
+                : $"Exported subtitles to {file.Name}.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidDataException)
         {
@@ -1311,7 +1313,8 @@ public sealed partial class MainWindow
                     TimelineCompositor.DrawTitle(
                         session, layer.Clip, width, height, opacity,
                         VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _frameRate),
-                        seconds, _videoTracks);
+                        seconds, _videoTracks,
+                        seconds - VideoTimelineEditing.GetStartSeconds(layer.Clip, _frameRate));
                     break;
             }
         }
@@ -6207,6 +6210,11 @@ public sealed partial class MainWindow
         }
 
         location.Clip.Text = text;
+        if (SubtitleRichText.HasRuns(location.Clip))
+        {
+            location.Clip.SubtitleRuns.Clear();
+            StatusText.Text = "Text changed, so word timing and styling were cleared. Undo restores them.";
+        }
         ApplyClipPreview();
     }
 

@@ -486,7 +486,8 @@ public static class VideoExporter
                             TimelineCompositor.DrawTitle(
                                 session, layer.Clip, width, height, opacity,
                                 VideoTransformKeyframes.GetValueAtTime(layer.Clip, seconds, _project.FrameRate),
-                                seconds, _project.VideoTracks);
+                                seconds, _project.VideoTracks,
+                                seconds - VideoTimelineEditing.GetStartSeconds(layer.Clip, _project.FrameRate));
                             break;
                     }
                 }

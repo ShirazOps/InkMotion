@@ -250,6 +250,10 @@ public sealed class TimelineClipProject
     public double FontSize { get; set; } = 72;
     public uint Colour { get; set; } = 0xFFFFFFFF;
     public uint TextBackgroundColour { get; set; }
+    /// <summary>Optional word-level styling and timing; empty for plain titles and subtitles.</summary>
+    public List<SubtitleRun> SubtitleRuns { get; set; } = [];
+    /// <summary>Colour of timed runs before their reveal time.</summary>
+    public uint SubtitleUpcomingColour { get; set; } = SubtitleRichText.DefaultUpcomingColour;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public InkObjectTracking? ObjectTracking { get; set; }
 }
@@ -489,6 +493,7 @@ public static class VideoTimelineEditing
         else
         {
             clip.DurationSeconds -= offset;
+            SubtitleRichText.ShiftEarlier(clip, offset);
             if (track.Kind == TimelineTrackKind.Compound)
             {
                 clip.SourceInSeconds += offset;
@@ -547,6 +552,7 @@ public static class VideoTimelineEditing
         else
         {
             clip.DurationSeconds = offset;
+            SubtitleRichText.ClampToDuration(clip, offset);
         }
 
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Round(offset * frameRate));
@@ -633,6 +639,8 @@ public static class VideoTimelineEditing
         {
             right.DurationSeconds = clip.DurationSeconds - offset;
             clip.DurationSeconds = offset;
+            SubtitleRichText.ShiftEarlier(right, offset);
+            SubtitleRichText.ClampToDuration(clip, offset);
             if (track.Kind == TimelineTrackKind.Compound)
             {
                 right.SourceInSeconds += offset;
@@ -1015,6 +1023,7 @@ public static class VideoTimelineEditing
         }
 
         clip.DurationSeconds = seconds;
+        SubtitleRichText.ClampToDuration(clip, seconds);
         VideoTransformKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoCropKeyframes.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
         VideoClipMask.TrimEnd(clip, (int)Math.Ceiling((seconds * frameRate) - Tolerance));
@@ -1224,6 +1233,8 @@ public static class VideoTimelineEditing
         FontSize = clip.FontSize,
         Colour = clip.Colour,
         TextBackgroundColour = clip.TextBackgroundColour,
+        SubtitleRuns = SubtitleRichText.CloneRuns(clip.SubtitleRuns ?? []),
+        SubtitleUpcomingColour = clip.SubtitleUpcomingColour,
         ObjectTracking = clip.ObjectTracking is null ? null : InkObjectMotion.Clone(clip.ObjectTracking),
     };
 
@@ -1421,7 +1432,8 @@ public static class VideoTimelineEditing
             IsUnit(clip.X) &&
             IsUnit(clip.Y) &&
             double.IsFinite(clip.RotationDegrees) &&
-            clip.RotationDegrees is >= -180 and <= 180;
+            clip.RotationDegrees is >= -180 and <= 180 &&
+            (kind is TimelineTrackKind.Text or TimelineTrackKind.Subtitle || clip.SubtitleRuns is { Count: 0 });
         if (!common)
         {
             return false;
@@ -1464,6 +1476,7 @@ public static class VideoTimelineEditing
                     clip.FontFamily.Length <= 128 &&
                     double.IsFinite(clip.FontSize) &&
                     clip.FontSize is >= MinimumFontSize and <= MaximumFontSize &&
+                    SubtitleRichText.IsValid(clip, kind) &&
                     (clip.ObjectTracking is null || InkObjectMotion.IsValid(clip.ObjectTracking));
             case TimelineTrackKind.Compound:
                 return clip.NestedProject is not null &&

@@ -4,7 +4,27 @@ using System.Text.RegularExpressions;
 
 namespace InkMotion;
 
-public sealed record SubtitleCueText(double StartSeconds, double EndSeconds, string Text);
+public sealed record SubtitleCueText(double StartSeconds, double EndSeconds, string Text)
+{
+    /// <summary>Optional word runs whose reveal times are relative to <see cref="StartSeconds"/>.</summary>
+    public IReadOnlyList<SubtitleRun>? Runs { get; init; }
+    /// <summary>Optional styling; null uses the standard subtitle style.</summary>
+    public SubtitleCueStyle? Style { get; init; }
+}
+
+/// <summary>Cue-level styling carried by richer subtitle formats.</summary>
+public sealed record SubtitleCueStyle
+{
+    public string FontFamily { get; init; } = "Segoe UI";
+    public double FontSize { get; init; } = 48;
+    public uint Colour { get; init; } = 0xFFFFFFFF;
+    public uint TextBackgroundColour { get; init; } = 0xB0000000;
+    public uint UpcomingColour { get; init; } = SubtitleRichText.DefaultUpcomingColour;
+    public double X { get; init; } = 0.5;
+    public double Y { get; init; } = 0.88;
+    public double FadeInSeconds { get; init; }
+    public double FadeOutSeconds { get; init; }
+}
 
 public static class SubtitleSrt
 {
@@ -43,15 +63,34 @@ public static class SubtitleSrt
                 throw new InvalidDataException("A subtitle cue exceeds the supported duration or text length.");
             }
 
+            SubtitleCueStyle style = cue.Style ?? new SubtitleCueStyle();
             var clip = new TimelineClipProject
             {
                 StartFrame = startFrame,
                 DurationSeconds = duration,
                 Text = cue.Text,
-                Y = 0.88,
-                FontSize = 48,
-                TextBackgroundColour = 0xB0000000,
+                FontFamily = style.FontFamily,
+                FontSize = style.FontSize,
+                Colour = style.Colour,
+                TextBackgroundColour = style.TextBackgroundColour,
+                SubtitleUpcomingColour = style.UpcomingColour,
+                X = style.X,
+                Y = style.Y,
+                FadeInSeconds = Math.Min(style.FadeInSeconds, duration),
+                FadeOutSeconds = Math.Min(style.FadeOutSeconds, Math.Max(0, duration - Math.Min(style.FadeInSeconds, duration))),
             };
+            if (cue.Runs is { Count: > 0 })
+            {
+                // Clip starts are aligned to frames, so re-base reveal times onto the aligned start.
+                double shift = (startFrame - 1) / frameRate - cue.StartSeconds;
+                clip.SubtitleRuns = SubtitleRichText.CloneRuns(cue.Runs);
+                SubtitleRichText.ShiftEarlier(clip, shift);
+                SubtitleRichText.ClampToDuration(clip, duration);
+                if (!SubtitleRichText.IsValid(clip, TimelineTrackKind.Subtitle))
+                {
+                    throw new InvalidDataException("A subtitle cue has invalid word timing or styling.");
+                }
+            }
             VideoTimelineEditing.PlaceClip(tracks, TimelineTrackKind.Subtitle, null, clip, frameRate);
         }
 

@@ -47,6 +47,20 @@ public sealed partial class MainWindow
                 EditSelectedTitle();
             };
             menu.Items.Add(edit);
+            var words = new MenuFlyoutItem { Text = "Edit word timing and style...", IsEnabled = !track.IsLocked };
+            words.Click += (_, _) =>
+            {
+                if (clip is null)
+                {
+                    SelectTitleOnTrack(track);
+                }
+                else
+                {
+                    ShowTimelineClipProperties(track, clip);
+                }
+                EditSelectedTitleWords();
+            };
+            menu.Items.Add(words);
         }
         return menu;
     }

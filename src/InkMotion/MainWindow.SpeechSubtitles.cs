@@ -102,6 +102,12 @@ public sealed partial class MainWindow
         confidence.IsEnabled = !whisperInstalled;
         panel.Children.Add(confidenceLabel);
         panel.Children.Add(confidence);
+        var wordTimingToggle = new CheckBox
+        {
+            Content = "Reveal each word as it is spoken (word timing)",
+            IsChecked = false,
+        };
+        panel.Children.Add(wordTimingToggle);
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
@@ -142,6 +148,7 @@ public sealed partial class MainWindow
         }
 
         double minimumConfidence = confidence.Value;
+        bool wordTiming = wordTimingToggle.IsChecked == true;
         EditorProject snapshot = CreateProjectSnapshot();
         double frameRate = _frameRate;
         using var cancellation = new CancellationTokenSource();
@@ -187,7 +194,7 @@ public sealed partial class MainWindow
                     words = SpeechSubtitles.AssignSpeakers(words, speakers);
                 }
 
-                return SpeechSubtitles.BuildCues(words, new SpeechCueOptions { MinimumConfidence = minimumConfidence });
+                return SpeechSubtitles.BuildCues(words, new SpeechCueOptions { MinimumConfidence = minimumConfidence, WordTiming = wordTiming });
             });
             finished = true;
             progressDialog.Hide();
