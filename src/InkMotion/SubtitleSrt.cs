@@ -99,6 +99,24 @@ public static class SubtitleSrt
 
     public static string Export(IEnumerable<TimelineTrackProject> tracks, double frameRate)
     {
+        var output = new StringBuilder();
+        int number = 1;
+        foreach ((double startSeconds, TimelineClipProject clip) in CollectCues(tracks, frameRate))
+        {
+            double endSeconds = startSeconds + clip.DurationSeconds;
+            output.Append(number++).Append("\r\n")
+                .Append(FormatTime(startSeconds)).Append(" --> ").Append(FormatTime(endSeconds)).Append("\r\n")
+                .Append(NormaliseLineEndings(clip.Text).Replace("\n", "\r\n", StringComparison.Ordinal))
+                .Append("\r\n\r\n");
+        }
+
+        return output.ToString();
+    }
+
+    /// <summary>Returns subtitle-track clips in cue order (start, then track order, then clip order).</summary>
+    public static IReadOnlyList<(double StartSeconds, TimelineClipProject Clip)> CollectCues(
+        IEnumerable<TimelineTrackProject> tracks, double frameRate)
+    {
         ArgumentNullException.ThrowIfNull(tracks);
         ValidateFrameRate(frameRate);
         var cues = new List<(double StartSeconds, int TrackIndex, int ClipIndex, TimelineClipProject Clip)>();
@@ -123,19 +141,8 @@ public static class SubtitleSrt
             trackIndex++;
         }
 
-        var output = new StringBuilder();
-        int number = 1;
-        foreach (var cue in cues.OrderBy(cue => cue.StartSeconds)
-                     .ThenBy(cue => cue.TrackIndex).ThenBy(cue => cue.ClipIndex))
-        {
-            double endSeconds = cue.StartSeconds + cue.Clip.DurationSeconds;
-            output.Append(number++).Append("\r\n")
-                .Append(FormatTime(cue.StartSeconds)).Append(" --> ").Append(FormatTime(endSeconds)).Append("\r\n")
-                .Append(NormaliseLineEndings(cue.Clip.Text).Replace("\n", "\r\n", StringComparison.Ordinal))
-                .Append("\r\n\r\n");
-        }
-
-        return output.ToString();
+        return cues.OrderBy(cue => cue.StartSeconds).ThenBy(cue => cue.TrackIndex).ThenBy(cue => cue.ClipIndex)
+            .Select(cue => (cue.StartSeconds, cue.Clip)).ToArray();
     }
 
     private static List<Cue> Parse(string content)
@@ -255,7 +262,7 @@ public static class SubtitleSrt
         return string.Create(CultureInfo.InvariantCulture, $"{hours:00}:{minutes:00}:{wholeSeconds:00},{fraction:000}");
     }
 
-    private static void ValidateFrameRate(double frameRate)
+    internal static void ValidateFrameRate(double frameRate)
     {
         if (!double.IsFinite(frameRate) || frameRate <= 0)
         {
@@ -263,6 +270,6 @@ public static class SubtitleSrt
         }
     }
 
-    private static string NormaliseLineEndings(string text) =>
+    internal static string NormaliseLineEndings(string text) =>
         text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
 }

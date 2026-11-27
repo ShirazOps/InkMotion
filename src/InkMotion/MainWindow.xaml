@@ -38,8 +38,8 @@
                         <MenuFlyoutItem Text="AI cut-out image…" Click="CutOutImage_Click" />
                         <MenuFlyoutItem Text="Add title" Click="AddTitleClip_Click" />
                         <MenuFlyoutItem Text="Add subtitle…" Click="AddSubtitleClip_Click" />
-                        <MenuFlyoutItem Text="Import subtitles (SRT)…" Click="ImportSubtitles_Click" />
-                        <MenuFlyoutItem Text="Export subtitles (SRT)…" Click="ExportSubtitles_Click" />
+                        <MenuFlyoutItem Text="Import subtitles (SRT, WebVTT)…" Click="ImportSubtitles_Click" />
+                        <MenuFlyoutItem Text="Export subtitles (SRT, WebVTT)…" Click="ExportSubtitles_Click" />
                         <MenuFlyoutItem Text="Generate subtitles from speech…" Click="GenerateSpeechSubtitles_Click" />
                         <MenuFlyoutItem Text="Add audio clip…" Click="OpenAudio_Click" />
                         <MenuFlyoutItem Text="Generate character voice…" Click="GenerateCharacterVoice_Click" />
