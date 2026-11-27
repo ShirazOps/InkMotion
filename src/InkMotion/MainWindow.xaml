@@ -735,6 +735,15 @@
                                         <TextBlock Text="Static, clip-wide selection after primary grading and the LUT. Hue wraps through red; feather extends outside the selected ranges. Uses a 33-point interpolated RGB table, not a spatial mask or scene-linear HDR qualifier." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                     </StackPanel>
                                 </Expander>
+                                <Expander Header="Shot matching (SDR)" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Spacing="6">
+                                        <Button Content="Capture selected shot as reference" Click="CaptureShotReference_Click" />
+                                        <TextBlock x:Name="ShotReferenceText" Text="No reference captured in this session." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                        <Button Content="Match selected shot to reference" Click="MatchShot_Click" />
+                                        <Button Content="Clear selected shot match" Click="ClearShotMatch_Click" />
+                                        <TextBlock Text="Samples the selected video/image at the playhead, after grading, LUT and HSL, before spatial effects/compositing. Matches RGB mean and contrast, not objects, lighting or skin tones. The static saved correction applies to the whole clip and may clip highlights. Reference capture is session-only. SDR projects only." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    </StackPanel>
+                                </Expander>
                                 <TextBlock Text="CHROMA KEY" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <ToggleButton x:Name="ClipChromaKeyEnabled" Content="Remove key colour" Click="ClipChromaKey_Changed" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">

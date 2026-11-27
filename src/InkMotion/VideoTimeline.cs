@@ -199,6 +199,7 @@ public sealed class TimelineClipProject
     public double Saturation { get; set; } = 1;
     public double Gamma { get; set; } = 1;
     public VideoHslQualifier HslQualifier { get; set; } = new();
+    public VideoShotMatch ShotMatch { get; set; } = new();
     public List<VideoColourGradingKeyframe> ColourGradingKeyframes { get; set; } = [];
     public List<VideoColourCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
@@ -1164,6 +1165,7 @@ public static class VideoTimelineEditing
         Saturation = clip.Saturation,
         Gamma = clip.Gamma,
         HslQualifier = clip.HslQualifier with { },
+        ShotMatch = clip.ShotMatch with { },
         ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(clip.ColourGradingKeyframes),
         MasterCurve = clip.MasterCurve?.ToList() ?? [],
         RedCurve = clip.RedCurve?.ToList() ?? [],

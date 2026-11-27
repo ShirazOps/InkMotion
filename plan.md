@@ -103,6 +103,7 @@ Compound tracks embed editable child timelines with up to four levels, track-lev
 - Package 1.0.48.0: report invalid OBJ/MTL and texture data in the import status instead of leaving an unhandled exception.
 - Package 1.0.49.0: keep Store release notes within the listing limit.
 - Package 1.0.50.0 / schema 94: clip-wide HSL qualifiers with circular hue selection, saturation/lightness bounds, feathering and selective HSL correction in the shared grading pipeline. Neutral defaults preserve old projects; joins require identical settings.
+- Package 1.0.51.0 / schema 95: local reference-shot capture and RGB mean/contrast matching for SDR video/image clips, with saved replacement corrections, undo and shared preview/export.
 
 1. **Shared layout and preview comparison**
    - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes and headers share scrolling and align to the video/ink ruler. Page action toolbars use the full row and move individual excess buttons into the command-bar overflow rather than scrolling horizontally. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.

@@ -74,6 +74,13 @@ public sealed partial class MainWindow
         {
             return;
         }
+        if (colour is not null && CompoundTimelines.Projects(CreateProjectSnapshot())
+            .SelectMany(project => project.VideoTracks).SelectMany(track => track.Clips)
+            .Any(clip => clip.HslQualifier.Enabled || !clip.ShotMatch.IsNeutral))
+        {
+            StatusText.Text = "Disable HSL qualifiers and clear shot matches, including inside compounds, before switching to HDR.";
+            return;
+        }
 
         PausePlayback();
         FinishActiveEdit();
