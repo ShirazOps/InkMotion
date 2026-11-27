@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Windows.Graphics.DirectX;
 using Xunit;
@@ -278,6 +279,140 @@ public sealed class HdrColourTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [FFmpegFact]
+    public void AutomaticHdr10PlusMetadataIsCarriedFrameAccuratelyAcrossSegments()
+    {
+        string ffmpeg = Environment.GetEnvironmentVariable("INKMOTION_TEST_FFMPEG")!;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-hdr10plus-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // Two 3-second PQ shots, about 1000 and 90 cd/m², at 12 frames/s: a scene cut at frame 36 and
+            // two encoder segments of 60 and 12 frames.
+            string bright = PqSource(ffmpeg, directory, "bright.mkv", "0xC0C0C0");
+            string dark = PqSource(ffmpeg, directory, "dark.mkv", "0x808080");
+            var project = new EditorProject
+            {
+                FrameRate = 12,
+                Colour = Pq,
+                VideoTracks = [new TimelineTrackProject
+                {
+                    Kind = TimelineTrackKind.Video,
+                    Clips =
+                    [
+                        new TimelineClipProject { SourcePath = bright, SourceDurationSeconds = 3, SourceOutSeconds = 3 },
+                        new TimelineClipProject { StartFrame = 37, SourcePath = dark, SourceDurationSeconds = 3, SourceOutSeconds = 3 },
+                    ],
+                }],
+            };
+            var request = new VideoExportRequest(project, VideoExportProfile.Create(320, 180, 12),
+                VideoExportCodec.Hevc, Path.Combine(directory, "hdr10plus.mkv"), 180,
+                FFmpeg: new(ffmpeg, FFmpegVideoEncoder.Software, FFmpegVideoContainer.Matroska,
+                    FFmpegVideoAudioCodec.Flac, GenerateHdr10Plus: true));
+            string checkpoints = Path.Combine(directory, "checkpoints");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+
+            VideoExportResult result = VideoExporter.Export(request with { CheckpointDirectory = checkpoints },
+                null, timeout.Token);
+
+            Assert.Equal(72, result.FrameCount);
+            Assert.Empty(Directory.Exists(checkpoints) ? Directory.GetFiles(checkpoints, "hdr10plus*") : []);
+            // Independently measure the same frames to know what every frame's metadata must be.
+            var analyser = new Hdr10PlusAnalyser(320, 180);
+            using (var device = new CanvasDevice())
+            using (var renderer = new VideoExporter.FrameRenderer(device, request, []))
+            {
+                for (int frame = 0; frame < 72; frame++) analyser.Add(renderer.Render(frame));
+            }
+            string expectedPath = Path.Combine(directory, "expected.json");
+            analyser.Write(expectedPath, 0, 72);
+            JsonElement[] expected = JsonDocument.Parse(File.ReadAllText(expectedPath)).RootElement
+                .GetProperty("SceneInfo").EnumerateArray().ToArray();
+            Assert.Equal([0, 1], expected.Select(e => e.GetProperty("SceneId").GetInt32()).Distinct());
+
+            // FFmpeg's HEVC decoder parses the ST 2094-40 SEI of every frame and reports it in 1/10,000 units.
+            var start = new System.Diagnostics.ProcessStartInfo(ffmpeg)
+            {
+                RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+            };
+            foreach (string argument in new[] { "-hide_banner", "-i", request.OutputPath, "-vf", "showinfo", "-f", "null", "-" })
+                start.ArgumentList.Add(argument);
+            using var process = System.Diagnostics.Process.Start(start)!;
+            string log = System.Text.RegularExpressions.Regex.Replace(process.StandardError.ReadToEnd(), @"\s+", " ");
+            process.WaitForExit();
+            var decoded = System.Text.RegularExpressions.Regex.Matches(log,
+                @"SMPTE2094-40 \(HDR10\+\): application version: 1, num_windows: 1, targeted_system_display_maximum_luminance: 0\.0000, " +
+                @"window 0 \{maxscl: \{([\d.]+),([\d.]+),([\d.]+)\}, average_maxrgb: ([\d.]+), distribution_maxrgb: \{((?:\(\d+,[\d.]+\))+)\}");
+            Assert.Equal(72, decoded.Count);
+            for (int frame = 0; frame < 72; frame++)
+            {
+                JsonElement luminance = expected[frame].GetProperty("LuminanceParameters");
+                var groups = decoded[frame].Groups;
+                int[] maxScl = luminance.GetProperty("MaxScl").EnumerateArray().Select(v => v.GetInt32()).ToArray();
+                for (int channel = 0; channel < 3; channel++)
+                    AssertMetadata(maxScl[channel], groups[channel + 1].Value, frame);
+                AssertMetadata(luminance.GetProperty("AverageRGB").GetInt32(), groups[4].Value, frame);
+                string[] distribution = System.Text.RegularExpressions.Regex.Matches(groups[5].Value, @"\((\d+),([\d.]+)\)")
+                    .Select(m => m.Groups[2].Value).ToArray();
+                int[] values = luminance.GetProperty("LuminanceDistributions").GetProperty("DistributionValues")
+                    .EnumerateArray().Select(v => v.GetInt32()).ToArray();
+                Assert.Equal(values.Length, distribution.Length);
+                for (int i = 0; i < values.Length; i++) AssertMetadata(values[i], distribution[i], frame);
+            }
+            Assert.InRange(HdrMetadataNits(decoded[0].Groups[1].Value), 800, 1010);
+            Assert.InRange(HdrMetadataNits(decoded[71].Groups[1].Value), 50, 150);
+
+            // Optionally compare exact integers with the independent hdr10plus_tool parser.
+            if (Environment.GetEnvironmentVariable("INKMOTION_TEST_HDR10PLUS_TOOL") is { Length: > 0 } tool)
+            {
+                string hevc = Path.Combine(directory, "stream.hevc"), extracted = Path.Combine(directory, "extracted.json");
+                Run(ffmpeg, "-y", "-v", "error", "-i", request.OutputPath, "-map", "0:v:0", "-c:v", "copy",
+                    "-bsf:v", "hevc_mp4toannexb", "-f", "hevc", hevc);
+                Run(tool, "extract", hevc, "-o", extracted);
+                JsonElement[] actual = JsonDocument.Parse(File.ReadAllText(extracted)).RootElement
+                    .GetProperty("SceneInfo").EnumerateArray().ToArray();
+                Assert.Equal(72, actual.Length);
+                for (int frame = 0; frame < 72; frame++)
+                {
+                    Assert.Equal(expected[frame].GetProperty("LuminanceParameters").GetRawText().Replace(" ", ""),
+                        LuminanceJson(actual[frame].GetProperty("LuminanceParameters")));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static string LuminanceJson(JsonElement luminance)
+    {
+        JsonElement distributions = luminance.GetProperty("LuminanceDistributions");
+        string Join(JsonElement array) => string.Join(',', array.EnumerateArray().Select(v => v.GetInt32()));
+        return $$"""{"AverageRGB":{{luminance.GetProperty("AverageRGB").GetInt32()}},"LuminanceDistributions":{"DistributionIndex":[{{Join(distributions.GetProperty("DistributionIndex"))}}],"DistributionValues":[{{Join(distributions.GetProperty("DistributionValues"))}}]},"MaxScl":[{{Join(luminance.GetProperty("MaxScl"))}}]}""";
+    }
+
+    private static double HdrMetadataNits(string normalised) =>
+        double.Parse(normalised, System.Globalization.CultureInfo.InvariantCulture) * 10_000;
+
+    private static void AssertMetadata(int expected, string normalised, int frame)
+    {
+        // showinfo prints four decimal places of the 10,000 cd/m² scale, i.e. whole cd/m²; metadata is in 0.1 cd/m².
+        double actual = HdrMetadataNits(normalised) * 10;
+        Assert.True(Math.Abs(actual - expected) <= 5, $"Frame {frame}: expected {expected}, decoded {actual}.");
+    }
+
+    private static string PqSource(string ffmpeg, string directory, string name, string colour)
+    {
+        string path = Path.Combine(directory, name);
+        Run(ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i", $"color=c={colour}:s=320x180:r=12:d=3",
+            "-vf", "format=rgb24,scale=out_color_matrix=bt2020:out_range=tv,format=yuv444p10le," +
+            "setparams=color_primaries=bt2020:color_trc=smpte2084:colorspace=bt2020nc:range=tv",
+            "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc", "-color_range", "tv",
+            "-c:v", "ffv1", path);
+        return path;
     }
 
     private static void Run(string executable, params string[] arguments)

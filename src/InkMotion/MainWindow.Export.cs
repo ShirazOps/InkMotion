@@ -90,7 +90,18 @@ public sealed partial class MainWindow
             (FFmpegVideoContainer)VideoContainerSelector.SelectedIndex,
             (FFmpegVideoAudioCodec)VideoAudioCodecSelector.SelectedIndex,
             VideoAudioDepthSelector.SelectedIndex == 0 ? 16 : 24,
-            Hdr10PlusMetadataPathBox.Text.Trim() is { Length: > 0 } metadataPath ? metadataPath : null);
+            GenerateHdr10PlusCheckBox.IsChecked != true &&
+                Hdr10PlusMetadataPathBox.Text.Trim() is { Length: > 0 } metadataPath ? metadataPath : null,
+            hdr10PlusAvailable() && GenerateHdr10PlusCheckBox.IsChecked == true);
+
+        bool hdr10PlusAvailable() => Hdr10PlusMetadataPanel.Visibility == Visibility.Visible;
+    }
+
+    private void GenerateHdr10Plus_Changed(object sender, RoutedEventArgs e)
+    {
+        bool manual = GenerateHdr10PlusCheckBox.IsChecked != true;
+        Hdr10PlusMetadataPathBox.IsEnabled = manual;
+        ChooseHdr10PlusMetadataButton.IsEnabled = manual;
     }
 
     private async void ChooseHdr10PlusMetadata_Click(object sender, RoutedEventArgs e)
