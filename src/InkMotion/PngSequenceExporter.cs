@@ -3,11 +3,19 @@ using Windows.Storage;
 
 namespace InkMotion;
 
-public sealed record PngSequenceExportSettings(VideoExportProfile Profile, double InkReferenceHeight)
+public enum PngSequenceExportMode { TransparentInk, FullTimeline }
+
+public sealed record PngSequenceExportSettings(VideoExportProfile Profile, double InkReferenceHeight,
+    PngSequenceExportMode Mode = PngSequenceExportMode.TransparentInk)
 {
     public void Validate()
     {
         ArgumentNullException.ThrowIfNull(Profile);
+        if (!Enum.IsDefined(Mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(Mode));
+        }
+
         if (!double.IsFinite(InkReferenceHeight) || InkReferenceHeight < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(InkReferenceHeight));
@@ -36,16 +44,38 @@ public static class PngSequenceExporter
         ArgumentNullException.ThrowIfNull(settings);
         settings.Validate();
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
-        if (!ExportPlanning.HasInk(project))
+        cancellationToken.ThrowIfCancellationRequested();
+        bool inkOnly = settings.Mode == PngSequenceExportMode.TransparentInk;
+        if (inkOnly && !ExportPlanning.HasInk(project))
         {
             throw new InvalidOperationException("Nothing to export: add ink, cel text or a connected scene or particle node first.");
         }
 
-        double duration = ExportPlanning.GetInkDurationSeconds(project);
+        var warnings = new List<string>();
+        double duration;
+        if (inkOnly)
+        {
+            duration = ExportPlanning.GetInkDurationSeconds(project);
+        }
+        else
+        {
+            if (CompoundTimelines.Projects(project).Any(timeline => timeline.Colour is not null))
+            {
+                throw new NotSupportedException(
+                    "Full-timeline PNG sequences support SDR projects only; HDR PNG output and HDR-to-SDR conversion are not supported. Use HDR video export or the transparent-ink mode.");
+            }
+
+            using var mixer = new ExportAudioMixer(project);
+            duration = VideoExporter.GetDurationSeconds(project, mixer.DurationSeconds);
+            warnings.AddRange(mixer.Warnings);
+        }
+
         int frameCount = ExportPlanning.GetFrameCount(duration, settings.Profile.FrameRate);
         if (frameCount == 0)
         {
-            throw new InvalidOperationException("Nothing to export: add ink, cel text or a connected scene or particle node first.");
+            throw new InvalidOperationException(inkOnly
+                ? "Nothing to export: add ink, cel text or a connected scene or particle node first."
+                : "Nothing to export: add video, images, titles, audio or ink first.");
         }
 
         string fullOutputDirectory = Path.GetFullPath(outputDirectory);
@@ -75,8 +105,7 @@ public static class PngSequenceExporter
             var request = new VideoExportRequest(project, settings.Profile, VideoExportCodec.H264,
                 fullOutputDirectory, settings.InkReferenceHeight, PreferHardware: false);
             using var device = new CanvasDevice();
-            var warnings = new List<string>();
-            using (var renderer = new VideoExporter.FrameRenderer(device, request, warnings, inkOnly: true))
+            using (var renderer = new VideoExporter.FrameRenderer(device, request, warnings, inkOnly: inkOnly))
             {
                 for (int frame = 0; frame < frameCount; frame++)
                 {
@@ -84,7 +113,10 @@ public static class PngSequenceExporter
                     string fileName = $"frame_{frame + 1:D6}.png";
                     StorageFile file = await output.CreateFileAsync(fileName, CreationCollisionOption.FailIfExists);
                     createdFrameCount++;
-                    await renderer.SaveInkFrameAsync(frame, file);
+                    if (inkOnly)
+                        await renderer.SaveInkFrameAsync(frame, file);
+                    else
+                        await renderer.SaveTimelineFrameAsync(frame, file);
                     if (frame % 5 == 0 || frame == frameCount - 1)
                     {
                         progress?.Report(new VideoExportProgress(frame + 1, frameCount, "Writing PNG sequence"));

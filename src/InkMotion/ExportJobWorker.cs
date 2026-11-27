@@ -100,7 +100,9 @@ public static class ExportJobWorker
                         new InlineProgress<VideoExportProgress>(update => Report(update.Fraction,
                             $"{update.Stage} · frame {update.Frame:N0} of {update.FrameCount:N0}")),
                         cancellation.Token).GetAwaiter().GetResult();
-                    summary = $"Exported {result.FrameCount:N0} transparent PNG frames at " +
+                    string content = sequence.Mode == PngSequenceExportMode.FullTimeline
+                        ? "full-timeline SDR" : "transparent ink";
+                    summary = $"Exported {result.FrameCount:N0} {content} PNG frames at " +
                         $"{sequence.Profile.Width:N0} × {sequence.Profile.Height:N0}";
                     warnings = result.Warnings;
                 }
