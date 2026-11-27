@@ -4,15 +4,23 @@ namespace InkMotion;
 
 internal static class InkCompositeScene3DRenderer
 {
-    private readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C);
-    private readonly record struct ScreenVertex(float X, float Y, float Depth);
+    internal readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C,
+        Vector2 UVA = default, Vector2 UVB = default, Vector2 UVC = default, int Material = 0);
+    private readonly record struct ClipVertex(Vector4 Position, Vector3 World, Vector2 UV)
+    {
+        public static ClipVertex Lerp(ClipVertex a, ClipVertex b, float fraction) => new(
+            Vector4.Lerp(a.Position, b.Position, fraction), Vector3.Lerp(a.World, b.World, fraction),
+            Vector2.Lerp(a.UV, b.UV, fraction));
+    }
+    private readonly record struct ScreenVertex(float X, float Y, float Depth, float InverseW,
+        Vector3 WorldOverW, Vector2 UVOverW);
 
     private static readonly Triangle[] Cube = CreateCube();
     private static readonly Triangle[] Sphere = CreateSphere();
     private static readonly Triangle[] Plane =
     [
-        new(new(-0.5f, -0.5f, 0), new(0.5f, -0.5f, 0), new(0.5f, 0.5f, 0)),
-        new(new(-0.5f, -0.5f, 0), new(0.5f, 0.5f, 0), new(-0.5f, 0.5f, 0)),
+        new(new(-0.5f, -0.5f, 0), new(0.5f, -0.5f, 0), new(0.5f, 0.5f, 0), new(0, 0), new(1, 0), new(1, 1)),
+        new(new(-0.5f, -0.5f, 0), new(0.5f, 0.5f, 0), new(-0.5f, 0.5f, 0), new(0, 0), new(1, 1), new(0, 1)),
     ];
 
     public static byte[] Render(
@@ -44,18 +52,8 @@ internal static class InkCompositeScene3DRenderer
 
         foreach (InkComposite3DObject item in scene.Objects.Where(item => item.Visible))
         {
-            Matrix4x4 world = Matrix4x4.CreateScale((float)item.ScaleX, (float)item.ScaleY, (float)item.ScaleZ) *
-                Matrix4x4.CreateRotationX(AnimatedAngle(item.RotationX, item.SpinX, seconds)) *
-                Matrix4x4.CreateRotationY(AnimatedAngle(item.RotationY, item.SpinY, seconds)) *
-                Matrix4x4.CreateRotationZ(AnimatedAngle(item.RotationZ, item.SpinZ, seconds)) *
-                Matrix4x4.CreateTranslation((float)item.X, (float)item.Y, (float)item.Z);
-            Triangle[] mesh = item.Shape switch
-            {
-                InkComposite3DShape.Cube => Cube,
-                InkComposite3DShape.Sphere => Sphere,
-                InkComposite3DShape.Plane => Plane,
-                _ => throw new InvalidOperationException("The 3D scene contains an unknown shape."),
-            };
+            Matrix4x4 world = WorldMatrix(item, seconds);
+            Triangle[] mesh = GetMesh(item);
             foreach (Triangle triangle in mesh)
             {
                 Vector3 a = Vector3.Transform(triangle.A, world);
@@ -66,15 +64,14 @@ internal static class InkCompositeScene3DRenderer
 
                 float diffuse = Math.Max(0, Vector3.Dot(Vector3.Normalize(cross), light));
                 float brightness = (float)(scene.AmbientLight + ((1 - scene.AmbientLight) * diffuse));
-                byte blue = Shade((byte)item.Colour, brightness);
-                byte green = Shade((byte)(item.Colour >> 8), brightness);
-                byte red = Shade((byte)(item.Colour >> 16), brightness);
+                InkMeshMaterial? material = item.Shape == InkComposite3DShape.Mesh ? item.Mesh!.Materials[triangle.Material] : null;
+                uint colour = MultiplyColour(item.Colour, material?.Colour ?? 0xFFFFFFFF);
                 ClipAndRasterise(
-                    Vector4.Transform(new Vector4(a, 1), viewProjection),
-                    Vector4.Transform(new Vector4(b, 1), viewProjection),
-                    Vector4.Transform(new Vector4(c, 1), viewProjection),
+                    new(Vector4.Transform(new Vector4(a, 1), viewProjection), a, triangle.UVA),
+                    new(Vector4.Transform(new Vector4(b, 1), viewProjection), b, triangle.UVB),
+                    new(Vector4.Transform(new Vector4(c, 1), viewProjection), c, triangle.UVC),
                     canvasWidth, canvasHeight, transform, targetWidth, targetHeight,
-                    pixels, depth, blue, green, red);
+                    pixels, depth, colour, brightness, item.Texture ?? material?.Texture);
             }
         }
 
@@ -82,9 +79,9 @@ internal static class InkCompositeScene3DRenderer
     }
 
     private static void ClipAndRasterise(
-        Vector4 a,
-        Vector4 b,
-        Vector4 c,
+        ClipVertex a,
+        ClipVertex b,
+        ClipVertex c,
         float canvasWidth,
         float canvasHeight,
         Matrix3x2 transform,
@@ -92,12 +89,12 @@ internal static class InkCompositeScene3DRenderer
         int targetHeight,
         byte[] pixels,
         float[] depth,
-        byte blue,
-        byte green,
-        byte red)
+        uint colour,
+        float brightness,
+        InkMeshTexture? texture)
     {
-        Span<Vector4> input = stackalloc Vector4[16];
-        Span<Vector4> output = stackalloc Vector4[16];
+        Span<ClipVertex> input = stackalloc ClipVertex[16];
+        Span<ClipVertex> output = stackalloc ClipVertex[16];
         input[0] = a;
         input[1] = b;
         input[2] = c;
@@ -105,18 +102,18 @@ internal static class InkCompositeScene3DRenderer
         for (int plane = 0; plane < 6; plane++)
         {
             int nextCount = 0;
-            Vector4 previous = input[count - 1];
-            float previousDistance = ClipDistance(previous, plane);
+            ClipVertex previous = input[count - 1];
+            float previousDistance = ClipDistance(previous.Position, plane);
             for (int index = 0; index < count; index++)
             {
-                Vector4 current = input[index];
-                float currentDistance = ClipDistance(current, plane);
+                ClipVertex current = input[index];
+                float currentDistance = ClipDistance(current.Position, plane);
                 bool previousInside = previousDistance >= 0;
                 bool currentInside = currentDistance >= 0;
                 if (previousInside != currentInside)
                 {
                     float fraction = previousDistance / (previousDistance - currentDistance);
-                    output[nextCount++] = Vector4.Lerp(previous, current, fraction);
+                    output[nextCount++] = ClipVertex.Lerp(previous, current, fraction);
                 }
                 if (currentInside) output[nextCount++] = current;
                 previous = current;
@@ -124,7 +121,7 @@ internal static class InkCompositeScene3DRenderer
             }
 
             if (nextCount < 3) return;
-            Span<Vector4> swap = input;
+            Span<ClipVertex> swap = input;
             input = output;
             output = swap;
             count = nextCount;
@@ -135,7 +132,7 @@ internal static class InkCompositeScene3DRenderer
         {
             Rasterise(first, Project(input[index], canvasWidth, canvasHeight, transform),
                 Project(input[index + 1], canvasWidth, canvasHeight, transform),
-                targetWidth, targetHeight, pixels, depth, blue, green, red);
+                targetWidth, targetHeight, pixels, depth, colour, brightness, texture);
         }
     }
 
@@ -150,14 +147,16 @@ internal static class InkCompositeScene3DRenderer
         _ => throw new ArgumentOutOfRangeException(nameof(plane)),
     };
 
-    private static ScreenVertex Project(Vector4 point, float width, float height, Matrix3x2 transform)
+    private static ScreenVertex Project(ClipVertex vertex, float width, float height, Matrix3x2 transform)
     {
+        Vector4 point = vertex.Position;
         float inverseW = 1 / point.W;
         var position = new Vector2(
             ((point.X * inverseW) + 1) * width * 0.5f,
             (1 - (point.Y * inverseW)) * height * 0.5f);
         position = Vector2.Transform(position, transform);
-        return new ScreenVertex(position.X, position.Y, point.Z * inverseW);
+        return new ScreenVertex(position.X, position.Y, point.Z * inverseW, inverseW,
+            vertex.World * inverseW, vertex.UV * inverseW);
     }
 
     private static void Rasterise(
@@ -168,9 +167,9 @@ internal static class InkCompositeScene3DRenderer
         int height,
         byte[] pixels,
         float[] depth,
-        byte blue,
-        byte green,
-        byte red)
+        uint colour,
+        float brightness,
+        InkMeshTexture? texture)
     {
         float area = Edge(a, b, c.X, c.Y);
         if (Math.Abs(area) < 1e-8f) return;
@@ -202,9 +201,16 @@ internal static class InkCompositeScene3DRenderer
                     {
                         depth[pixel] = z;
                         int offset = pixel * 4;
-                        pixels[offset] = blue;
-                        pixels[offset + 1] = green;
-                        pixels[offset + 2] = red;
+                        uint sampled = colour;
+                        if (texture is not null)
+                        {
+                            float reciprocal = (weightA * a.InverseW) + (weightB * b.InverseW) + (weightC * c.InverseW);
+                            Vector2 uv = ((weightA * a.UVOverW) + (weightB * b.UVOverW) + (weightC * c.UVOverW)) / reciprocal;
+                            sampled = MultiplyColour(colour, SampleTexture(texture, uv));
+                        }
+                        pixels[offset] = Shade((byte)sampled, brightness);
+                        pixels[offset + 1] = Shade((byte)(sampled >> 8), brightness);
+                        pixels[offset + 2] = Shade((byte)(sampled >> 16), brightness);
                         pixels[offset + 3] = 255;
                     }
                 }
@@ -231,6 +237,39 @@ internal static class InkCompositeScene3DRenderer
     private static float AnimatedAngle(double angle, double spin, double seconds) =>
         Radians(Math.IEEERemainder(angle + (spin * seconds), 360));
 
+    internal static Matrix4x4 WorldMatrix(InkComposite3DObject item, double seconds) =>
+        Matrix4x4.CreateScale((float)item.ScaleX, (float)item.ScaleY, (float)item.ScaleZ) *
+        Matrix4x4.CreateRotationX(AnimatedAngle(item.RotationX, item.SpinX, seconds)) *
+        Matrix4x4.CreateRotationY(AnimatedAngle(item.RotationY, item.SpinY, seconds)) *
+        Matrix4x4.CreateRotationZ(AnimatedAngle(item.RotationZ, item.SpinZ, seconds)) *
+        Matrix4x4.CreateTranslation((float)item.X, (float)item.Y, (float)item.Z);
+
+    internal static Triangle[] GetMesh(InkComposite3DObject item) => item.Shape switch
+    {
+        InkComposite3DShape.Cube => Cube,
+        InkComposite3DShape.Sphere => Sphere,
+        InkComposite3DShape.Plane => Plane,
+        InkComposite3DShape.Mesh => item.Mesh!.Triangles.Select(triangle => new Triangle(
+            triangle.A.Position, triangle.B.Position, triangle.C.Position, triangle.A.UV,
+            triangle.B.UV, triangle.C.UV, triangle.Material)).ToArray(),
+        _ => throw new InvalidOperationException("The 3D scene contains an unknown shape."),
+    };
+
+    private static uint MultiplyColour(uint a, uint b) => 0xFF000000 |
+        ((uint)((((a >> 16) & 255) * ((b >> 16) & 255) + 127) / 255) << 16) |
+        ((uint)((((a >> 8) & 255) * ((b >> 8) & 255) + 127) / 255) << 8) |
+        (uint)(((a & 255) * (b & 255) + 127) / 255);
+
+    private static uint SampleTexture(InkMeshTexture texture, Vector2 uv)
+    {
+        float u = uv.X - MathF.Floor(uv.X), v = uv.Y - MathF.Floor(uv.Y);
+        int x = Math.Clamp((int)(u * texture.Width), 0, texture.Width - 1);
+        int y = Math.Clamp((int)((1 - v) * texture.Height), 0, texture.Height - 1);
+        int offset = ((y * texture.Width) + x) * 4;
+        return 0xFF000000 | ((uint)texture.Pixels[offset + 2] << 16) |
+            ((uint)texture.Pixels[offset + 1] << 8) | texture.Pixels[offset];
+    }
+
     private static Vector3 Direction(double yaw, double pitch)
     {
         float y = Radians(yaw);
@@ -243,8 +282,8 @@ internal static class InkCompositeScene3DRenderer
         var triangles = new List<Triangle>();
         void Face(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
         {
-            triangles.Add(new Triangle(a, b, c));
-            triangles.Add(new Triangle(a, c, d));
+            triangles.Add(new Triangle(a, b, c, new(0, 0), new(1, 0), new(1, 1)));
+            triangles.Add(new Triangle(a, c, d, new(0, 0), new(1, 1), new(0, 1)));
         }
 
         Face(new(-0.5f, -0.5f, 0.5f), new(0.5f, -0.5f, 0.5f), new(0.5f, 0.5f, 0.5f), new(-0.5f, 0.5f, 0.5f));
@@ -276,7 +315,17 @@ internal static class InkCompositeScene3DRenderer
             Vector3 cross = Vector3.Cross(b - a, c - a);
             if (cross.LengthSquared() < 1e-12f) return;
             if (Vector3.Dot(cross, a + b + c) < 0) (b, c) = (c, b);
-            triangles.Add(new Triangle(a, b, c));
+            Vector2 UV(Vector3 point) => new(
+                (MathF.Atan2(point.Z, point.X) / (2 * MathF.PI)) + 0.5f,
+                (MathF.Asin(Math.Clamp(point.Y * 2, -1, 1)) / MathF.PI) + 0.5f);
+            Vector2 uva = UV(a), uvb = UV(b), uvc = UV(c);
+            if (Math.Max(uva.X, Math.Max(uvb.X, uvc.X)) - Math.Min(uva.X, Math.Min(uvb.X, uvc.X)) > 0.5f)
+            {
+                if (uva.X < 0.5f) uva.X += 1;
+                if (uvb.X < 0.5f) uvb.X += 1;
+                if (uvc.X < 0.5f) uvc.X += 1;
+            }
+            triangles.Add(new Triangle(a, b, c, uva, uvb, uvc));
         }
 
         for (int latitude = 0; latitude < latitudeBands; latitude++)

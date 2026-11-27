@@ -5,6 +5,7 @@ public enum InkComposite3DShape
     Cube,
     Sphere,
     Plane,
+    Mesh,
 }
 
 public sealed class InkComposite3DObject
@@ -24,8 +25,16 @@ public sealed class InkComposite3DObject
     public double SpinY { get; set; }
     public double SpinZ { get; set; }
     public uint Colour { get; set; } = 0xFF80BFFF;
+    public InkCompositeMesh? Mesh { get; set; }
+    public InkMeshTexture? Texture { get; set; }
 
-    public InkComposite3DObject Clone() => (InkComposite3DObject)MemberwiseClone();
+    public InkComposite3DObject Clone()
+    {
+        var copy = (InkComposite3DObject)MemberwiseClone();
+        copy.Mesh = Mesh?.Clone();
+        copy.Texture = Texture?.Clone();
+        return copy;
+    }
 }
 
 public sealed class InkCompositeScene3D
@@ -61,6 +70,9 @@ public static class InkCompositeScenes3D
         scene.Objects is not null &&
         scene.Objects.Count <= MaxObjects &&
         scene.Objects.All(IsValidObject) &&
+        scene.Objects.Sum(item => (long)(item.Mesh?.Triangles.Count ?? 256)) <= 32768 &&
+        scene.Objects.Sum(item => (long)(item.Texture?.Pixels.Length ?? 0) +
+            (item.Mesh?.Materials.Sum(material => (long)(material.Texture?.Pixels.Length ?? 0)) ?? 0)) <= 16 * 1024 * 1024 &&
         InRange(scene.CameraYaw, -180, 180) &&
         InRange(scene.CameraPitch, -89, 89) &&
         InRange(scene.CameraDistance, 1, 100) &&
@@ -72,6 +84,9 @@ public static class InkCompositeScenes3D
     private static bool IsValidObject(InkComposite3DObject? item) =>
         item is not null &&
         Enum.IsDefined(item.Shape) &&
+        (item.Shape != InkComposite3DShape.Mesh || item.Mesh is not null) &&
+        (item.Mesh is null || item.Mesh.IsValid()) &&
+        (item.Texture is null || item.Texture.IsValid()) &&
         InRange(item.X, -50, 50) && InRange(item.Y, -50, 50) && InRange(item.Z, -50, 50) &&
         InRange(item.RotationX, -180, 180) && InRange(item.RotationY, -180, 180) &&
         InRange(item.RotationZ, -180, 180) &&

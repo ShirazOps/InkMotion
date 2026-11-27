@@ -95,6 +95,10 @@ The expanded design uses one shell: four page buttons in the first row; relevant
 
 Compound tracks embed editable child timelines with up to four levels, track-level audio routing, source-bounded trims, independent split copies and a single parent undo step. Conversion currently groups one whole track at a time and rejects linked audio, multicamera membership and tracking or matte references that cannot safely move. Return to the main timeline to save. This does not yet provide multi-track selection or shared linked compound instances.
 
+### Imported 3D and particle interaction increments
+
+- Package 1.0.45.0 / schema 91: on-device OBJ polygon import with MTL diffuse colours and PNG/JPEG/BMP maps; embedded geometry/textures survive save/load and undo without external paths. Perspective-correct UVs, clip interpolation and primitive texture overrides share preview/export. Import is bounded to 4,096 triangles, 32 materials and 8 MiB of decoded textures; scenes to 32,768 triangles and 16 MiB. Convex planar faces only, flat opaque shading, no map options or glTF. No new third-party library or model download; legacy objects remain unchanged.
+
 1. **Shared layout and preview comparison**
    - Added: independent per-workspace collapsible options, timeline and preview panels through View; draggable/keyboard-accessible width and height dividers; one-action preview/canvas expansion or audio waveform expansion retaining transport controls. Audio lanes and headers share scrolling and align to the video/ink ruler. Page action toolbars use the full row and move individual excess buttons into the command-bar overflow rather than scrolling horizontally. Local atomic automatic layout persistence, responsive bounds and reset-all defaults; project/export state is unchanged.
    - Implemented: page-specific action row and the shared viewer in Audio Editor as well as Video Editor, Ink Editor and Export.
