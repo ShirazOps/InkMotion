@@ -1163,9 +1163,14 @@
                         <TextBlock Text="RECORDING" Style="{StaticResource SectionHeaderTextStyle}" />
                         <ComboBox x:Name="AudioRecordingDeviceSelector" Header="Input device" />
                         <ComboBox x:Name="AudioRecordingSampleRateSelector" Header="Sample rate" />
+                        <ComboBox x:Name="AudioMonitoringOutputSelector" Header="Monitoring output (use headphones)" />
+                        <NumberBox x:Name="AudioMonitoringGainBox" Header="Monitoring level (dB)" Minimum="-60" Maximum="0" Value="-12" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        <Button x:Name="AudioMonitoringButton" Content="Monitor input (headphones)" Click="AudioMonitoring_Click" IsEnabled="False" />
+                        <Button Content="Refresh audio devices (stops monitoring)" Click="RefreshAudioDevices_Click" />
+                        <TextBlock x:Name="AudioMonitoringStatus" Text="Monitoring is off." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button x:Name="AudioRecordingButton" Content="Record audio" Click="AudioRecordingButton_Click" IsEnabled="False" />
                         <TextBlock x:Name="AudioRecordingStatus" Text="Detecting audio inputs..." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
-                        <TextBlock Text="Each take records one selected input as 16-bit PCM WAV and adds it as a new clip at the start frame. Files are kept in InkMotion's local Recordings folder. System-audio loopback and live input monitoring are not included." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <TextBlock Text="Each take records one selected input as 16-bit PCM WAV and adds it as a new clip at the start frame. Files are kept in InkMotion's local Recordings folder. Monitoring is a separate local input-to-output path, not part of the project mix or export. Stop monitoring before recording. System-audio loopback is not included." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <ProgressBar x:Name="AudioMeterProgress" Minimum="0" Maximum="100" Value="0" AutomationProperties.Name="Selected audio track monitor peak level" />
                         <TextBlock x:Name="AudioMeterText" Text="Selected track monitor: stopped" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         <Button Content="Reset clip indicators" Click="ResetAudioClipIndicator_Click" />

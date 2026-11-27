@@ -79,6 +79,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += MainWindow_ScreenRecordingClosing;
         InitialiseVideoTimeline();
         InitialiseAudioRecordingControls();
+        InitialiseAudioMonitoring();
         _audioPreviewBus.PlaybackStopped += AudioPreviewBus_PlaybackStopped;
         UpdateSelectedAudioTrack();
         RefreshAudioTracks();
@@ -2957,6 +2958,7 @@ public sealed partial class MainWindow : Window
         _opticalFlowClosed = true;
         _opticalFlowCancellation?.Cancel();
         StopAudioRecordingForClose();
+        CloseAudioMonitoring();
         _mediaBinClosed = true;
         _mediaDiscoveryCancellation?.Cancel();
         _mediaDiscoveryCancellation = null;

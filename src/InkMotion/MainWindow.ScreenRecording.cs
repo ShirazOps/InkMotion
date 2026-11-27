@@ -22,6 +22,11 @@ public sealed partial class MainWindow
             StatusText.Text = "Stop the current audio take before opening screen recording.";
             return;
         }
+        if (_audioInputMonitor is not null)
+        {
+            StatusText.Text = "Stop input monitoring before opening Screen recorder.";
+            return;
+        }
         PausePlayback();
         if (_screenRecorderWindow is null)
         {

@@ -54,7 +54,7 @@ public sealed partial class MainWindow
             AudioRecordingDeviceSelector.SelectedIndex = inputs.Length > 0 ? 0 : -1;
             AudioRecordingButton.IsEnabled = inputs.Length > 0;
             AudioRecordingStatus.Text = inputs.Length > 0
-                ? "Select an input and record at the playhead. Timeline playback may continue; input monitoring is off."
+                ? "Select an input and record at the playhead. Timeline playback may continue; monitoring is controlled separately."
                 : "No audio input devices were found.";
         }
         catch (NAudio.MmException ex)
@@ -77,6 +77,11 @@ public sealed partial class MainWindow
 
     private void StartAudioRecording()
     {
+        if (_audioInputMonitor is not null)
+        {
+            AudioRecordingStatus.Text = "Stop input monitoring before starting an audio take.";
+            return;
+        }
         if (_screenRecorderWindow?.IsRecording == true)
         {
             AudioRecordingStatus.Text = "Stop screen recording before starting a separate audio take.";
