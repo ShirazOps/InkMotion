@@ -107,6 +107,7 @@ public sealed partial class MainWindow
     private string? _selectedTimelineClipId;
     private double _timelinePixelsPerSecond = 60;
     private TimelineDrag? _timelineDrag;
+    private string? _timelineClipActionWarning;
     private bool _isScrubbingTimeline;
     private readonly TimelineScrubRequests _timelineScrubRequests = new();
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _timelineScrubTimer;
@@ -2427,6 +2428,7 @@ public sealed partial class MainWindow
 
         PausePlayback();
         FinishActiveEdit();
+        VideoTimelineFocusTarget.Focus(FocusState.Programmatic);
         e.Handled = true;
         VideoTimelineCanvas.CapturePointer(e.Pointer);
         double seconds = Math.Max(0, point.Position.X / _timelinePixelsPerSecond);
@@ -2453,6 +2455,7 @@ public sealed partial class MainWindow
             / _timelinePixelsPerSecond;
         bool edgeTool = _timelineToolMode is TimelineToolMode.Select or TimelineToolMode.Trim or TimelineToolMode.Ripple or TimelineToolMode.Roll;
         if (edgeTool && SelectedTimelineClip is { } selected && selected.Track == track &&
+            (location is null || location.Clip == selected.Clip) &&
             (Math.Abs(seconds - VideoTimelineEditing.GetStartSeconds(selected.Clip, _frameRate)) <= handleTolerance ||
                 Math.Abs(seconds - VideoTimelineEditing.GetEndSeconds(selected.Clip, track.Kind, _frameRate)) <= handleTolerance))
         {
@@ -2473,6 +2476,7 @@ public sealed partial class MainWindow
         _selectedTimelineClipId = location.Clip.Id;
         double start = VideoTimelineEditing.GetStartSeconds(location.Clip, _frameRate);
         double end = VideoTimelineEditing.GetEndSeconds(location.Clip, track.Kind, _frameRate);
+        handleTolerance = Math.Min(handleTolerance, (end - start) / 4);
         double startDistance = Math.Abs(seconds - start);
         double endDistance = Math.Abs(seconds - end);
         bool nearStart = _timelineToolMode != TimelineToolMode.Roll && startDistance <= handleTolerance;
@@ -2507,7 +2511,7 @@ public sealed partial class MainWindow
             {
                 int bladeFrame = Math.Max(1, (int)Math.Round(seconds * _frameRate) + 1);
                 BeginEdit();
-                TimelineClipProject? right = VideoTimelineEditing.Split(track, location.Clip, bladeFrame, _frameRate);
+                TimelineClipProject? right = SplitTimelineClip(location, bladeFrame);
                 if (right is not null)
                 {
                     MarkEditChanged();
@@ -2515,12 +2519,13 @@ public sealed partial class MainWindow
                     _selectedTimelineClipId = right.Id;
                     RefreshVideoTimeline();
                     SeekToCurrentFrame();
-                    StatusText.Text = $"Split {VideoTimelineEditing.KindLabel(track.Kind)} at frame {bladeFrame}.";
+                    StatusText.Text = $"Split {VideoTimelineEditing.KindLabel(track.Kind)} at frame {bladeFrame}." +
+                        (_timelineClipActionWarning is null ? string.Empty : $" {_timelineClipActionWarning}");
                 }
                 else
                 {
                     CommitEdit();
-                    StatusText.Text = "Blade cuts must be inside a clip, away from its edges.";
+                    StatusText.Text = "Blade cuts must be inside a clip, away from its edges. Linked audio needs a known source length or out point.";
                 }
             }
             return;
@@ -2655,7 +2660,7 @@ public sealed partial class MainWindow
             drag.LastChange = change;
             drag.Moved = true;
             drag.Blocked = false;
-            MarkEditChanged();
+            UnsavedIndicator.Visibility = Visibility.Visible;
             InvalidateVideoTimeline();
             CompositionSurface.Invalidate();
             UpdateVideoInspector();
@@ -2731,7 +2736,7 @@ public sealed partial class MainWindow
         if (moved)
         {
             drag.Moved = true;
-            MarkEditChanged();
+            UnsavedIndicator.Visibility = Visibility.Visible;
             InvalidateVideoTimeline();
             CompositionSurface.Invalidate();
         }
@@ -2782,6 +2787,8 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (drag.Moved)
+            MarkEditChanged();
         CommitEdit();
         if (drag.Moved)
         {
@@ -3101,11 +3108,13 @@ public sealed partial class MainWindow
             return;
         }
 
+        _timelineClipActionWarning = null;
         BeginEdit();
         if (action(location))
         {
             MarkEditChanged();
-            StatusText.Text = success;
+            StatusText.Text = success +
+                (_timelineClipActionWarning is null ? string.Empty : $" {_timelineClipActionWarning}");
         }
         else
         {
@@ -3145,12 +3154,13 @@ public sealed partial class MainWindow
     private void SplitClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
         location =>
         {
-            TimelineClipProject? right = VideoTimelineEditing.Split(
-                location.Track, location.Clip, PlayheadFrameNumber, _frameRate);
+            TimelineClipProject? right = SplitTimelineClip(location, PlayheadFrameNumber);
+            if (right is not null)
+                _selectedTimelineClipId = right.Id;
             return right is not null;
         },
-        "Split the clip at the playhead.",
-        "Move the playhead inside the selected clip to split it.");
+        "Split the clip and any overlapping linked audio at the playhead; the right segment is selected.",
+        "Move the playhead inside the selected clip to split it. Linked audio needs a known source length or out point.");
 
     private void SlipVideoClip_Click(object sender, RoutedEventArgs e)
     {
@@ -3294,14 +3304,14 @@ public sealed partial class MainWindow
         "No whole-frame gap can be closed. Use an unlocked valid track with known clip durations; fractional-frame gaps may remain.");
 
     private void DeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.Delete(location.Track, location.Clip),
-        "Clip deleted.",
+        location => DeleteTimelineClip(location, ripple: false),
+        "Clip and any linked audio deleted; the source files are unchanged.",
         "Could not delete the clip.");
 
     private void RippleDeleteClip_Click(object sender, RoutedEventArgs e) => ApplyClipAction(
-        location => VideoTimelineEditing.RippleDelete(location.Track, location.Clip, _frameRate),
-        "Clip deleted and the gap closed.",
-        "Could not delete the clip.");
+        location => DeleteTimelineClip(location, ripple: true),
+        "Clip and any linked audio deleted; later clips and their linked audio shifted to close the gap.",
+        "Could not delete the clip without moving linked audio outside the timeline.");
 
     private void UpdateVideoInspector()
     {

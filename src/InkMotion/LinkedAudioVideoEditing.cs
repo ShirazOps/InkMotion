@@ -2,6 +2,96 @@ namespace InkMotion;
 
 public static class LinkedAudioVideoEditing
 {
+    public static TimelineClipProject? SplitVideo(
+        TimelineTrackProject track, TimelineClipProject clip, int frame, double frameRate,
+        AudioTrackProject? linkedAudio, double audioSourceDuration, out AudioTrackProject? rightAudio)
+    {
+        rightAudio = null;
+        AudioTrackProject? leftAudio = null;
+        if (linkedAudio is not null)
+        {
+            if (linkedAudio.LinkedVideoClipId != clip.Id || !AudioClipEditing.HasValidClipSettings(linkedAudio))
+                return null;
+            double duration = AudioClipEditing.GetTimelineDuration(linkedAudio, audioSourceDuration);
+            if (!double.IsFinite(duration))
+                return null;
+            double splitOffset = (frame - linkedAudio.StartFrame) / frameRate;
+            if (splitOffset > 0 && splitOffset < duration)
+            {
+                leftAudio = AudioClipEditing.Clone(linkedAudio);
+                rightAudio = AudioClipEditing.Split(leftAudio, frame, frameRate, audioSourceDuration);
+                if (rightAudio is null)
+                    return null;
+            }
+        }
+
+        TimelineClipProject? right = VideoTimelineEditing.Split(track, clip, frame, frameRate);
+        if (right is null)
+        {
+            rightAudio = null;
+            return null;
+        }
+        if (linkedAudio is not null)
+        {
+            if (leftAudio is not null)
+            {
+                linkedAudio.SourceOutSeconds = leftAudio.SourceOutSeconds;
+                linkedAudio.FadeInSeconds = leftAudio.FadeInSeconds;
+                linkedAudio.FadeOutSeconds = leftAudio.FadeOutSeconds;
+                rightAudio!.LinkedVideoClipId = right.Id;
+            }
+            else if (linkedAudio.StartFrame >= frame)
+            {
+                linkedAudio.LinkedVideoClipId = right.Id;
+            }
+        }
+        return right;
+    }
+
+    public static bool TryCopyLinkedAudio(
+        TimelineClipProject source, TimelineClipProject copy, AudioTrackProject? linkedAudio,
+        out AudioTrackProject? audioCopy)
+    {
+        audioCopy = null;
+        if (linkedAudio is null)
+            return true;
+        long start = (long)linkedAudio.StartFrame + copy.StartFrame - source.StartFrame;
+        if (linkedAudio.LinkedVideoClipId != source.Id || start < 1 || start > int.MaxValue)
+            return false;
+        audioCopy = AudioClipEditing.Clone(linkedAudio);
+        audioCopy.StartFrame = (int)start;
+        audioCopy.LinkedVideoClipId = copy.Id;
+        return true;
+    }
+
+    public static bool DeleteVideo(
+        TimelineTrackProject track, TimelineClipProject clip, List<AudioTrackProject> audioClips,
+        double frameRate, bool ripple = false)
+    {
+        if (track.IsLocked || !track.Clips.Contains(clip))
+            return false;
+        double end = VideoTimelineEditing.GetEndSeconds(clip, track.Kind, frameRate);
+        int shift = ripple ? (int)Math.Floor(VideoTimelineEditing.GetDurationSeconds(clip, track.Kind) * frameRate + 1e-6) : 0;
+        var changes = track.Clips
+            .Where(other => other != clip && VideoTimelineEditing.GetStartSeconds(other, frameRate) >= end - 1e-6)
+            .ToDictionary(other => other.Id, other => Math.Max(1, other.StartFrame - shift) - other.StartFrame);
+        if (audioClips.Any(audio => audio.LinkedVideoClipId is { } id &&
+            changes.TryGetValue(id, out int delta) && (long)audio.StartFrame + delta < 1))
+            return false;
+        bool deleted = ripple
+            ? VideoTimelineEditing.RippleDelete(track, clip, frameRate)
+            : VideoTimelineEditing.Delete(track, clip);
+        if (!deleted)
+            return false;
+        audioClips.RemoveAll(audio => audio.LinkedVideoClipId == clip.Id);
+        foreach (AudioTrackProject audio in audioClips)
+        {
+            if (audio.LinkedVideoClipId is { } id && changes.TryGetValue(id, out int delta))
+                audio.StartFrame += delta;
+        }
+        return true;
+    }
+
     public static bool TryLink(
         TimelineTrackProject videoTrack,
         TimelineClipProject videoClip,

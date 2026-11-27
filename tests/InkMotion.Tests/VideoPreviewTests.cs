@@ -5,12 +5,20 @@ using Xunit.Abstractions;
 
 namespace InkMotion.Tests;
 
+public sealed class WindowsVideoPreviewFactAttribute : FactAttribute
+{
+    public WindowsVideoPreviewFactAttribute()
+    {
+        if (!VideoExportTests.HasH264Encoder)
+            Skip = "The native preview regression requires an available Windows H.264 encoder.";
+    }
+}
+
 public sealed class VideoPreviewTests(ITestOutputHelper output)
 {
-    [Fact]
+    [WindowsVideoPreviewFact]
     public void Preview_UploadsOnlyDecodedFramesAndStillSeeksBackwards()
     {
-        Assert.True(VideoExportTests.HasH264Encoder, "The preview regression requires the Windows H.264 encoder.");
         string path = Path.Combine(Path.GetTempPath(), $"inkmotion-preview-{Guid.NewGuid():N}.mp4");
         try
         {

@@ -6,6 +6,66 @@ public sealed class LinkedAudioVideoEditingTests
 {
     private const double FrameRate = 24;
 
+    [Theory]
+    [InlineData(1, 1, false)]
+    [InlineData(73, 2, true)]
+    public void Split_OffsetAudioOutsideCutStaysLinkedToItsSegment(int audioStart, double sourceOut, bool linkedToRight)
+    {
+        TimelineTrackProject track = CreateVideoTrack();
+        TimelineClipProject video = track.Clips[0];
+        var audio = new AudioTrackProject { AudioPath = "voice.wav", StartFrame = audioStart,
+            SourceOutSeconds = sourceOut, LinkedVideoClipId = video.Id };
+        TimelineClipProject right = Assert.IsType<TimelineClipProject>(
+            LinkedAudioVideoEditing.SplitVideo(track, video, 58, FrameRate, audio, 10, out AudioTrackProject? rightAudio));
+        Assert.Null(rightAudio);
+        Assert.Equal(linkedToRight ? right.Id : video.Id, audio.LinkedVideoClipId);
+        Assert.Equal(audioStart, audio.StartFrame);
+        Assert.Equal(sourceOut, audio.SourceOutSeconds);
+    }
+
+    [Fact]
+    public void InvalidSplitOrLockedDelete_LeavesLinkedModelsUnchanged()
+    {
+        TimelineTrackProject track = CreateVideoTrack();
+        TimelineClipProject video = track.Clips[0];
+        var audio = new AudioTrackProject { AudioPath = "voice.wav", StartFrame = 16,
+            SourceOutSeconds = 8, LinkedVideoClipId = video.Id };
+        Assert.Null(LinkedAudioVideoEditing.SplitVideo(track, video, 1, FrameRate, audio, 10, out _));
+        Assert.Equal(8, audio.SourceOutSeconds);
+        Assert.Single(track.Clips);
+        track.IsLocked = true;
+        List<AudioTrackProject> clips = [audio];
+        Assert.False(LinkedAudioVideoEditing.DeleteVideo(track, video, clips, FrameRate));
+        Assert.Single(clips);
+        TimelineClipProject copy = VideoTimelineEditing.CopyForPlacement(video, 1);
+        audio.StartFrame = 1;
+        Assert.False(LinkedAudioVideoEditing.TryCopyLinkedAudio(video, copy, audio, out _));
+    }
+
+    [Fact]
+    public void RippleDelete_RemovesOnlyLinkedAudioAndShiftsLaterPairsAtomically()
+    {
+        var first = new TimelineClipProject { SourcePath = "video.mp4", SourceDurationSeconds = 10, SourceOutSeconds = 2 };
+        var later = new TimelineClipProject { SourcePath = "video.mp4", SourceDurationSeconds = 10, SourceOutSeconds = 2, StartFrame = 49 };
+        var track = new TimelineTrackProject { Kind = TimelineTrackKind.Video, Clips = [first, later] };
+        var removed = new AudioTrackProject { AudioPath = "audio.wav", SourceOutSeconds = 2, LinkedVideoClipId = first.Id };
+        var retained = new AudioTrackProject { AudioPath = "audio.wav", SourceOutSeconds = 2, StartFrame = 55, LinkedVideoClipId = later.Id };
+        var unrelated = new AudioTrackProject { AudioPath = "music.wav", StartFrame = 60 };
+        List<AudioTrackProject> audio = [removed, retained, unrelated];
+        retained.StartFrame = 40;
+        Assert.False(LinkedAudioVideoEditing.DeleteVideo(track, first, audio, FrameRate, ripple: true));
+        Assert.Equal(2, track.Clips.Count);
+        Assert.Equal(3, audio.Count);
+        retained.StartFrame = 55;
+        Assert.True(LinkedAudioVideoEditing.DeleteVideo(track, first, audio, FrameRate, ripple: true));
+        Assert.Same(later, Assert.Single(track.Clips));
+        Assert.Equal(1, later.StartFrame);
+        Assert.Equal(7, retained.StartFrame);
+        Assert.Equal(60, unrelated.StartFrame);
+        Assert.DoesNotContain(removed, audio);
+        Assert.Null(LinkedAudioVideoEditing.Validate([track], audio));
+    }
+
     [Fact]
     public void TryLink_PreservesAudioTimingOffsetAndPreventsDuplicateVideoLinks()
     {
