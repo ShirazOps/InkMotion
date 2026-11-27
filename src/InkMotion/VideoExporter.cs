@@ -409,6 +409,16 @@ public static class VideoExporter
 
         public byte[] Render(int frame) => Encode(RenderSurface(frame / _profile.FrameRate, transparent: false));
 
+        public async Task SaveTimelineFrameAsync(int frame, StorageFile outputFile)
+        {
+            if (_hdr is not null)
+                throw new NotSupportedException("Full-timeline PNG sequences support SDR projects only.");
+
+            CanvasRenderTarget surface = RenderSurface(frame / _profile.FrameRate, transparent: false);
+            using IRandomAccessStream stream = await outputFile.OpenAsync(FileAccessMode.ReadWrite);
+            await surface.SaveAsync(stream, CanvasBitmapFileFormat.Png);
+        }
+
         internal CanvasRenderTarget RenderSurface(double seconds, bool transparent)
         {
             if (!double.IsFinite(seconds) || seconds < 0)

@@ -34,11 +34,38 @@ public sealed class ExportJobsTests : IDisposable
         var pngSequence = new PngSequenceExportSettings(VideoExportProfile.Create(640, 480, 24), 720);
         ExportJobStatus pngJob = _store.Create(project, Path.Combine(_root, "frames"), null, null, pngSequence);
         Assert.Equal(pngSequence, _store.ReadRequest(pngJob.Id).PngSequence);
+        var timelineSequence = pngSequence with { Mode = PngSequenceExportMode.FullTimeline };
+        ExportJobStatus timelineJob = _store.Create(project, Path.Combine(_root, "timeline"), null, null, timelineSequence);
+        Assert.Equal(timelineSequence, _store.ReadRequest(timelineJob.Id).PngSequence);
+        string requestPath = Path.Combine(_store.JobDirectory(pngJob.Id), "request.json");
+        JsonNode legacy = JsonNode.Parse(File.ReadAllText(requestPath))!;
+        legacy["PngSequence"]!.AsObject().Remove("Mode");
+        File.WriteAllText(requestPath, legacy.ToJsonString());
+        Assert.Equal(PngSequenceExportMode.TransparentInk, _store.ReadRequest(pngJob.Id).PngSequence!.Mode);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            (pngSequence with { Mode = (PngSequenceExportMode)99 }).Validate());
         var gif = new GifExportSettings(VideoExportProfile.Create(640, 480, 24), 720);
         ExportJobStatus gifJob = _store.Create(project, Path.Combine(_root, "animation.gif"), null, null, gif: gif);
         Assert.Equal(gif, _store.ReadRequest(gifJob.Id).Gif);
         Assert.Throws<ArgumentException>(() => _store.Create(project, Path.Combine(_root, "bad.wav"), null, null));
         Assert.Throws<ArgumentException>(() => _store.JobDirectory(@"..\outside"));
+    }
+
+    [Fact]
+    public void FullTimelinePngWorker_CompletesTitleOnlyJobAndPersistsCorrectSummary()
+    {
+        var project = new EditorProject { VideoTracks = [new()
+        {
+            Kind = TimelineTrackKind.Text,
+            Clips = [new() { Text = "Title", DurationSeconds = 1 / 24d }],
+        }] };
+        ExportJobStatus job = _store.Create(project, Path.Combine(_root, "timeline"), null, null,
+            new(VideoExportProfile.Create(32, 32, 24), 32, PngSequenceExportMode.FullTimeline));
+        Assert.Equal(0, ExportJobWorker.Run(_store, job.Id));
+        ExportJobStatus status = _store.ReadStatus(job.Id);
+        Assert.Equal(ExportJobPhase.Completed, status.Phase);
+        Assert.Contains("1 full-timeline SDR PNG frames", status.Message);
+        Assert.True(File.Exists(Path.Combine(job.OutputPath, "frame_000001.png")));
     }
 
     [Fact]

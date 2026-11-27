@@ -556,7 +556,17 @@ public sealed partial class MainWindow
         PausePlayback();
         FinishActiveEdit();
         EditorProject snapshot = CreateProjectSnapshot();
-        if (!ExportPlanning.HasInk(snapshot))
+        PngSequenceExportMode mode = PngSequenceModeSelector.SelectedIndex == 1
+            ? PngSequenceExportMode.TransparentInk : PngSequenceExportMode.FullTimeline;
+        if (mode == PngSequenceExportMode.FullTimeline &&
+            CompoundTimelines.Projects(snapshot).Any(timeline => timeline.Colour is not null))
+        {
+            ExportStatusText.Visibility = Visibility.Visible;
+            ExportStatusText.Text = "Full-timeline PNG sequences support SDR projects only. Use HDR video export or choose transparent ink only.";
+            return;
+        }
+
+        if (mode == PngSequenceExportMode.TransparentInk && !ExportPlanning.HasInk(snapshot))
         {
             ExportStatusText.Visibility = Visibility.Visible;
             ExportStatusText.Text = "Nothing to export: add ink, cel text or a connected scene or particle node first.";
@@ -588,8 +598,9 @@ public sealed partial class MainWindow
         }
 
         string projectName = Path.GetFileNameWithoutExtension(_projectFile?.Name ?? "Untitled");
-        string outputDirectory = Path.Combine(folder.Path, $"{projectName} PNG Sequence");
-        var settings = new PngSequenceExportSettings(profile, InkSurface.ActualHeight);
+        string suffix = mode == PngSequenceExportMode.FullTimeline ? "Timeline PNG Sequence" : "PNG Sequence";
+        string outputDirectory = Path.Combine(folder.Path, $"{projectName} {suffix}");
+        var settings = new PngSequenceExportSettings(profile, InkSurface.ActualHeight, mode);
         await SubmitExportJobAsync(snapshot, outputDirectory, null, null, settings);
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.Graphics.Canvas;
+using NAudio.Wave;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -8,6 +9,282 @@ namespace InkMotion.Tests;
 
 public sealed class PngSequenceExportTests
 {
+    [Theory]
+    [InlineData(false, 48)]
+    [InlineData(true, 48)]
+    [InlineData(false, 29.97)]
+    [InlineData(true, 120)]
+    public async Task FullTimeline_MatchesVideoCompositorIncludingGapsCompoundsAndAudioTail(bool withInk, double frameRate)
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion timeline PNG {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        string image = Path.Combine(root, "image.png");
+        string audio = Path.Combine(root, "audio.wav");
+        var profile = VideoExportProfile.Create(96, 48, frameRate);
+        using var device = new CanvasDevice();
+        using (var bitmap = new CanvasRenderTarget(device, 32, 32, 96))
+        {
+            using (CanvasDrawingSession session = bitmap.CreateDrawingSession())
+                session.Clear(Microsoft.UI.Colors.Red);
+            await bitmap.SaveAsync(image, CanvasBitmapFileFormat.Png);
+        }
+        using (var writer = new WaveFileWriter(audio, new WaveFormat(48000, 16, 1)))
+            writer.WriteSamples(new float[12000], 0, 12000);
+        var nested = new EditorProject
+        {
+            VideoTracks = [new()
+            {
+                Kind = TimelineTrackKind.Subtitle,
+                Clips = [new() { Text = "Nested", DurationSeconds = 2 / 24d }],
+            }],
+        };
+        var project = new EditorProject
+        {
+            FrameRate = 24,
+            CanvasSize = new(32, 32),
+            Frames = withInk
+                ? [new() { Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle,
+                    0.1, 0.1, 0.4, 0.4, 1, 0xFF00FF00, filled: true)] }]
+                : [new()],
+            InkLayers = [new() { BlendMode = InkLayerBlendMode.Screen }],
+            AudioTracks = [new() { AudioPath = audio }],
+            VideoTracks =
+            [
+                new() { Kind = TimelineTrackKind.Text,
+                    Clips = [new() { Text = "Title", StartFrame = 2, DurationSeconds = 2 / 24d }] },
+                new() { Kind = TimelineTrackKind.Compound, Clips = [new()
+                {
+                    NestedProject = nested, StartFrame = 2, DurationSeconds = 2 / 24d,
+                    SourceDurationSeconds = 2 / 24d,
+                }] },
+                new() { Kind = TimelineTrackKind.Image, Clips = [new()
+                {
+                    SourcePath = image, StartFrame = 2, DurationSeconds = 2 / 24d,
+                    Scale = 0.8, Opacity = 0.6,
+                    TransformKeyframes = [new() { FrameOffset = 0, Scale = 0.8 },
+                        new() { FrameOffset = 1, Scale = 0.5, RotationDegrees = 30 }],
+                }] },
+                new() { Kind = TimelineTrackKind.Text, IsVisible = false,
+                    Clips = [new() { Text = "Hidden", DurationSeconds = 1 / 24d }] },
+            ],
+        };
+        try
+        {
+            var updates = new List<VideoExportProgress>();
+            PngSequenceExportResult result = await PngSequenceExporter.ExportAsync(project,
+                new(profile, 48, PngSequenceExportMode.FullTimeline), output,
+                new InlineProgress(updates.Add), CancellationToken.None);
+            Assert.Empty(result.Warnings);
+            Assert.Equal(0.25, result.DurationSeconds, 6);
+            int expectedCount = (int)Math.Ceiling(0.25 * frameRate);
+            Assert.Equal(expectedCount, result.FrameCount);
+            Assert.Equal(Enumerable.Range(1, expectedCount).Select(index => $"frame_{index:D6}.png"),
+                Directory.GetFiles(output).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            Assert.Equal(expectedCount, updates[^1].Frame);
+            Assert.Equal(1d, updates[^1].Fraction);
+            using var renderer = new VideoExporter.FrameRenderer(device,
+                new(project, profile, VideoExportCodec.H264, string.Empty, 48), []);
+            byte[][] frames = new byte[result.FrameCount][];
+            for (int frame = 0; frame < result.FrameCount; frame++)
+            {
+                frames[frame] = await ReadFrameAsync(output, frame, profile);
+                AssertPixelsMatch(renderer.Render(frame), frames[frame]);
+                Assert.All(frames[frame].Where((_, index) => index % 4 == 3), alpha => Assert.Equal(255, alpha));
+                Assert.Equal(new byte[] { 0, 0, 0, 255 }, frames[frame][..4]);
+            }
+            Assert.False(frames[0].SequenceEqual(frames[(int)Math.Ceiling(frameRate / 24)]));
+            Assert.Equal(frames[0], frames[^1]);
+            Assert.Equal(0.6, project.VideoTracks[2].Clips[0].Opacity);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FullTimeline_RendersRetimedReversedFootageInOutputFrameOrder()
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion video PNG {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "source.mp4");
+        string output = Path.Combine(root, "sequence");
+        var profile = VideoExportProfile.Create(64, 64, 24);
+        var sourceProject = new EditorProject
+        {
+            Frames = new uint[] { 0xFFFF0000, 0xFF0000FF }.Select(colour => new EditorFrame
+            {
+                ExposureFrames = 3,
+                Strokes = [InkStrokeEditing.CreateShape(InkShape.Rectangle,
+                    0, 0, 1, 1, 1, colour, filled: true)],
+            }).ToList(),
+        };
+        try
+        {
+            VideoExporter.Export(new(sourceProject, profile, VideoExportCodec.H264, source, 64,
+                PreferHardware: false), null, CancellationToken.None);
+            var project = new EditorProject { VideoTracks = [new()
+            {
+                Kind = TimelineTrackKind.Video, IsMuted = true, Clips = [new()
+                {
+                    SourcePath = source, StartFrame = 2, SourceInSeconds = 1 / 24d,
+                    SourceOutSeconds = 6 / 24d, SourceDurationSeconds = 6 / 24d,
+                    PlaybackSpeed = 2, IsReversed = true,
+                }],
+            }] };
+            profile = VideoExportProfile.Create(64, 64, 48);
+            PngSequenceExportResult result = await PngSequenceExporter.ExportAsync(project,
+                new(profile, 64, PngSequenceExportMode.FullTimeline), output, null, CancellationToken.None);
+            Assert.Equal(7, result.FrameCount);
+            using var device = new CanvasDevice();
+            var warnings = new List<string>();
+            using var renderer = new VideoExporter.FrameRenderer(device,
+                new(project, profile, VideoExportCodec.H264, string.Empty, 64), warnings);
+            var frames = new List<byte[]>();
+            for (int frame = 0; frame < result.FrameCount; frame++)
+            {
+                byte[] pixels = await ReadFrameAsync(output, frame, profile);
+                AssertPixelsMatch(renderer.Render(frame), pixels);
+                frames.Add(pixels);
+            }
+            Assert.Empty(result.Warnings);
+            Assert.Empty(warnings);
+            int centre = (32 * 64 + 32) * 4;
+            Assert.True(frames[2][centre] > 180, "The first source frame should be blue after reversing.");
+            Assert.True(frames[^1][centre + 2] > 180, "The final source frame should be red after reversing.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FullTimeline_MissingMediaIsReportedAndProducesOpaqueBlackFrames()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion missing PNG {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        var profile = VideoExportProfile.Create(32, 32, 24);
+        var project = new EditorProject { VideoTracks =
+        [
+            new() { Kind = TimelineTrackKind.Image,
+                Clips = [new() { SourcePath = Path.Combine(root, "missing.png"), DurationSeconds = 2 / 24d }] },
+            new() { Kind = TimelineTrackKind.Video, IsMuted = true, Clips = [new()
+            {
+                SourcePath = Path.Combine(root, "missing.mp4"), SourceDurationSeconds = 2 / 24d,
+                SourceOutSeconds = 2 / 24d,
+            }] },
+        ] };
+        try
+        {
+            PngSequenceExportResult result = await PngSequenceExporter.ExportAsync(project,
+                new(profile, 32, PngSequenceExportMode.FullTimeline), output, null, CancellationToken.None);
+            Assert.Equal(2, result.FrameCount);
+            Assert.Contains(result.Warnings, warning => warning.Contains("Skipped image missing.png"));
+            Assert.Contains(result.Warnings, warning => warning.Contains("Skipped video missing.mp4"));
+            byte[] pixels = await ReadFrameAsync(output, 0, profile);
+            for (int index = 0; index < pixels.Length; index += 4)
+                Assert.Equal(new byte[] { 0, 0, 0, 255 }, pixels[index..(index + 4)]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FullTimeline_CancellationOrDestinationRaceNeverPublishesPartialFrames(bool destinationRace)
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"InkMotion cancelled PNG {Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string output = Path.Combine(root, "sequence");
+        using var cancellation = new CancellationTokenSource();
+        var project = new EditorProject { VideoTracks = [new()
+        {
+            Kind = TimelineTrackKind.Text, Clips = [new() { Text = "Title", DurationSeconds = 2 / 24d }],
+        }] };
+        try
+        {
+            var progress = new InlineProgress(update =>
+            {
+                if (update.Frame != update.FrameCount) return;
+                if (destinationRace)
+                {
+                    Directory.CreateDirectory(output);
+                    File.WriteAllText(Path.Combine(output, "keep.txt"), "existing");
+                }
+                else cancellation.Cancel();
+            });
+            Task Export() => PngSequenceExporter.ExportAsync(project,
+                new(VideoExportProfile.Create(32, 32, 24), 32, PngSequenceExportMode.FullTimeline),
+                output, progress, cancellation.Token);
+            if (destinationRace)
+            {
+                await Assert.ThrowsAsync<IOException>(Export);
+                Assert.Equal("existing", File.ReadAllText(Path.Combine(output, "keep.txt")));
+                Assert.Single(Directory.GetFiles(output));
+            }
+            else
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(Export);
+                Assert.False(Directory.Exists(output));
+            }
+            Assert.Empty(Directory.GetDirectories(root).Where(path => path != output));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FullTimeline_RejectsHdrIncludingNestedTimelinesBeforeWriting(bool nested)
+    {
+        string output = Path.Combine(Path.GetTempPath(), $"InkMotion HDR PNG {Guid.NewGuid():N}");
+        var hdr = new EditorProject { Colour = new() };
+        var project = nested ? new EditorProject { VideoTracks = [new()
+        {
+            Kind = TimelineTrackKind.Compound,
+            Clips = [new() { NestedProject = hdr, DurationSeconds = 1, SourceDurationSeconds = 1 }],
+        }] } : hdr;
+        await Assert.ThrowsAsync<NotSupportedException>(() => PngSequenceExporter.ExportAsync(project,
+            new(VideoExportProfile.Create(32, 32, 24), 32, PngSequenceExportMode.FullTimeline),
+            output, null, CancellationToken.None));
+        Assert.False(Directory.Exists(output));
+    }
+
+    private static async Task<byte[]> ReadFrameAsync(string output, int frame, VideoExportProfile profile)
+    {
+        StorageFile file = await StorageFile.GetFileFromPathAsync(Path.Combine(output, $"frame_{frame + 1:D6}.png"));
+        using IRandomAccessStream stream = await file.OpenAsync(FileAccessMode.Read);
+        BitmapDecoder decoder = await BitmapDecoder.CreateAsync(stream);
+        Assert.Equal((uint)profile.Width, decoder.PixelWidth);
+        Assert.Equal((uint)profile.Height, decoder.PixelHeight);
+        return (await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+            new BitmapTransform(), ExifOrientationMode.IgnoreExifOrientation,
+            ColorManagementMode.DoNotColorManage)).DetachPixelData();
+    }
+
+    private static void AssertPixelsMatch(byte[] expected, byte[] actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int index = 0; index < actual.Length; index++)
+            Assert.True(Math.Abs(expected[index] - actual[index]) <= 1,
+                $"Channel {index}: expected {expected[index]}, got {actual[index]}.");
+    }
+
+    private sealed class InlineProgress(Action<VideoExportProgress> report) : IProgress<VideoExportProgress>
+    {
+        public void Report(VideoExportProgress value) => report(value);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -183,21 +460,24 @@ public sealed class PngSequenceExportTests
         }
     }
 
-    [Fact]
-    public async Task Export_DoesNotOverwriteAnExistingDestination()
+    [Theory]
+    [InlineData(PngSequenceExportMode.TransparentInk, false)]
+    [InlineData(PngSequenceExportMode.FullTimeline, false)]
+    [InlineData(PngSequenceExportMode.FullTimeline, true)]
+    public async Task Export_DoesNotOverwriteAnExistingDestination(PngSequenceExportMode mode, bool existingFile)
     {
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion PNG sequence {Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         string output = Path.Combine(root, "sequence");
-        Directory.CreateDirectory(output);
-        string sentinel = Path.Combine(output, "keep.txt");
+        if (!existingFile) Directory.CreateDirectory(output);
+        string sentinel = existingFile ? output : Path.Combine(output, "keep.txt");
         File.WriteAllText(sentinel, "existing");
 
         try
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() => PngSequenceExporter.ExportAsync(
                 new EditorProject { Frames = [new() { Strokes = [[new() { X = 0.5, Y = 0.5 }]] }] },
-                new(VideoExportProfile.Create(32, 32, 24), 32),
+                new(VideoExportProfile.Create(32, 32, 24), 32, mode),
                 output,
                 null,
                 CancellationToken.None));
@@ -206,8 +486,7 @@ public sealed class PngSequenceExportTests
         }
         finally
         {
-            Directory.Delete(output, recursive: true);
-            Directory.Delete(root);
+            Directory.Delete(root, recursive: true);
         }
     }
 
@@ -220,6 +499,7 @@ public sealed class PngSequenceExportTests
         var project = new EditorProject
         {
             FrameRate = 24,
+            Colour = new(),
             Frames =
             [
                 new()

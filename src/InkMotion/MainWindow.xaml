@@ -1041,8 +1041,13 @@
                             <Button x:Name="ExportVideoButton" Content="Export video…" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="ExportVideo_Click" ToolTipService.ToolTip="Render every visible track, ink layer and the audio mix to an MP4 file" />
                             <Button x:Name="CancelExportButton" Grid.Column="1" Content="Cancel" Visibility="Collapsed" Click="CancelExport_Click" />
                         </Grid>
-                        <Button x:Name="ExportPngSequenceButton" Content="Export transparent PNG sequence…" Click="ExportPngSequence_Click"
-                                ToolTipService.ToolTip="Export visible drawing layers and cel text as numbered transparent PNG frames. Timeline media and titles are excluded." />
+                        <ComboBox x:Name="PngSequenceModeSelector" Header="PNG sequence content" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Full timeline (opaque SDR)" />
+                            <ComboBoxItem Content="Transparent ink only (drawing layers and cel text)" />
+                        </ComboBox>
+                        <TextBlock Text="PNG uses the output size and frame rate above. Full timeline matches video picture and duration, including audio tails, but contains no audio; gaps and padding are black. 8-bit SDR only, no HDR or full-timeline alpha. Transparent ink excludes timeline media and titles. Choose a parent folder; existing sequence folders are never overwritten." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                        <Button x:Name="ExportPngSequenceButton" Content="Export PNG sequence…" Click="ExportPngSequence_Click"
+                                ToolTipService.ToolTip="Export numbered PNG frames to a new folder, using the selected full-timeline or transparent-ink mode." />
                         <Button x:Name="ExportGifButton" Content="Export animated GIF…" Click="ExportGif_Click"
                                 ToolTipService.ToolTip="Export visible drawing layers and cel text as a transparent looping animated GIF at 24–50 fps. Timeline media and titles are excluded." />
                         <ProgressBar x:Name="ExportProgressBar" Maximum="1" Visibility="Collapsed" />
