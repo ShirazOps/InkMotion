@@ -29,6 +29,15 @@ public sealed partial class InkCompositeGraphWindow
         AddSlider("Light yaw", -180, 180, 1, scene.LightYaw, value => scene.LightYaw = value);
         AddSlider("Light pitch", -90, 90, 1, scene.LightPitch, value => scene.LightPitch = value);
         AddSlider("Ambient light", 0, 1, 0.01, scene.AmbientLight, value => scene.AmbientLight = value);
+        var shadows = new ToggleSwitch { Header = "Directional shadows", IsOn = scene.Shadows };
+        shadows.Toggled += (_, _) =>
+        {
+            scene.Shadows = shadows.IsOn;
+            Commit("Changed directional shadows.");
+            Redraw();
+        };
+        _properties.Children.Add(shadows);
+        AddSlider("Shadow strength", 0, 1, 0.01, scene.ShadowStrength, value => scene.ShadowStrength = value);
 
         _selectedSceneObjectIndex = scene.Objects.Count == 0
             ? -1
@@ -76,6 +85,22 @@ public sealed partial class InkCompositeGraphWindow
         if (_selectedSceneObjectIndex < 0) return;
 
         InkComposite3DObject item = scene.Objects[_selectedSceneObjectIndex];
+        var castsShadow = new ToggleSwitch { Header = "Cast shadows", IsOn = item.CastsShadow };
+        castsShadow.Toggled += (_, _) =>
+        {
+            item.CastsShadow = castsShadow.IsOn;
+            Commit("Changed shadow casting.");
+            Redraw();
+        };
+        _properties.Children.Add(castsShadow);
+        var receivesShadow = new ToggleSwitch { Header = "Receive shadows", IsOn = item.ReceivesShadow };
+        receivesShadow.Toggled += (_, _) =>
+        {
+            item.ReceivesShadow = receivesShadow.IsOn;
+            Commit("Changed shadow receiving.");
+            Redraw();
+        };
+        _properties.Children.Add(receivesShadow);
         var shapes = new ComboBox { Header = "Shape", HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (InkComposite3DShape shape in Enum.GetValues<InkComposite3DShape>())
             if (shape != InkComposite3DShape.Mesh || item.Mesh is not null) shapes.Items.Add(shape.ToString());

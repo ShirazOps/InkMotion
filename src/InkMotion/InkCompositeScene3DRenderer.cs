@@ -49,11 +49,14 @@ internal static class InkCompositeScene3DRenderer
             Radians(scene.FieldOfView), canvasWidth / canvasHeight, 0.05f, 400);
         Matrix4x4 viewProjection = view * projection;
         Vector3 light = Direction(scene.LightYaw, scene.LightPitch);
+        var objects = scene.Objects.Where(item => item.Visible)
+            .Select(item => (Item: item, World: WorldMatrix(item, seconds), Mesh: GetMesh(item))).ToList();
+        ShadowMap? shadowMap = scene.Shadows && scene.ShadowStrength > 0
+            ? ShadowMap.Create(objects.Select(entry => (entry.Item.CastsShadow, entry.World, entry.Mesh)), light)
+            : null;
 
-        foreach (InkComposite3DObject item in scene.Objects.Where(item => item.Visible))
+        foreach ((InkComposite3DObject item, Matrix4x4 world, Triangle[] mesh) in objects)
         {
-            Matrix4x4 world = WorldMatrix(item, seconds);
-            Triangle[] mesh = GetMesh(item);
             foreach (Triangle triangle in mesh)
             {
                 Vector3 a = Vector3.Transform(triangle.A, world);
@@ -63,7 +66,8 @@ internal static class InkCompositeScene3DRenderer
                 if (cross.LengthSquared() < 1e-12f) continue;
 
                 float diffuse = Math.Max(0, Vector3.Dot(Vector3.Normalize(cross), light));
-                float brightness = (float)(scene.AmbientLight + ((1 - scene.AmbientLight) * diffuse));
+                var lighting = new Lighting((float)scene.AmbientLight, diffuse,
+                    item.ReceivesShadow && diffuse > 0 ? shadowMap : null, (float)scene.ShadowStrength);
                 InkMeshMaterial? material = item.Shape == InkComposite3DShape.Mesh ? item.Mesh!.Materials[triangle.Material] : null;
                 uint colour = MultiplyColour(item.Colour, material?.Colour ?? 0xFFFFFFFF);
                 ClipAndRasterise(
@@ -71,11 +75,127 @@ internal static class InkCompositeScene3DRenderer
                     new(Vector4.Transform(new Vector4(b, 1), viewProjection), b, triangle.UVB),
                     new(Vector4.Transform(new Vector4(c, 1), viewProjection), c, triangle.UVC),
                     canvasWidth, canvasHeight, transform, targetWidth, targetHeight,
-                    pixels, depth, colour, brightness, item.Texture ?? material?.Texture);
+                    pixels, depth, colour, lighting, item.Texture ?? material?.Texture);
             }
         }
 
         return pixels;
+    }
+
+    private sealed class Lighting(float ambient, float diffuse, ShadowMap? shadows, float strength)
+    {
+        public float Unshadowed { get; } = ambient + ((1 - ambient) * diffuse);
+        public ShadowMap? Shadows { get; } = shadows;
+        public float Bias { get; } = shadows?.Bias(diffuse) ?? 0;
+
+        public float Brightness(Vector3 world) => Shadows is null
+            ? Unshadowed
+            : ambient + ((1 - ambient) * diffuse * (1 - (strength * (1 - Shadows.LitFraction(world, Bias)))));
+    }
+
+    /// <summary>
+    /// Orthographic depth map from the directional light. Its fixed resolution and world-space fit make shadows
+    /// independent of the output size, so the preview and exports place shadow edges identically.
+    /// </summary>
+    internal sealed class ShadowMap
+    {
+        public const int Size = 1024;
+        private readonly float[] _depth = new float[Size * Size];
+        private readonly Matrix4x4 _lightViewProjection;
+        private readonly float _texelDepth;
+
+        private ShadowMap(Matrix4x4 lightViewProjection, float texelDepth)
+        {
+            _lightViewProjection = lightViewProjection;
+            _texelDepth = texelDepth;
+            Array.Fill(_depth, float.PositiveInfinity);
+        }
+
+        public static ShadowMap? Create(IEnumerable<(bool Casts, Matrix4x4 World, Triangle[] Mesh)> objects, Vector3 light)
+        {
+            var all = objects.ToList();
+            var points = all.SelectMany(entry => entry.Mesh.SelectMany(triangle => new[]
+            {
+                Vector3.Transform(triangle.A, entry.World), Vector3.Transform(triangle.B, entry.World),
+                Vector3.Transform(triangle.C, entry.World),
+            })).ToList();
+            if (points.Count == 0 || !all.Any(entry => entry.Casts)) return null;
+
+            Vector3 minimum = points.Aggregate(Vector3.Min), maximum = points.Aggregate(Vector3.Max);
+            Vector3 centre = (minimum + maximum) / 2;
+            float radius = Math.Max(0.01f, Vector3.Distance(minimum, maximum) / 2);
+            Vector3 up = Math.Abs(light.Y) > 0.99f ? Vector3.UnitZ : Vector3.UnitY;
+            Matrix4x4 view = Matrix4x4.CreateLookAt(centre + (light * radius * 2), centre, up);
+            float far = radius * 4;
+            Matrix4x4 projection = Matrix4x4.CreateOrthographic(radius * 2, radius * 2, radius * 0.5f, far);
+            var map = new ShadowMap(view * projection, radius * 2 / Size / (far - (radius * 0.5f)));
+            foreach ((bool casts, Matrix4x4 world, Triangle[] mesh) in all)
+            {
+                if (!casts) continue;
+                foreach (Triangle triangle in mesh)
+                    map.Rasterise(map.ToMap(Vector3.Transform(triangle.A, world)),
+                        map.ToMap(Vector3.Transform(triangle.B, world)), map.ToMap(Vector3.Transform(triangle.C, world)));
+            }
+
+            return map;
+        }
+
+        /// <summary>Depth bias grows with the light's grazing angle to avoid self-shadowing stripes.</summary>
+        public float Bias(float diffuse)
+        {
+            float slope = Math.Min(8, MathF.Sqrt(Math.Max(0, 1 - (diffuse * diffuse))) / Math.Max(diffuse, 1e-3f));
+            return _texelDepth * (1.5f + (2 * slope));
+        }
+
+        /// <summary>Fraction of a 3×3 neighbourhood that is lit, softening shadow edges.</summary>
+        public float LitFraction(Vector3 world, float bias)
+        {
+            Vector3 point = ToMap(world);
+            int centreX = (int)MathF.Floor(point.X), centreY = (int)MathF.Floor(point.Y);
+            int lit = 0;
+            for (int y = centreY - 1; y <= centreY + 1; y++)
+            {
+                for (int x = centreX - 1; x <= centreX + 1; x++)
+                {
+                    if (x < 0 || y < 0 || x >= Size || y >= Size || point.Z - bias <= _depth[(y * Size) + x]) lit++;
+                }
+            }
+
+            return lit / 9f;
+        }
+
+        private Vector3 ToMap(Vector3 world)
+        {
+            Vector4 point = Vector4.Transform(new Vector4(world, 1), _lightViewProjection);
+            return new Vector3((point.X + 1) * 0.5f * Size, (1 - point.Y) * 0.5f * Size, point.Z);
+        }
+
+        private void Rasterise(Vector3 a, Vector3 b, Vector3 c)
+        {
+            float area = MapEdge(a, b, c);
+            if (Math.Abs(area) < 1e-10f) return;
+            int left = Math.Max(0, (int)MathF.Floor(Math.Min(a.X, Math.Min(b.X, c.X))));
+            int top = Math.Max(0, (int)MathF.Floor(Math.Min(a.Y, Math.Min(b.Y, c.Y))));
+            int right = Math.Min(Size - 1, (int)MathF.Ceiling(Math.Max(a.X, Math.Max(b.X, c.X))));
+            int bottom = Math.Min(Size - 1, (int)MathF.Ceiling(Math.Max(a.Y, Math.Max(b.Y, c.Y))));
+            for (int y = top; y <= bottom; y++)
+            {
+                for (int x = left; x <= right; x++)
+                {
+                    var sample = new Vector3(x + 0.5f, y + 0.5f, 0);
+                    float weightA = MapEdge(b, c, sample) / area, weightB = MapEdge(c, a, sample) / area;
+                    float weightC = 1 - weightA - weightB;
+                    // A small tolerance makes casters conservative so thin geometry does not leak light.
+                    if (weightA < -0.01f || weightB < -0.01f || weightC < -0.01f) continue;
+                    float z = (weightA * a.Z) + (weightB * b.Z) + (weightC * c.Z);
+                    int pixel = (y * Size) + x;
+                    if (z < _depth[pixel]) _depth[pixel] = z;
+                }
+            }
+        }
+
+        private static float MapEdge(Vector3 a, Vector3 b, Vector3 point) =>
+            ((point.X - a.X) * (b.Y - a.Y)) - ((point.Y - a.Y) * (b.X - a.X));
     }
 
     private static void ClipAndRasterise(
@@ -90,7 +210,7 @@ internal static class InkCompositeScene3DRenderer
         byte[] pixels,
         float[] depth,
         uint colour,
-        float brightness,
+        Lighting lighting,
         InkMeshTexture? texture)
     {
         Span<ClipVertex> input = stackalloc ClipVertex[16];
@@ -132,7 +252,7 @@ internal static class InkCompositeScene3DRenderer
         {
             Rasterise(first, Project(input[index], canvasWidth, canvasHeight, transform),
                 Project(input[index + 1], canvasWidth, canvasHeight, transform),
-                targetWidth, targetHeight, pixels, depth, colour, brightness, texture);
+                targetWidth, targetHeight, pixels, depth, colour, lighting, texture);
         }
     }
 
@@ -168,7 +288,7 @@ internal static class InkCompositeScene3DRenderer
         byte[] pixels,
         float[] depth,
         uint colour,
-        float brightness,
+        Lighting lighting,
         InkMeshTexture? texture)
     {
         float area = Edge(a, b, c.X, c.Y);
@@ -202,12 +322,15 @@ internal static class InkCompositeScene3DRenderer
                         depth[pixel] = z;
                         int offset = pixel * 4;
                         uint sampled = colour;
+                        float reciprocal = (weightA * a.InverseW) + (weightB * b.InverseW) + (weightC * c.InverseW);
                         if (texture is not null)
                         {
-                            float reciprocal = (weightA * a.InverseW) + (weightB * b.InverseW) + (weightC * c.InverseW);
                             Vector2 uv = ((weightA * a.UVOverW) + (weightB * b.UVOverW) + (weightC * c.UVOverW)) / reciprocal;
                             sampled = MultiplyColour(colour, SampleTexture(texture, uv));
                         }
+                        float brightness = lighting.Shadows is null ? lighting.Unshadowed :
+                            lighting.Brightness(((weightA * a.WorldOverW) + (weightB * b.WorldOverW) +
+                                (weightC * c.WorldOverW)) / reciprocal);
                         pixels[offset] = Shade((byte)sampled, brightness);
                         pixels[offset + 1] = Shade((byte)(sampled >> 8), brightness);
                         pixels[offset + 2] = Shade((byte)(sampled >> 16), brightness);

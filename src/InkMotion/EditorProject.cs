@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 91;
+    public const int CurrentVersion = 92;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -753,6 +753,10 @@ public static class EditorProjectSerialiser
             project.Version = EditorProject.CurrentVersion;
         }
         if (project.Version == 90)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 91)
         {
             project.Version = EditorProject.CurrentVersion;
         }
