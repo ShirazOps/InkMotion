@@ -116,7 +116,7 @@ public static class SubtitleWebVtt
             }
 
             string rawText = string.Join("\n", block[(timingIndex + 1)..]);
-            (string text, List<SubtitleRun> runs, uint? colour) =
+            (string text, List<SubtitleRun> runs, uint colour) =
                 ParseCueText(rawText, start, end, classColours, warnings, blockLine);
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -130,7 +130,7 @@ public static class SubtitleWebVtt
                 Runs = runs.Count > 0 ? runs : null,
                 Style = new SubtitleCueStyle
                 {
-                    Colour = colour ?? 0xFFFFFFFF,
+                    Colour = colour,
                     UpcomingColour = upcomingColour,
                     X = x,
                     Y = y,
@@ -376,33 +376,16 @@ public static class SubtitleWebVtt
         return (x, y);
     }
 
-    private static (string Text, List<SubtitleRun> Runs, uint? Colour) ParseCueText(string raw, double start, double end,
+    private static (string Text, List<SubtitleRun> Runs, uint Colour) ParseCueText(string raw, double start, double end,
         IReadOnlyDictionary<string, uint> classColours, SubtitleWarnings warnings, int blockLine)
     {
-        var runs = new List<SubtitleRun>();
+        var builder = new SubtitleRunBuilder();
         var stack = new List<Tag>();
         double? reveal = null;
 
-        void Append(string value)
-        {
-            bool bold = stack.Any(tag => tag.Bold);
-            bool italic = stack.Any(tag => tag.Italic);
-            bool underline = stack.Any(tag => tag.Underline);
-            uint? colour = stack.LastOrDefault(tag => tag.Colour is not null)?.Colour;
-            SubtitleRun? last = runs.Count > 0 ? runs[^1] : null;
-            if (last is not null && last.Bold == bold && last.Italic == italic && last.Underline == underline &&
-                last.Colour == colour && last.RevealSeconds == reveal)
-            {
-                last.Text += value;
-            }
-            else
-            {
-                runs.Add(new SubtitleRun
-                {
-                    Text = value, Bold = bold, Italic = italic, Underline = underline, Colour = colour, RevealSeconds = reveal,
-                });
-            }
-        }
+        void Append(string value) => builder.Append(value,
+            stack.Any(tag => tag.Bold), stack.Any(tag => tag.Italic), stack.Any(tag => tag.Underline),
+            stack.LastOrDefault(tag => tag.Colour is not null)?.Colour, reveal);
 
         int index = 0;
         while (index < raw.Length)
@@ -537,38 +520,8 @@ public static class SubtitleWebVtt
             index++;
         }
 
-        // Trailing whitespace is not meaningful in a cue and is trimmed, as for SubRip.
-        while (runs.Count > 0)
-        {
-            runs[^1].Text = runs[^1].Text.TrimEnd();
-            if (runs[^1].Text.Length > 0)
-            {
-                break;
-            }
-
-            runs.RemoveAt(runs.Count - 1);
-        }
-
-        string text = string.Concat(runs.Select(run => run.Text));
-        // The colour covering most characters becomes the clip colour, so exported cue-wide colours round-trip.
-        uint? sharedColour = runs.GroupBy(run => run.Colour)
-            .Select(group => (Colour: group.Key, Length: group.Sum(run => run.Text.Length)))
-            .OrderByDescending(group => group.Length)
-            .FirstOrDefault().Colour;
-        if (sharedColour is not null)
-        {
-            foreach (SubtitleRun run in runs)
-            {
-                run.Colour = run.Colour == sharedColour ? null : run.Colour ?? 0xFFFFFFFF;
-            }
-        }
-
-        if (runs.All(run => !run.Bold && !run.Italic && !run.Underline && run.Colour is null && run.RevealSeconds is null))
-        {
-            runs.Clear();
-        }
-
-        return (text, runs, sharedColour);
+        // Trailing whitespace is trimmed, as for SubRip; the dominant colour becomes the clip colour so cue-wide colours round-trip.
+        return builder.Finish(0xFFFFFFFF);
     }
 
     private static string? DecodeEntity(string name)

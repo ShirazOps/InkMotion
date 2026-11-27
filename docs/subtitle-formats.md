@@ -31,3 +31,26 @@ Imported with a warning:
 - Unknown entities are kept as literal text.
 
 Export writes a `STYLE` block for non-default colours and the upcoming-word colour, timestamp tags for revealed words, and `position`/`line` settings when a caption is not in the default position. WebVTT has no per-cue font, size, background or fade, so those are reported. Text containing a blank line is rejected because it would end the cue. Only one upcoming colour is written per file.
+
+## Advanced SubStation Alpha (`.ass`) subset
+
+Only ASS scripts (`ScriptType: v4.00+`, `[V4+ Styles]`) are supported. SubStation Alpha (`.ssa`, `[V4 Styles]`) files are rejected with an error.
+
+Supported on import:
+
+- `[Script Info]` `PlayResX`/`PlayResY` (missing values follow the libass defaults, 384 × 288) and `WrapStyle`.
+- `[V4+ Styles]` and `[Events]` read through their `Format` lines, so field order may vary and the final `Text` field may contain commas. `Comment` events and `;` comment lines are skipped.
+- Style font name and size (scaled from `PlayResY` to InkMotion's 1080-line reference), primary colour and alpha, secondary colour (the upcoming-word colour), bold, italic, underline, alignment and margins. `BorderStyle` 3 uses the outline colour as the caption box and `BorderStyle` 4 uses the back colour.
+- Timings in `H:MM:SS.CC` form.
+- The escapes `\N` (line break), `\n` (space, or a line break when `WrapStyle` is 2) and `\h` (non-breaking space).
+- Override tags `\b`, `\i`, `\u`, `\c`/`\1c`, `\1a`, `\2c`, `\k`, `\r`, `\pos`, `\an`/`\a` and `\fad`, plus `\fn` and `\fs` before any text. Braces without a backslash are comments. `\k` durations become word reveal times.
+- `\pos` and the alignment's vertical anchor are converted to InkMotion's caption-centre position using an estimated line height of 1.2 × the font size, so vertical placement is approximate.
+
+Imported with a warning:
+
+- `\kf`, `\K` and `\ko` sweeps become an instant colour change at the start of each syllable; `\alpha` applies only to the text colour.
+- Left- and right-aligned events are centred; outlines (`BorderStyle` 1) are drawn with InkMotion's drop shadow and no box.
+- Strikeout, scaling, spacing, angle, other override tags (such as `\blur`, `\bord`, `\move`, `\t`, `\clip`, `\frz`), mid-line font or karaoke-colour changes, event effects, `Picture`/`Sound`/`Movie`/`Command` events, `[Fonts]`/`[Graphics]` and other sections are ignored. The actor `Name` field is ignored.
+- Events using vector drawings (`\p1` and above) are skipped. Out-of-range font sizes and positions are clamped.
+
+Export writes `PlayResX: 1920` and `PlayResY: 1080`, one style per distinct font, size, text colour, upcoming colour and background colour (`BorderStyle` 3), `\pos` and `\fad` for every event, and `\r`-separated runs with `\b1`, `\i1`, `\u1`, `\c`/`\1a` and `\k` karaoke durations rounded to centiseconds. Clip rotation is reported. Words without a reveal time that follow timed words take the preceding time, with a warning. Text containing `{`, `}`, `\N`, `\n` or `\h` is rejected because ASS would reinterpret it.

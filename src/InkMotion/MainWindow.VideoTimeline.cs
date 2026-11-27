@@ -329,6 +329,7 @@ public sealed partial class MainWindow
         };
         picker.FileTypeChoices.Add("SubRip subtitles", new List<string> { ".srt" });
         picker.FileTypeChoices.Add("WebVTT subtitles", new List<string> { ".vtt" });
+        picker.FileTypeChoices.Add("Advanced SubStation Alpha subtitles", new List<string> { ".ass" });
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         StorageFile? file = await picker.PickSaveFileAsync();
         if (file is null)
