@@ -198,12 +198,15 @@ public sealed class TimelineClipProject
     public double WhiteBalanceTint { get; set; }
     public double Saturation { get; set; } = 1;
     public double Gamma { get; set; } = 1;
+    public VideoHslQualifier HslQualifier { get; set; } = new();
+    public VideoShotMatch ShotMatch { get; set; } = new();
     public List<VideoColourGradingKeyframe> ColourGradingKeyframes { get; set; } = [];
     public List<VideoColourCurvePoint> MasterCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> RedCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
     public string? ColourLutPath { get; set; }
+    public string? ColourSourceDescription { get; set; }
     public bool ChromaKeyEnabled { get; set; }
     public List<VideoChromaKeyEnabledKeyframe> ChromaKeyEnabledKeyframes { get; set; } = [];
     public uint ChromaKeyColour { get; set; } = 0xFF00FF00;
@@ -1162,12 +1165,15 @@ public static class VideoTimelineEditing
         WhiteBalanceTint = clip.WhiteBalanceTint,
         Saturation = clip.Saturation,
         Gamma = clip.Gamma,
+        HslQualifier = clip.HslQualifier with { },
+        ShotMatch = clip.ShotMatch with { },
         ColourGradingKeyframes = VideoColourGradingKeyframes.CloneKeys(clip.ColourGradingKeyframes),
         MasterCurve = clip.MasterCurve?.ToList() ?? [],
         RedCurve = clip.RedCurve?.ToList() ?? [],
         GreenCurve = clip.GreenCurve?.ToList() ?? [],
         BlueCurve = clip.BlueCurve?.ToList() ?? [],
         ColourLutPath = clip.ColourLutPath,
+        ColourSourceDescription = clip.ColourSourceDescription,
         ChromaKeyEnabled = clip.ChromaKeyEnabled,
         ChromaKeyEnabledKeyframes = VideoChromaKeyEnabledKeyframes.CloneKeys(clip.ChromaKeyEnabledKeyframes),
         ChromaKeyColour = clip.ChromaKeyColour,

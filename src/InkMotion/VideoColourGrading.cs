@@ -39,6 +39,8 @@ public static class VideoColourGrading
         value.Tint == 0 &&
         value.Saturation == 1 &&
         value.Gamma == 1 &&
+        !clip.HslQualifier.Enabled &&
+        clip.ShotMatch.IsNeutral &&
         string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
         IsNeutralCurve(clip.MasterCurve) &&
         IsNeutralCurve(clip.RedCurve) &&
@@ -138,7 +140,8 @@ public static class VideoColourGrading
             double.IsFinite(clip.Gamma) && clip.Gamma is >= MinimumGamma and <= MaximumGamma &&
             IsValidCurve(clip.MasterCurve) && IsValidCurve(clip.RedCurve) &&
             IsValidCurve(clip.GreenCurve) && IsValidCurve(clip.BlueCurve);
-        if (!valid)
+        if (!valid || clip.HslQualifier is null || !clip.HslQualifier.IsValid ||
+            clip.ShotMatch is null || !clip.ShotMatch.IsValid)
         {
             return "Clip colour settings are outside their supported ranges.";
         }
@@ -170,11 +173,16 @@ public sealed class VideoColourGradingEffect : IDisposable
     private VideoColourCurvePoint[]? _greenCurve;
     private VideoColourCurvePoint[]? _blueCurve;
     private double _tableGamma = double.NaN;
+    private readonly TableTransfer3DEffect _qualifierEffect = new();
+    private EffectTransferTable3D? _qualifierTable;
+    private VideoHslQualifier? _qualifier;
+    private readonly LinearTransferEffect _shotMatchEffect = new() { AlphaDisable = true, ClampOutput = true };
 
     public ICanvasImage GetOutput(
         CanvasBitmap source,
         TimelineClipProject clip,
-        VideoColourGradingValue? animatedValue = null)
+        VideoColourGradingValue? animatedValue = null,
+        bool applyShotMatch = true)
     {
         VideoColourGradingValue value = animatedValue ?? VideoColourGradingKeyframes.GetStaticValue(clip);
         _exposure.Source = source;
@@ -190,7 +198,7 @@ public sealed class VideoColourGradingEffect : IDisposable
         UpdateCurveTables(clip, value.Gamma);
         if (string.IsNullOrWhiteSpace(clip.ColourLutPath))
         {
-            return _curves;
+            return ApplyShotMatch(ApplyQualifier(source.Device, _curves, clip.HslQualifier), clip.ShotMatch, applyShotMatch);
         }
 
         if (!string.Equals(_lutPath, clip.ColourLutPath, StringComparison.OrdinalIgnoreCase))
@@ -203,7 +211,34 @@ public sealed class VideoColourGradingEffect : IDisposable
 
         _lutEffect.Source = _curves;
         _lutEffect.Table = _lutTable;
-        return _lutEffect;
+        return ApplyShotMatch(ApplyQualifier(source.Device, _lutEffect, clip.HslQualifier), clip.ShotMatch, applyShotMatch);
+    }
+
+    private ICanvasImage ApplyShotMatch(ICanvasImage source, VideoShotMatch value, bool apply)
+    {
+        if (!apply || value.IsNeutral) return source;
+        _shotMatchEffect.Source = source;
+        _shotMatchEffect.RedSlope = (float)value.RedGain;
+        _shotMatchEffect.GreenSlope = (float)value.GreenGain;
+        _shotMatchEffect.BlueSlope = (float)value.BlueGain;
+        _shotMatchEffect.RedOffset = (float)value.RedOffset;
+        _shotMatchEffect.GreenOffset = (float)value.GreenOffset;
+        _shotMatchEffect.BlueOffset = (float)value.BlueOffset;
+        return _shotMatchEffect;
+    }
+
+    private ICanvasImage ApplyQualifier(CanvasDevice device, ICanvasImage source, VideoHslQualifier qualifier)
+    {
+        if (!qualifier.IsActive) return source;
+        if (_qualifier != qualifier)
+        {
+            _qualifierTable?.Dispose();
+            _qualifierTable = qualifier.BuildTable().CreateTransferTable(device);
+            _qualifier = qualifier;
+        }
+        _qualifierEffect.Source = source;
+        _qualifierEffect.Table = _qualifierTable;
+        return _qualifierEffect;
     }
 
     private void UpdateCurveTables(TimelineClipProject clip, double gamma)
@@ -251,6 +286,9 @@ public sealed class VideoColourGradingEffect : IDisposable
 
     public void Dispose()
     {
+        _shotMatchEffect.Dispose();
+        _qualifierEffect.Dispose();
+        _qualifierTable?.Dispose();
         _lutEffect.Dispose();
         _lutTable?.Dispose();
         _curves.Dispose();

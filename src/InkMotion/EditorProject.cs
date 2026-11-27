@@ -6,7 +6,7 @@ namespace InkMotion;
 
 public sealed class EditorProject
 {
-    public const int CurrentVersion = 93;
+    public const int CurrentVersion = 96;
     public int Version { get; set; } = CurrentVersion;
     public double FrameRate { get; set; } = 24;
     /// <summary>Null preserves legacy viewport/output framing; otherwise the saved canvas has a fixed aspect ratio.</summary>
@@ -764,6 +764,18 @@ public static class EditorProjectSerialiser
         {
             project.Version = EditorProject.CurrentVersion;
         }
+        if (project.Version == 93)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 94)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
+        if (project.Version == 95)
+        {
+            project.Version = EditorProject.CurrentVersion;
+        }
 
         EditorProjectValidation.Validate(project);
         return project;
@@ -1265,6 +1277,11 @@ internal static class EditorProjectValidation
         if (VideoTimelineEditing.Validate(project.VideoTracks, project.FrameRate) is string timelineError)
         {
             throw new InvalidDataException(timelineError);
+        }
+        if (project.Colour is not null && project.VideoTracks.SelectMany(track => track.Clips)
+            .Any(clip => clip.HslQualifier.Enabled || !clip.ShotMatch.IsNeutral))
+        {
+            throw new InvalidDataException("Disable HSL qualifiers and clear shot matches before using HDR project colour.");
         }
 
         if (project.VideoMulticamGroups is null ||

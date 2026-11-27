@@ -2946,6 +2946,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        _colourImportClosed = true;
+        _colourImportCancellation?.Cancel();
         _compoundWindowClosed = true;
         _compoundPreparation?.Cancel();
         DisposeCompoundPlayback();

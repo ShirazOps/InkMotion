@@ -173,6 +173,8 @@ public sealed class VideoClipJoiningTests
     [Theory]
     [InlineData("enabled")]
     [InlineData("colour")]
+    [InlineData("hsl")]
+    [InlineData("shot-match")]
     [InlineData("tolerance")]
     [InlineData("feather")]
     [InlineData("blur")]
@@ -196,6 +198,12 @@ public sealed class VideoClipJoiningTests
             VideoTimelineEditing.Split(track, left, 25, 24));
         switch (setting)
         {
+            case "hsl":
+                right.HslQualifier = new() { Enabled = true, Saturation = 0 };
+                break;
+            case "shot-match":
+                right.ShotMatch = new() { RedOffset = 0.1 };
+                break;
             case "enabled":
                 right.ChromaKeyEnabled = true;
                 break;
