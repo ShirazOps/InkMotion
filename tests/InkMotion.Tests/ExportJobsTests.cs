@@ -300,20 +300,10 @@ public sealed class ExportJobsTests : IDisposable
 
         ExportJobStatus job = CreateVideoJob();
         ProcessStartInfo workerInfo = _store.CreateWorkerStartInfo(WorkerExecutable, job.Id);
-        // A disposable parent models the editor's lifetime, using the same independent Process.Start semantics.
-        string quote(string value) => "'" + value.Replace("'", "''") + "'";
-        string script = "$p = Start-Process -FilePath " + quote(workerInfo.FileName) +
-            " -WorkingDirectory " + quote(workerInfo.WorkingDirectory) +
-            " -ArgumentList " + quote(string.Join(" ", workerInfo.ArgumentList.Select(arg => "\"" + arg + "\""))) +
-            " -PassThru; $p.WaitForExit()";
-        var parentStart = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
-        parentStart.ArgumentList.Add("-NoProfile");
-        parentStart.ArgumentList.Add("-EncodedCommand");
-        parentStart.ArgumentList.Add(Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)));
-        using Process parent = Process.Start(parentStart)!;
+        using Process parent = StartExportParent(job.Id, workerInfo);
         try
         {
-            ExportJobStatus running = await WaitForRunning(job.Id);
+            ExportJobStatus running = await WaitForRunning(job.Id, parent);
             Assert.Equal(ExportJobPhase.Running, running.Phase);
             parent.Kill();
             await parent.WaitForExitAsync();
@@ -338,6 +328,70 @@ public sealed class ExportJobsTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchingParentReportsWorkerStartFailure()
+    {
+        ExportJobStatus job = CreateAudioJob(new());
+        ProcessStartInfo workerInfo = _store.CreateWorkerStartInfo(Path.Combine(_root, "missing-worker.exe"), job.Id);
+        using Process parent = StartExportParent(job.Id, workerInfo);
+        try
+        {
+            Xunit.Sdk.XunitException failure = await Assert.ThrowsAnyAsync<Xunit.Sdk.XunitException>(
+                () => WaitForRunning(job.Id, parent));
+            Assert.Contains("exited with code 1", failure.Message);
+            Assert.Contains("Could not start worker:", failure.Message);
+            Assert.Equal(ExportJobPhase.Queued, _store.ReadStatus(job.Id).Phase);
+        }
+        finally
+        {
+            if (!parent.HasExited)
+            {
+                parent.Kill();
+                await parent.WaitForExitAsync();
+            }
+            await StopOwnedWorker(job.Id);
+        }
+    }
+
+    [Fact]
+    public async Task LaunchingParentTracksWorkerBeforeItPublishesStatus()
+    {
+        ExportJobStatus job = CreateAudioJob(new());
+        var workerInfo = new ProcessStartInfo("powershell.exe") { WorkingDirectory = _root };
+        workerInfo.ArgumentList.Add("-NoProfile");
+        workerInfo.ArgumentList.Add("-Command");
+        workerInfo.ArgumentList.Add("Start-Sleep -Seconds 60");
+        using Process parent = StartExportParent(job.Id, workerInfo);
+        try
+        {
+            var clock = Stopwatch.StartNew();
+            while (!File.Exists(LauncherWorkerPath(job.Id)) && !parent.HasExited &&
+                clock.Elapsed < TimeSpan.FromSeconds(30))
+            {
+                await Task.Delay(20);
+            }
+            Assert.True(File.Exists(LauncherWorkerPath(job.Id)), "The launcher did not record its worker.");
+            (int processId, long startTicks) = ReadLauncherWorker(job.Id)!.Value;
+            using Process worker = Process.GetProcessById(processId);
+            Assert.Equal(startTicks, worker.StartTime.ToUniversalTime().Ticks);
+            Assert.Equal(0, _store.ReadStatus(job.Id).ProcessId);
+
+            parent.Kill();
+            await parent.WaitForExitAsync();
+            await StopOwnedWorker(job.Id);
+            Assert.True(worker.HasExited);
+        }
+        finally
+        {
+            if (!parent.HasExited)
+            {
+                parent.Kill();
+                await parent.WaitForExitAsync();
+            }
+            await StopOwnedWorker(job.Id);
+        }
+    }
+
+    [Fact]
     public async Task DuplicateWorkerCannotClaimJobAndCrossProcessCancellationRemovesPartialOutput()
     {
         if (!VideoExportTests.HasH264Encoder)
@@ -349,7 +403,7 @@ public sealed class ExportJobsTests : IDisposable
         using Process worker = Process.Start(_store.CreateWorkerStartInfo(WorkerExecutable, job.Id))!;
         try
         {
-            await WaitForRunning(job.Id);
+            await WaitForRunning(job.Id, worker);
             Assert.Equal(3, ExportJobWorker.Run(_store, job.Id));
             _store.Cancel(job.Id);
             await worker.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
@@ -378,7 +432,7 @@ public sealed class ExportJobsTests : IDisposable
         using Process worker = Process.Start(_store.CreateWorkerStartInfo(WorkerExecutable, job.Id))!;
         try
         {
-            await WaitForRunning(job.Id);
+            await WaitForRunning(job.Id, worker);
             worker.Kill();
             await worker.WaitForExitAsync();
             ExportJobStatus recovered = Assert.Single(_store.Scan().Jobs);
@@ -514,20 +568,62 @@ public sealed class ExportJobsTests : IDisposable
         return input;
     }
 
-    private async Task<ExportJobStatus> WaitForRunning(string id)
+    private Process StartExportParent(string id, ProcessStartInfo workerInfo)
+    {
+        string quote(string value) => "'" + value.Replace("'", "''") + "'";
+        string workerPath = LauncherWorkerPath(id);
+        string errorPath = Path.Combine(_store.JobDirectory(id), "launcher-error.txt");
+        string arguments = string.Join(" ", workerInfo.ArgumentList.Select(arg => "\"" + arg + "\""));
+        string script = "$ErrorActionPreference = 'Stop'; $worker = $null; try { " +
+            "$start = New-Object System.Diagnostics.ProcessStartInfo; " +
+            "$start.FileName = " + quote(workerInfo.FileName) + "; " +
+            "$start.WorkingDirectory = " + quote(workerInfo.WorkingDirectory) + "; " +
+            "$start.Arguments = " + quote(arguments) + "; " +
+            "$start.UseShellExecute = $false; $start.CreateNoWindow = $true; " +
+            "$worker = [System.Diagnostics.Process]::Start($start); " +
+            "if ($null -eq $worker) { throw 'Windows did not start the export worker.' }; " +
+            "[IO.File]::WriteAllText(" + quote(workerPath + ".tmp") +
+            ", ('{0},{1}' -f $worker.Id, $worker.StartTime.ToUniversalTime().Ticks)); " +
+            "[IO.File]::Move(" + quote(workerPath + ".tmp") + ", " + quote(workerPath) + "); " +
+            "$worker.WaitForExit(); exit $worker.ExitCode " +
+            "} catch { " +
+            "if ($null -ne $worker -and -not $worker.HasExited) { $worker.Kill() }; " +
+            "[IO.File]::WriteAllText(" + quote(errorPath) + ", 'Could not start worker: ' + $_.Exception.ToString()); " +
+            "exit 1 }";
+        var parentStart = new ProcessStartInfo("powershell.exe") { UseShellExecute = false, CreateNoWindow = true };
+        parentStart.ArgumentList.Add("-NoProfile");
+        parentStart.ArgumentList.Add("-NonInteractive");
+        parentStart.ArgumentList.Add("-EncodedCommand");
+        parentStart.ArgumentList.Add(Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)));
+        return Process.Start(parentStart) ?? throw new InvalidOperationException("Could not start the export test launcher.");
+    }
+
+    private async Task<ExportJobStatus> WaitForRunning(string id, Process process)
     {
         var clock = Stopwatch.StartNew();
+        ExportJobStatus status = _store.ReadStatus(id);
         while (clock.Elapsed < TimeSpan.FromSeconds(30))
         {
-            ExportJobStatus status = _store.ReadStatus(id);
+            status = _store.ReadStatus(id);
             if (status.Phase == ExportJobPhase.Running)
             {
                 return status;
             }
+            if (process.HasExited)
+            {
+                string[] diagnostics = new[] { "launcher-error.txt", "worker-error.txt" }
+                    .Select(name => Path.Combine(_store.JobDirectory(id), name))
+                    .Where(File.Exists)
+                    .Select(File.ReadAllText)
+                    .ToArray();
+                Assert.Fail($"The monitored process exited with code {process.ExitCode} before the worker started. " +
+                    $"Job phase: {status.Phase}; {status.Message}" +
+                    (diagnostics.Length == 0 ? "" : Environment.NewLine + string.Join(Environment.NewLine, diagnostics)));
+            }
             Assert.True(status.IsActive, status.Message);
             await Task.Delay(20);
         }
-        Assert.Fail("Worker did not start within 30 seconds.");
+        Assert.Fail($"Worker did not start within 30 seconds. Job phase: {status.Phase}; {status.Message}");
         throw new TimeoutException();
     }
 
@@ -555,14 +651,17 @@ public sealed class ExportJobsTests : IDisposable
     private async Task StopOwnedWorker(string id, bool kill = true)
     {
         ExportJobStatus status = _store.ReadStatus(id);
-        if (status.ProcessId == 0)
+        (int processId, long startTicks) = status.ProcessId == 0
+            ? ReadLauncherWorker(id) ?? (0, 0)
+            : (status.ProcessId, status.ProcessStartUtcTicks);
+        if (processId == 0)
         {
             return;
         }
         Process process;
         try
         {
-            process = Process.GetProcessById(status.ProcessId);
+            process = Process.GetProcessById(processId);
         }
         catch (ArgumentException)
         {
@@ -570,7 +669,7 @@ public sealed class ExportJobsTests : IDisposable
         }
         using (process)
         {
-            if (!process.HasExited && process.StartTime.ToUniversalTime().Ticks == status.ProcessStartUtcTicks)
+            if (!process.HasExited && process.StartTime.ToUniversalTime().Ticks == startTicks)
             {
                 if (kill)
                 {
@@ -579,6 +678,24 @@ public sealed class ExportJobsTests : IDisposable
                 await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
+    }
+
+    private string LauncherWorkerPath(string id) => Path.Combine(_store.JobDirectory(id), "launcher-worker.txt");
+
+    private (int ProcessId, long StartTicks)? ReadLauncherWorker(string id)
+    {
+        string path = LauncherWorkerPath(id);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+        string[] fields = File.ReadAllText(path).Split(',');
+        if (fields.Length != 2 || !int.TryParse(fields[0], out int processId) ||
+            !long.TryParse(fields[1], out long startTicks) || processId <= 0 || startTicks <= 0)
+        {
+            throw new InvalidDataException("Invalid export test worker identity.");
+        }
+        return (processId, startTicks);
     }
 
     public void Dispose() => Directory.Delete(_root, true);
