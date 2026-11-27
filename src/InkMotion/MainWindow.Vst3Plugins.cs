@@ -79,6 +79,11 @@ public sealed partial class MainWindow
 
     private async void AddVst3Plugin_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "VST3 inserts cannot be added during collaboration.";
+            return;
+        }
         Vst3PluginTarget? target = GetVst3PluginTarget(
             TryGetSelectedAudioClip(out AudioTrackRuntime? track) ? track.Project : null);
         if (target is null)
@@ -135,6 +140,11 @@ public sealed partial class MainWindow
                 $"Enable {selectedEffect.Name} for this project? Its code will run as your Windows account permits, in a separate process that is not a security sandbox. This approval is stored on this device for this plug-in.");
             if (await loadConsent.ShowAsync() != ContentDialogResult.Primary)
             {
+                return;
+            }
+            if (IsLanSessionActive)
+            {
+                Vst3PluginStatusText.Text = "VST3 inserts cannot be added during collaboration.";
                 return;
             }
 

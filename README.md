@@ -16,7 +16,17 @@ user-selected Python/pyaaf2 environment. These are limited subsets, not complete
 NLE/DAW project conversion. See [project transfer](docs/project-transfer.md) for
 supported features, explicit omissions, dependencies and interoperability evidence.
 
-InkMotion has no in-app cloud synchronisation, live co-editing, presence, or merge/conflict resolution. A `.inkmotion` project is saved as a single file, and its media and LUTs remain externally linked. You can keep project files in a network or cloud-synchronised folder, but that is file storage rather than collaboration. Do not edit the same project in multiple InkMotion instances at once; close it elsewhere and let synchronisation finish before reopening it. Keep a backup and share the linked media separately.
+### Local collaboration
+
+Save a backup and finish background edits before choosing **Collaboration > Host local session…**. Select the private IPv4 adapter connected to your collaborators; **This computer only** is for testing on one device. The host privately shares the invitation, and guests save their current project before choosing **Join local session…**: joining replaces that project. Connections require a directly connected private subnet and may be blocked by Windows Firewall or network isolation. There is no discovery service, cloud relay or mobile client.
+
+The invitation contains a secret and a certificate fingerprint. Anyone with it can join and receive the project, subsequent edits and linked media, so share it only with trusted people; stopping the host revokes it. Transfers use TLS with the invitation's pinned certificate. Up to eight people, including the host, can join. One person holds the editing turn; use **Release editing turn** and **Take editing turn** to hand it over. Viewers receive updates but cannot edit or use playback controls. Editing inside a compound timeline and using VST3 inserts are unavailable during a session. There are no named participants, individual permissions or concurrent-edit merging.
+
+Changes are shared automatically after an edit finishes. If sharing fails, the status reports it and **Retry sharing changes** retries; releasing a turn first shares pending changes. Leaving, cancellation or disconnection keeps the current editor project, but other participants only have the last successfully shared revision. Save a separate project after leaving. The host's original source files are not changed by transfers.
+
+Linked media, proxies and LUTs are copied directly between devices into `%LOCALAPPDATA%\InkMotion\Collaboration\<session>\media`; Windows packaging may redirect this location. These copies remain after leaving or cancelling and can be dependencies of projects saved from the session. Back them up with those projects. A session supports up to 64 MiB of project data, 1 TiB of cached media and 10,000 cached files; missing media and VST3 inserts are refused. Do not change linked sources or cached copies during a session: changes to media alone do not trigger publication, and source-cache reuse checks file length and modification time rather than rehashing on every edit.
+
+Local checks have exercised two instances on one computer using loopback and its private network address; a physical two-device network has not been verified. InkMotion has no in-app cloud synchronisation. A `.inkmotion` project is a single file with externally linked media, so a shared or cloud-synchronised folder is not a substitute for the collaboration session: avoid simultaneous edits to the same file and allow external synchronisation to finish before reopening it.
 
 ## Get started
 
@@ -149,7 +159,7 @@ Capture is best-effort desktop SDR capture, not protected-content, secure-deskto
 
 ## Privacy
 
-Media is processed locally, without application analytics or automatic uploads. See the [privacy policy](PRIVACY.md) for microphone use, local working files, background exports and optional tools.
+Media is processed locally, without application analytics or automatic uploads; local collaboration transfers the selected project and linked media directly to invited peers. See the [privacy policy](PRIVACY.md) for collaboration, microphone use, local working files, background exports and optional tools.
 
 ## Current limits
 

@@ -91,9 +91,15 @@ public sealed partial class MainWindow
 
     private async void ImportPictureTimeline_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave the collaboration session before importing another project.";
+            return;
+        }
         if (!PrepareProjectTransfer()) return;
         StorageFile? file = await PickTimelineFileAsync([".xml", ".edl"]);
         if (file is null) return;
+        _lanProjectFileOperations++;
         try
         {
             var rateSelector = new ComboBox { ItemsSource = new[] { 24, 30 }, SelectedItem = (int)_frameRate };
@@ -126,6 +132,8 @@ public sealed partial class MainWindow
             EditorProject project = PictureInterchange.ToProject(timeline);
             if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()))
                 throw new InvalidDataException("The project changed during import; import again.");
+            if (IsLanSessionActive)
+                throw new InvalidDataException("Leave the collaboration session before importing another project.");
             ClearEditingClipboard();
             ClearHistory();
             RestoreProjectState(project);
@@ -140,5 +148,6 @@ public sealed partial class MainWindow
         {
             StatusText.Text = $"Could not import picture timeline: {ex.Message}";
         }
+        finally { _lanProjectFileOperations--; }
     }
 }

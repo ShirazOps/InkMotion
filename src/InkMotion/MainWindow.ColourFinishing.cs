@@ -68,6 +68,7 @@ public sealed partial class MainWindow
         try
         {
             VideoShotStatistics statistics = await SampleSelectedShotAsync(selected, includeMatch: capture);
+            if (!CanApplyLanBackgroundEdit()) return;
             if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) ||
                 SelectedTimelineClip?.Clip.Id != selected.Clip.Id || CurrentPlaybackSeconds != seconds)
                 throw new InvalidOperationException("The project, shot or playhead changed. Try again.");

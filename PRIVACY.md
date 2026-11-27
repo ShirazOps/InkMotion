@@ -1,12 +1,12 @@
 # InkMotion privacy policy
 
-**Last updated: 25 November 2026**
+**Last updated: 27 November 2026**
 
 InkMotion is a Windows video, audio and ink-animation editor provided by Shiraz Ops. This policy describes how the application handles your information.
 
 ## Local processing, not a cloud service
 
-InkMotion processes your projects, video, images, audio, text and drawings on your computer. The application does not require an account and does not operate an online storage service.
+InkMotion processes your projects, video, images, audio, text and drawings on your computer. If you start or join local collaboration, it also transfers the session project and linked files directly between the invited computers. The application does not require an account and does not operate an online storage service.
 
 InkMotion does not send your media, projects or recordings to Shiraz Ops. It does not include advertising, behavioural tracking or application analytics, and does not automatically send crash reports or usage information to us. We do not sell your information or share it for advertising.
 
@@ -20,10 +20,19 @@ The application also stores working data locally, including:
 - Microphone recordings, screen recordings, optional system-audio/webcam sources, recording recovery metadata and generated video proxies.
 - Export job history, saved project snapshots, output and linked-source paths, progress and error details.
 - Temporary rendering, audio-mixing and encoder-probe files, and completed video segments used to recover interrupted optional FFmpeg exports.
+- Per-session copies of linked media shared through local collaboration.
 
 These files can contain personal information if your content, file names or paths contain it. Export job snapshots can include project text and drawings even after you close the editor.
 
 Local working data is generally stored under `%LOCALAPPDATA%\InkMotion`; temporary files can also be stored in your Windows temporary directory or beside a chosen export destination. Windows packaging may redirect application storage. Saved projects and exported files are stored where you choose.
+
+## Local network collaboration
+
+Hosting is opt-in and listens on the private IPv4 interface you select; joining is opt-in and replaces the current editor project. Connections are direct on a reachable private subnet, with no InkMotion discovery service, cloud relay or account. Windows Firewall or network settings may prevent connections. The host's invitation contains an address, port, secret and certificate fingerprint; TLS connections pin that certificate. Anyone given the invitation can join and receive the project, later edits and linked media, so share it privately with trusted collaborators and stop hosting to revoke it. Copying an invitation places it on the Windows clipboard, which Windows or another application may retain or synchronise.
+
+Each participant stores transferred media under `%LOCALAPPDATA%\InkMotion\Collaboration\<session>\media`. The host also copies linked sources there. These files remain after leaving, cancellation or disconnection and are not automatically deleted. A saved session project may depend on them, so back up the copies before removing them. The application replaces recognised linked paths with content identifiers in transit, but project text, names, metadata and the files themselves can still identify people or paths; this is not anonymisation. Avoid changing sources or cached copies during a session.
+
+Only one person edits at a time; viewers cannot edit or play the project. If a connection ends, local editor contents remain, while peers retain only the last shared revision. Save a separate project after leaving. Do not put an invitation in a public issue or other public place.
 
 ## Screen, microphone, camera and input
 
@@ -53,7 +62,7 @@ Subtitle translation sends the text of the subtitle cues you translate to the Op
 
 Microsoft may process information relating to Store downloads, purchases, updates, permissions or Windows diagnostics under the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). Such processing is controlled by Microsoft and your Windows settings, not by InkMotion.
 
-If you choose files on a network share or in a cloud-synchronised folder, Windows or your storage provider may transfer those files as part of that service. InkMotion does not provide project synchronisation or concurrent-edit protection, and it does not control those services or their retention policies. Avoid editing the same project from multiple InkMotion instances; allow external synchronisation to finish before reopening it.
+If you choose files on a network share or in a cloud-synchronised folder, Windows or your storage provider may transfer those files as part of that service. InkMotion's local session does not protect projects edited independently through such folders, and it does not control those services or their retention policies. Avoid editing the same project file independently in multiple InkMotion instances; allow external synchronisation to finish before reopening it.
 
 ## Retention and your choices
 

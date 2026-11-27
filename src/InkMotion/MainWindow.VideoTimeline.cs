@@ -191,6 +191,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (!CanApplyLanBackgroundEdit()) return;
         RegisterTimelineSource(file);
         AddTimelineClip(
             TimelineTrackKind.Video,
@@ -208,6 +209,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (!CanApplyLanBackgroundEdit()) return;
         RegisterTimelineSource(file);
         AddTimelineClip(
             TimelineTrackKind.Image,
@@ -263,6 +265,7 @@ public sealed partial class MainWindow
         {
             SubtitleImportResult result =
                 SubtitleFormats.Import(file.FileType, await FileIO.ReadTextAsync(file), _frameRate);
+            if (!CanApplyLanBackgroundEdit()) return;
             IReadOnlyList<TimelineTrackProject> imported = result.Tracks;
             BeginEdit();
             for (int index = imported.Count - 1; index >= 0; index--)
@@ -694,7 +697,7 @@ public sealed partial class MainWindow
     /// Resolves every timeline source file after a project opens and fills in the length of video clips
     /// migrated from older projects. Returns a warning when sources are unavailable.
     /// </summary>
-    private async Task<string?> LoadTimelineSourcesAsync()
+    private async Task<string?> LoadTimelineSourcesAsync(bool probeMissingDurations = true)
     {
         _unavailableTimelineSources.Clear();
         _unavailablePreviewVideoSources.Clear();
@@ -729,7 +732,7 @@ public sealed partial class MainWindow
         foreach (TimelineClipProject clip in projects.SelectMany(project => project.VideoTracks)
             .Where(track => track.Kind == TimelineTrackKind.Video)
             .SelectMany(track => track.Clips)
-            .Where(clip => clip.SourceDurationSeconds <= 0 && clip.SourcePath is not null))
+            .Where(clip => probeMissingDurations && clip.SourceDurationSeconds <= 0 && clip.SourcePath is not null))
         {
             if (!probed.TryGetValue(clip.SourcePath!, out double duration))
             {
@@ -3158,6 +3161,7 @@ public sealed partial class MainWindow
         }
 
         double duration = selected.Track.Kind == TimelineTrackKind.Video ? await ProbeVideoDurationAsync(file) : 0;
+        if (!CanApplyLanBackgroundEdit()) return;
         if (SelectedTimelineClip?.Clip != selected.Clip || selected.Track.IsLocked ||
             !_videoTracks.Contains(selected.Track) || !selected.Track.Clips.Contains(selected.Clip))
         {
@@ -4383,6 +4387,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (!CanApplyLanBackgroundEdit()) return;
         TimelineClipLocation? current = VideoTimelineEditing.FindClip(_videoTracks, clipId);
         if (current is null || current.Track.IsLocked)
         {

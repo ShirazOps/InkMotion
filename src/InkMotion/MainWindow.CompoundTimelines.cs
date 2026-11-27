@@ -198,6 +198,11 @@ public sealed partial class MainWindow
 
     private async void OpenCompound_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave the collaboration session before editing inside a compound timeline.";
+            return;
+        }
         if (_switchingCompound || SelectedTimelineClip is not { Track.Kind: TimelineTrackKind.Compound } selected ||
             selected.Track.IsLocked || selected.Clip.NestedProject is null)
         {

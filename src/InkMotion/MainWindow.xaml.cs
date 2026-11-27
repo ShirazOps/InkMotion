@@ -239,6 +239,11 @@ public sealed partial class MainWindow : Window
 
     private async void OpenProject_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave the collaboration session before opening another project.";
+            return;
+        }
         if (_compoundContexts.Count > 0 || _switchingCompound)
         {
             StatusText.Text = "Return to the main timeline before opening another project.";
@@ -263,6 +268,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        _lanProjectFileOperations++;
         try
         {
             if (file.FileType.Equals(ProjectPackage.Extension, StringComparison.OrdinalIgnoreCase))
@@ -277,6 +283,8 @@ public sealed partial class MainWindow : Window
                 file = await StorageFile.GetFileFromPathAsync(extracted);
             }
             EditorProject project = ProjectMediaPaths.Resolve(await FileIO.ReadTextAsync(file), Path.GetDirectoryName(file.Path)!);
+            if (IsLanSessionActive)
+                throw new InvalidDataException("Leave the collaboration session before opening another project.");
             ClearEditingClipboard();
             ClearHistory();
             RestoreProjectState(project);
@@ -298,6 +306,7 @@ public sealed partial class MainWindow : Window
         {
             StatusText.Text = $"Could not open project: {ex.Message}";
         }
+        finally { _lanProjectFileOperations--; }
     }
 
     private async void SaveProject_Click(object sender, RoutedEventArgs e)
@@ -326,6 +335,7 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        _lanProjectFileOperations++;
         try
         {
             await FileIO.WriteTextAsync(file, ProjectMediaPaths.Serialise(CreateProjectSnapshot(), Path.GetDirectoryName(file.Path)!));
@@ -337,6 +347,7 @@ public sealed partial class MainWindow : Window
         {
             StatusText.Text = $"Could not save project: {ex.Message}";
         }
+        finally { _lanProjectFileOperations--; }
     }
 
     private async void OpenAudio_Click(object sender, RoutedEventArgs e)
@@ -360,13 +371,15 @@ public sealed partial class MainWindow : Window
         {
             file = await PrepareMediaImportAsync(file);
             if (file is null) return;
+            if (!CanApplyLanBackgroundEdit()) return;
             if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
             {
                 AddAudioTrack();
             }
 
-            LoadAudio(_audioTracks[_selectedAudioTrackIndex], file);
-            if (_audioTracks[_selectedAudioTrackIndex].LoadError is string loadError)
+            AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
+            LoadAudio(track, file);
+            if (track.LoadError is string loadError)
             {
                 ClearHistory();
                 UpdateSelectedAudioTrack();
@@ -375,8 +388,10 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            await LoadAudioWaveformAsync(_audioTracks[_selectedAudioTrackIndex]);
-            bool tagsLoaded = await LoadAudioTagsAsync(_audioTracks[_selectedAudioTrackIndex]);
+            await LoadAudioWaveformAsync(track);
+            if (!_audioTracks.Contains(track) || !CanApplyLanBackgroundEdit()) return;
+            bool tagsLoaded = await LoadAudioTagsAsync(track);
+            if (!_audioTracks.Contains(track)) return;
             ClearHistory();
             UpdateSelectedAudioTrack();
             RefreshAudioTracks();
@@ -606,6 +621,11 @@ public sealed partial class MainWindow : Window
 
     private async void WriteAudioTags_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave collaboration before writing tags to a linked source file.";
+            return;
+        }
         FinishActiveEdit();
         if (_selectedAudioTrackIndex < 0 || _selectedAudioTrackIndex >= _audioTracks.Count)
         {
@@ -626,11 +646,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        _lanProjectFileOperations++;
         try
         {
             StorageFile file = await StorageFile.GetFileFromPathAsync(project.AudioPath!);
             Windows.Storage.FileProperties.MusicProperties music =
                 await file.Properties.GetMusicPropertiesAsync();
+            if (IsLanSessionActive)
+            {
+                StatusText.Text = "Leave collaboration before writing tags to a linked source file.";
+                return;
+            }
             music.Title = project.Title;
             music.Artist = project.Artist;
             music.Album = project.Album;
@@ -648,6 +674,7 @@ public sealed partial class MainWindow : Window
         {
             StatusText.Text = $"Could not write audio tags: {ex.Message}";
         }
+        finally { _lanProjectFileOperations--; }
     }
 
     private async Task<bool> LoadAudioTagsAsync(AudioTrackRuntime track)
@@ -667,6 +694,7 @@ public sealed partial class MainWindow : Window
             StorageFile file = await StorageFile.GetFileFromPathAsync(track.Project.AudioPath);
             Windows.Storage.FileProperties.MusicProperties music =
                 await file.Properties.GetMusicPropertiesAsync();
+            if (!_audioTracks.Contains(track) || !CanApplyLanBackgroundEdit()) return false;
             track.Project.Title = music.Title ?? string.Empty;
             track.Project.Artist = music.Artist ?? string.Empty;
             track.Project.Album = music.Album ?? string.Empty;
@@ -1003,7 +1031,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (!_audioTracks.Contains(track) || _audioTracks.IndexOf(track) != _selectedAudioTrackIndex)
+        if (!CanApplyLanBackgroundEdit() || !_audioTracks.Contains(track) || _audioTracks.IndexOf(track) != _selectedAudioTrackIndex)
         {
             UpdateSelectedAudioTrack();
             return;
@@ -2959,6 +2987,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
+        CloseLanForWindow();
         _colourImportClosed = true;
         _colourImportCancellation?.Cancel();
         _compoundWindowClosed = true;

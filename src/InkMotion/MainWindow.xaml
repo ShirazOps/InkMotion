@@ -23,7 +23,7 @@
                 <Image Source="Assets/Square44x44Logo.png" Width="20" Height="20" />
                 <TextBlock Text="InkMotion" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" />
                 <MenuBar x:Name="AppMenuBar" VerticalAlignment="Center">
-                    <MenuBarItem Title="File">
+                    <MenuBarItem x:Name="FileMenu" Title="File">
                         <MenuFlyoutItem Text="Open project…" Click="OpenProject_Click">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
                             <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="O" /></MenuFlyoutItem.KeyboardAccelerators>
@@ -56,7 +56,7 @@
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEDE1;" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
                     </MenuBarItem>
-                    <MenuBarItem Title="Edit">
+                    <MenuBarItem x:Name="EditMenu" Title="Edit">
                         <MenuFlyoutItem Text="Undo" Click="Undo_Click">
                             <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
                         </MenuFlyoutItem>
@@ -71,6 +71,17 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Expand main editing view" Click="ExpandEditingView_Click" />
                         <MenuFlyoutItem Text="Reset all workspace layouts to default" Click="ResetEditorLayout_Click" />
+                    </MenuBarItem>
+                    <MenuBarItem Title="Collaboration">
+                        <MenuFlyoutItem x:Name="HostLanMenu" Text="Host local session…" Click="HostLan_Click" />
+                        <MenuFlyoutItem x:Name="JoinLanMenu" Text="Join local session…" Click="JoinLan_Click" />
+                        <MenuFlyoutItem x:Name="ShowLanInvitationMenu" Text="Show invitation…" Click="ShowLanInvitation_Click" IsEnabled="False" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="ClaimLanTurnMenu" Text="Take editing turn" Click="ClaimLanTurn_Click" IsEnabled="False" />
+                        <MenuFlyoutItem x:Name="ReleaseLanTurnMenu" Text="Release editing turn" Click="ReleaseLanTurn_Click" IsEnabled="False" />
+                        <MenuFlyoutItem x:Name="RetryLanMenu" Text="Retry sharing changes" Click="RetryLan_Click" IsEnabled="False" />
+                        <MenuFlyoutItem x:Name="CancelLanMenu" Text="Cancel network operation" Click="CancelLan_Click" IsEnabled="False" />
+                        <MenuFlyoutItem x:Name="LeaveLanMenu" Text="Leave session…" Click="LeaveLan_Click" IsEnabled="False" />
                     </MenuBarItem>
                     <MenuBarItem Title="Help">
                         <MenuFlyoutItem Text="Beginner quick-start guide" Click="StartQuickStartGuide_Click" />
@@ -115,7 +126,10 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition x:Name="CaptionButtonsColumn" Width="140" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="UnsavedIndicator" Grid.Column="1" Text="● Unsaved changes" FontSize="12" Margin="0,0,12,0" Foreground="{StaticResource WarningTextBrush}" VerticalAlignment="Center" Visibility="Collapsed" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="0,0,12,0">
+                    <TextBlock x:Name="LanStatusText" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock x:Name="UnsavedIndicator" Text="● Unsaved changes" FontSize="12" Foreground="{StaticResource WarningTextBrush}" VerticalAlignment="Center" Visibility="Collapsed" />
+                </StackPanel>
             </Grid>
         </Grid>
 
@@ -242,7 +256,9 @@
             </Grid>
         </Border>
 
-        <Grid x:Name="EditorLayoutGrid" Grid.Row="3" Padding="8" SizeChanged="EditorLayout_SizeChanged">
+        <ContentControl x:Name="LanEditorGate" Grid.Row="3" HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" Padding="0">
+        <Grid x:Name="EditorLayoutGrid" Padding="8" SizeChanged="EditorLayout_SizeChanged">
             <Grid.RowDefinitions>
                 <RowDefinition x:Name="EditorPreviewRow" Height="3*" />
                 <RowDefinition x:Name="EditorDividerRow" Height="10" />
@@ -1811,6 +1827,7 @@
                 </Thumb.Template>
             </Thumb>
         </Grid>
+        </ContentControl>
 
         <Grid Grid.Row="4" Padding="12,0" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="0,1,0,0">
             <Grid.ColumnDefinitions>

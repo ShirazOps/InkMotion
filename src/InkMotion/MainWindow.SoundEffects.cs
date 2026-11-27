@@ -40,6 +40,7 @@ public sealed partial class MainWindow
         {
             string path = await Task.Run(() => SoundEffectLibrary.EnsureFile(id));
             StorageFile file = await StorageFile.GetFileFromPathAsync(path);
+            if (!CanApplyLanBackgroundEdit()) return;
             AddAudioTrack();
             AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
             LoadAudio(track, file);

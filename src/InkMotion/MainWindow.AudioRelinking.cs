@@ -32,7 +32,7 @@ public sealed partial class MainWindow
                 using var reader = new AudioFileReader(file.Path);
                 return (AudioSourcePosition.DurationSeconds(reader), reader.WaveFormat.Channels);
             });
-            if (_audioMasterClosed)
+            if (_audioMasterClosed || !CanApplyLanBackgroundEdit())
             {
                 return;
             }

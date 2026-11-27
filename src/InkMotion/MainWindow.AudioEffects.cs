@@ -110,7 +110,7 @@ public sealed partial class MainWindow
         {
             AudioNoiseProfile profile = await Task.Run(() => AudioNoiseProfile.Capture(
                 sourcePath, (long)firstValue, (long)endValue));
-            if (!TryGetSelectedAudioClip(out AudioTrackRuntime? currentTrack) ||
+            if (!CanApplyLanBackgroundEdit() || !TryGetSelectedAudioClip(out AudioTrackRuntime? currentTrack) ||
                 !ReferenceEquals(currentTrack, track))
             {
                 return;
