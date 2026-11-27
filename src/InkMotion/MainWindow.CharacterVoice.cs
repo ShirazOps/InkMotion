@@ -117,6 +117,7 @@ public sealed partial class MainWindow
         {
             await Task.Run(() => CharacterVoiceGenerator.WriteWaveFile(
                 speechText, selectedVoice.Name, speechRate, speechVolume, destination.Path));
+            if (!CanApplyLanBackgroundEdit()) return;
             AddAudioTrack();
             AudioTrackRuntime track = _audioTracks[_selectedAudioTrackIndex];
             LoadAudio(track, destination);

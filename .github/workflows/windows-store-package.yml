@@ -122,6 +122,11 @@ jobs:
               throw "$($package.Name) does not carry the Store identity from the repository secrets."
             }
             if ($manifest.OuterXml -notmatch 'runFullTrust') { throw "$($package.Name) is missing runFullTrust." }
+            $namespaces = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
+            $namespaces.AddNamespace('appx', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+            if (-not $manifest.SelectSingleNode('/appx:Package/appx:Capabilities/appx:Capability[@Name="privateNetworkClientServer"]', $namespaces)) {
+              throw "$($package.Name) is missing privateNetworkClientServer."
+            }
             $architectures += $identity.ProcessorArchitecture
           }
           if (($architectures | Sort-Object) -join ',' -ne 'x64,x86') {

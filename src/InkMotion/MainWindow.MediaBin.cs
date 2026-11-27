@@ -181,7 +181,8 @@ public sealed partial class MainWindow
                 });
             }
 
-            if (_mediaBinClosed || before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) ||
+            if (_mediaBinClosed || !CanApplyLanBackgroundEdit()) return;
+            if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) ||
                 ProjectMediaBinList.SelectedItem is not ComboBoxItem { Tag: ProjectMediaAsset currentAsset } ||
                 !ReferenceEquals(currentAsset, asset) ||
                 MediaBinMatchesList.SelectedItem is not ComboBoxItem { Tag: string currentReplacement } ||

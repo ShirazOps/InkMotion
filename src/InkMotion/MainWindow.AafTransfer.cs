@@ -67,9 +67,15 @@ public sealed partial class MainWindow
 
     private async void ImportAaf_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave the collaboration session before importing another project.";
+            return;
+        }
         if (!PrepareProjectTransfer()) return;
         StorageFile? file = await PickTimelineFileAsync([".aaf"]);
         if (file is null) return;
+        _lanProjectFileOperations++;
         try
         {
             string? python = await ChooseAafPythonAsync(importing: true);
@@ -80,6 +86,8 @@ public sealed partial class MainWindow
             EditorProject project = await Task.Run(() => AafInterchange.Import(file.Path, python, timeout.Token));
             if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()))
                 throw new InvalidDataException("The project changed during AAF import; import again.");
+            if (IsLanSessionActive)
+                throw new InvalidOperationException("Leave the collaboration session before importing another project.");
             ClearEditingClipboard();
             ClearHistory();
             RestoreProjectState(project);
@@ -95,5 +103,6 @@ public sealed partial class MainWindow
         {
             StatusText.Text = $"Could not import AAF: {ex.Message}";
         }
+        finally { _lanProjectFileOperations--; }
     }
 }

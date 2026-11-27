@@ -12,6 +12,11 @@ public sealed partial class MainWindow
 
     private void ScreenRecorder_Click(object sender, RoutedEventArgs e)
     {
+        if (IsLanSessionActive)
+        {
+            StatusText.Text = "Leave the collaboration session before opening screen recording.";
+            return;
+        }
         if (_compoundContexts.Count > 0 || _switchingCompound)
         {
             StatusText.Text = "Return to the main timeline before opening screen recording.";
@@ -45,6 +50,8 @@ public sealed partial class MainWindow
 
     private async Task OpenScreenRecordingAsync(string path)
     {
+        if (IsLanSessionActive)
+            throw new InvalidOperationException("Leave the collaboration session before opening a recording.");
         if (_compoundContexts.Count > 0 || _switchingCompound)
             throw new InvalidOperationException("Return to the main timeline before opening a recording.");
         if (IsAudioRecordingInProgress)
@@ -63,6 +70,8 @@ public sealed partial class MainWindow
         FinishActiveEdit();
         StorageFile file = await StorageFile.GetFileFromPathAsync(path);
         EditorProject project = EditorProjectSerialiser.Deserialise(await FileIO.ReadTextAsync(file));
+        if (IsLanSessionActive)
+            throw new InvalidOperationException("Leave the collaboration session before opening a recording.");
         ClearEditingClipboard();
         ClearHistory();
         RestoreProjectState(project);

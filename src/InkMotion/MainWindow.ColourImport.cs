@@ -75,6 +75,7 @@ public sealed partial class MainWindow
             }
             timeout.Token.ThrowIfCancellationRequested();
             if (_colourImportClosed) return;
+            if (!CanApplyLanBackgroundEdit()) return;
             if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) || frame != PlayheadFrameNumber)
                 throw new InvalidOperationException("The project or playhead changed during conversion. Import again.");
             RegisterTimelineSource(result);
