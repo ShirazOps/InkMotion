@@ -108,6 +108,11 @@ public sealed partial class MainWindow
     private double _timelinePixelsPerSecond = 60;
     private TimelineDrag? _timelineDrag;
     private bool _isScrubbingTimeline;
+    private readonly TimelineScrubRequests _timelineScrubRequests = new();
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _timelineScrubTimer;
+    private TimelineMarkerProject? _draggedTimelineMarker;
+    private int _markerDragFrame;
+    private double _markerGrabOffsetSeconds;
     private TimelineToolMode _timelineToolMode = TimelineToolMode.Select;
     private TimelineClipProject? _draggedCurveClip;
     private VideoColourCurveChannel _draggedCurveChannel;
@@ -131,6 +136,9 @@ public sealed partial class MainWindow
 
     private void InitialiseVideoTimeline()
     {
+        _timelineScrubTimer = DispatcherQueue.CreateTimer();
+        _timelineScrubTimer.Interval = TimeSpan.FromMilliseconds(33);
+        _timelineScrubTimer.Tick += (_, _) => FlushTimelineScrub();
         PreviewPlayer.SetMediaPlayer(_previewMediaPlayer);
         _previewVideoTransform.ScaleX = _previewVideoTransform.ScaleY = 1;
         PreviewPlayer.RenderTransformOrigin = new Point(0, 0);
@@ -2009,6 +2017,7 @@ public sealed partial class MainWindow
         TrackLayoutContent.Width = width;
         TrackLayoutContent.Height = contentHeight;
         InkTrackCanvas.Width = width;
+        LayoutAudioClips();
         foreach (Grid lane in AudioTracksPanel.Children.OfType<Grid>())
         {
             lane.Width = width;
@@ -2085,7 +2094,8 @@ public sealed partial class MainWindow
 
         foreach (TimelineMarkerProject marker in _timelineMarkers)
         {
-            float x = (float)((marker.Frame - 1d) / _frameRate * _timelinePixelsPerSecond);
+            int markerFrame = ReferenceEquals(marker, _draggedTimelineMarker) ? _markerDragFrame : marker.Frame;
+            float x = (float)((markerFrame - 1d) / _frameRate * _timelinePixelsPerSecond);
             if (x >= left - 4 && x <= right + 4)
             {
                 var colour = Color.FromArgb(255, 0xFF, 0xCB, 0x66);
@@ -2094,13 +2104,6 @@ public sealed partial class MainWindow
             }
         }
 
-        float playheadX = (float)(_playheadFramePosition / _frameRate * _timelinePixelsPerSecond);
-        if (playheadX >= left - 6 && playheadX <= right + 6)
-        {
-            var playheadColour = Color.FromArgb(255, 0xFF, 0x4D, 0x4F);
-            session.DrawLine(playheadX, 0, playheadX, (float)VideoTimelineCanvas.ActualHeight, playheadColour, 1.5f);
-            session.FillRectangle(playheadX - 4, 0, 8, 7, playheadColour);
-        }
     }
 
     private void DrawTimelineClip(
@@ -2394,6 +2397,25 @@ public sealed partial class MainWindow
         UpdateVideoInspector();
     }
 
+    private void QueueTimelineScrub(double seconds)
+    {
+        int frame = Math.Max(0, (int)Math.Floor(seconds * _frameRate + 1e-6));
+        _timelineScrubRequests.Request(frame);
+        _playheadFramePosition = frame;
+        UpdateTrackPlayheads();
+        _timelineScrubTimer?.Start();
+    }
+
+    private void FlushTimelineScrub()
+    {
+        if (!_timelineScrubRequests.TryTake(out int frame))
+            return;
+        _playheadFramePosition = frame;
+        SelectFrame(InkTimeline.GetFrameIndexAtPosition(_frames, frame), seekVideo: false, preservePlayhead: true);
+        SeekToCurrentFrame(updateTimeline: false);
+        CompositionSurface.Invalidate();
+    }
+
     private void VideoTimelineCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         Microsoft.UI.Input.PointerPoint point = e.GetCurrentPoint(VideoTimelineCanvas);
@@ -2412,7 +2434,14 @@ public sealed partial class MainWindow
         if (index < 0)
         {
             _isScrubbingTimeline = true;
-            MoveTimelinePlayhead(seconds);
+            _timelineScrubRequests.Reset();
+            _draggedTimelineMarker = _timelineMarkers
+                .Where(marker => Math.Abs((marker.Frame - 1d) / _frameRate - seconds) * _timelinePixelsPerSecond <= 6)
+                .MinBy(marker => Math.Abs((marker.Frame - 1d) / _frameRate - seconds));
+            _markerGrabOffsetSeconds = _draggedTimelineMarker is null
+                ? 0 : seconds - (_draggedTimelineMarker.Frame - 1d) / _frameRate;
+            _markerDragFrame = _draggedTimelineMarker?.Frame ?? 1;
+            QueueTimelineScrub(Math.Max(0, seconds - _markerGrabOffsetSeconds));
             return;
         }
 
@@ -2433,8 +2462,11 @@ public sealed partial class MainWindow
         {
             _selectedTimelineClipId = null;
             _isScrubbingTimeline = true;
+            _timelineScrubRequests.Reset();
             RefreshVideoTrackHeaders();
-            MoveTimelinePlayhead(seconds);
+            UpdateVideoInspector();
+            InvalidateVideoTimeline();
+            QueueTimelineScrub(seconds);
             return;
         }
 
@@ -2545,7 +2577,7 @@ public sealed partial class MainWindow
         double seconds = Math.Max(0, position.X / _timelinePixelsPerSecond);
         if (_isScrubbingTimeline)
         {
-            MoveTimelinePlayhead(seconds);
+            MoveTimelineScrubPointer(seconds);
             return;
         }
 
@@ -2707,6 +2739,8 @@ public sealed partial class MainWindow
 
     private void VideoTimelineCanvas_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_isScrubbingTimeline)
+            MoveTimelineScrubPointer(Math.Max(0, e.GetCurrentPoint(VideoTimelineCanvas).Position.X / _timelinePixelsPerSecond));
         EndTimelinePointer();
         VideoTimelineCanvas.ReleasePointerCapture(e.Pointer);
     }
@@ -2718,6 +2752,24 @@ public sealed partial class MainWindow
 
     private void EndTimelinePointer()
     {
+        if (_isScrubbingTimeline)
+        {
+            FlushTimelineScrub();
+            _timelineScrubTimer?.Stop();
+            _timelineScrubRequests.Reset();
+            if (_draggedTimelineMarker is { } marker && marker.Frame != _markerDragFrame)
+            {
+                BeginEdit();
+                marker.Frame = _markerDragFrame;
+                MarkEditChanged();
+                CommitEdit();
+                RefreshMarkers(marker.Id);
+            }
+            _draggedTimelineMarker = null;
+            _markerGrabOffsetSeconds = 0;
+            UpdateVideoInspector();
+            InvalidateVideoTimeline();
+        }
         _isScrubbingTimeline = false;
         if (_timelineDrag is not TimelineDrag drag)
         {
@@ -2751,6 +2803,28 @@ public sealed partial class MainWindow
             : drag.Operation == TimelineDragOperation.Move
                 ? $"Moved clip to {FormatTimelineTime(VideoTimelineEditing.GetStartSeconds(drag.Clip, _frameRate), true)} on {drag.Track.Name}."
                 : $"{drag.Operation} applied on {drag.Track.Name}.";
+    }
+
+    private void MoveTimelineScrubPointer(double seconds)
+    {
+        seconds = Math.Max(0, seconds - _markerGrabOffsetSeconds);
+        if (_draggedTimelineMarker is not null)
+        {
+            int frame = Math.Max(1, (int)Math.Floor(seconds * _frameRate + 1e-6) + 1);
+            if (_markerDragFrame != frame)
+            {
+                InvalidateMarkerPosition(_markerDragFrame);
+                _markerDragFrame = frame;
+                InvalidateMarkerPosition(frame);
+            }
+        }
+        QueueTimelineScrub(seconds);
+    }
+
+    private void InvalidateMarkerPosition(int frame)
+    {
+        double x = (frame - 1d) / _frameRate * _timelinePixelsPerSecond;
+        VideoTimelineCanvas.Invalidate(new Rect(Math.Max(0, x - 4), 0, 9, VideoTimelineCanvas.Height));
     }
 
     private void RefreshVideoTrackHeaders()

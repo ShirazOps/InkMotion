@@ -1,3 +1,3 @@
 {
-  "en-us": "More efficient video preview.\n\n- Modified preview avoids uploading the same decoded frame repeatedly.\n- Playback redraws at project-frame boundaries while audio remains synchronised to the timeline.\n- High-resolution footage and complex effects remain dependent on your device. Generate a proxy for demanding footage."
+  "en-us": "More responsive video editing.\n\n- Modified preview avoids uploading the same decoded frame repeatedly.\n- Playback and ruler scrubbing move the playhead without repeatedly redrawing every track.\n- Ruler scrubbing combines pending seeks and retains the exact final frame on release.\n- Drag a yellow marker on the ruler to move it in one undoable edit.\n- High-resolution footage and complex effects remain dependent on your device. Generate a proxy for demanding footage."
 }

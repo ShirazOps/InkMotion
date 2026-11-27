@@ -42,13 +42,13 @@ public sealed partial class MainWindow
             return;
         }
 
-        LayoutAudioClips();
         TrackPlayheadLine.Margin = new Thickness(
             Math.Max(0, _playheadFramePosition / _frameRate * _timelinePixelsPerSecond - 1),
             TimelineRulerHeight,
             0,
             0);
-        InkTrackCanvas?.Invalidate();
+        TrackPlayheadHead.Margin = new Thickness(
+            Math.Max(0, _playheadFramePosition / _frameRate * _timelinePixelsPerSecond - 4), 0, 0, 0);
         if (_isPlaying)
         {
             FollowTrackPlayhead();

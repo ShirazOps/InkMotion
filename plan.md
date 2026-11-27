@@ -8,6 +8,8 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 
 ### Current completion status
 
+Package 1.0.71.0 coalesces Video ruler seeks with a 33 ms dispatcher timer, retaining only the latest requested frame and flushing on release/capture loss. Playback and scrubbing move separate XAML playhead overlays instead of repainting every video/audio/ink lane; selected cel redraws and content-size changes still invalidate the necessary content. Marker dragging uses narrow invalidation regions and commits one undoable edit on release. A deterministic burst regression delivers 30 latest-frame seeks for 240 pointer requests and verifies final-position flush, backward requests, duplicate suppression and gesture reset. Decode remains synchronous; physical-device pointer/playback smoothness is not certified by these tests.
+
 Package 1.0.70.0 removes redundant decoded-frame uploads and redraws between project frames without changing the wall-clock audio timeline. A local synthetic 1080p/24 H.264 preview regression, with 240 requests over one source second, reduced uploads from 240 (1,990,656,000 bytes) to 24 (199,065,600 bytes); observed request-loop time was 825.9 ms before and 365.7 ms after. These are local decode/upload measurements, not physical playback or GPU certification. Backward seeks and RGB32 opacity are covered.
 
 The baseline video, audio, ink, export and durable screen-recording implementation phases are complete. The expanded sequence below records delivered capabilities and their limits; historical version entries describe increments, not missing features. This is not a claim of full parity with every feature of the reference products.
