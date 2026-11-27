@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -17,7 +18,7 @@ public enum AudioExportCodec
 
 public sealed record AudioExportSettings(AudioExportCodec Codec, int SampleRate, int BitsPerSample = 24,
     int BitRate = 192000, string? FFmpegPath = null, bool ExportStems = false,
-    bool TruePeakLimiterEnabled = false, double TruePeakCeilingDecibels = -1)
+    bool TruePeakLimiterEnabled = false, double TruePeakCeilingDecibels = -1, bool AdditiveStems = false)
 {
     public static IReadOnlyList<int> SampleRates { get; } = Array.AsReadOnly(new[] { 44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000 });
 
@@ -205,8 +206,24 @@ public static class AudioExporter
             stems.Add(($"{safeName} [{safeId}].wav", bus.Id));
         }
 
+        if (settings.AdditiveStems)
+        {
+            int Depth(string? busId)
+            {
+                int depth = 0;
+                for (AudioBusProject? bus = AudioBuses.Find(baseline.AudioBuses, busId);
+                    bus is not null; bus = AudioBuses.Find(baseline.AudioBuses, bus.ParentBusId))
+                    depth++;
+                return depth;
+            }
+            stems = stems.Take(1).Concat(stems.Skip(1).OrderByDescending(stem => Depth(stem.BusId))).ToList();
+            warnings.Add("Additive stems are ordered residuals: sum every file at unity gain. Shared nonlinear processing is attributed in archive order (direct master, deepest buses first). Individual stems may exceed the master ceiling; use float WAV for full headroom. Non-repeatable plug-ins can change separate renders.");
+        }
+
         bool completed = false;
         bool outputStarted = false;
+        FileStream? previousMix = null;
+        var includedRoutes = new HashSet<string?>(StringComparer.Ordinal);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -218,6 +235,28 @@ public static class AudioExporter
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     (string entryName, string? busId) = stems[index];
+                    if (settings.AdditiveStems)
+                    {
+                        includedRoutes.Add(busId);
+                        FileStream? currentMix = new(Path.Combine(Path.GetTempPath(), $"InkMotion-stem-{Guid.NewGuid():N}.pcm"),
+                            FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 65536,
+                            FileOptions.DeleteOnClose | FileOptions.SequentialScan);
+                        try
+                        {
+                            WriteStem(archive, entryName, baseline, settings, durationSeconds,
+                                index, stems.Count, progress, cancellationToken, warnings,
+                                includedRoutes, previousMix, currentMix);
+                            previousMix?.Dispose();
+                            previousMix = currentMix;
+                            previousMix.Position = 0;
+                            currentMix = null;
+                        }
+                        finally
+                        {
+                            currentMix?.Dispose();
+                        }
+                        continue;
+                    }
                     EditorProject stemProject = CloneProject(baseline);
                     if (busId is null)
                     {
@@ -247,6 +286,7 @@ public static class AudioExporter
         }
         finally
         {
+            previousMix?.Dispose();
             if (!completed && outputStarted && File.Exists(path))
             {
                 File.Delete(path);
@@ -256,9 +296,10 @@ public static class AudioExporter
 
     private static void WriteStem(ZipArchive archive, string entryName, EditorProject project,
         AudioExportSettings settings, double durationSeconds, int stemIndex, int stemCount,
-        IProgress<double>? progress, CancellationToken cancellationToken, List<string> warnings)
+        IProgress<double>? progress, CancellationToken cancellationToken, List<string> warnings,
+        IReadOnlySet<string?>? includedRoutes = null, Stream? previousMix = null, Stream? currentMix = null)
     {
-        using var mixer = new ExportAudioMixer(project, settings.SampleRate);
+        using var mixer = new ExportAudioMixer(project, settings.SampleRate, includedDestinationBusIds: includedRoutes);
         warnings.AddRange(mixer.Warnings);
         AudioChannelLayoutInfo info = AudioChannelLayouts.Get(mixer.Layout);
         long frames = (long)Math.Round(durationSeconds * settings.SampleRate);
@@ -280,6 +321,7 @@ public static class AudioExporter
         }
         int samplesPerBuffer = 4096 * info.ChannelCount;
         float[] buffer = new float[samplesPerBuffer];
+        float[] previous = currentMix is null ? [] : new float[samplesPerBuffer];
         long remaining = frames * info.ChannelCount;
         while (remaining > 0)
         {
@@ -290,6 +332,22 @@ public static class AudioExporter
                 throw new InvalidOperationException("An audio stem stopped before the end of the aligned mix.");
             }
 
+            if (currentMix is not null)
+            {
+                currentMix.Write(MemoryMarshal.AsBytes(buffer.AsSpan(0, read)));
+                if (previousMix is not null)
+                {
+                    previousMix.ReadExactly(MemoryMarshal.AsBytes(previous.AsSpan(0, read)));
+                    for (int sample = 0; sample < read; sample++) buffer[sample] -= previous[sample];
+                }
+                for (int sample = 0; sample < read; sample++)
+                {
+                    if (!float.IsFinite(buffer[sample]))
+                        throw new InvalidOperationException("An additive stem contains non-finite audio. Check the source and plug-in output.");
+                    if (settings.Codec != AudioExportCodec.FloatWave && Math.Abs(buffer[sample]) >= 1)
+                        throw new InvalidOperationException("An additive residual exceeds PCM headroom. Choose 32-bit float WAV stems to preserve the sum without clipping.");
+                }
+            }
             writer.Write(buffer, read);
             if (writer.Truncated)
             {
@@ -300,6 +358,7 @@ public static class AudioExporter
             double stemProgress = 1 - remaining / (double)(frames * info.ChannelCount);
             progress?.Report((stemIndex + stemProgress) / stemCount);
         }
+        warnings.AddRange(mixer.Warnings);
     }
 
     private static EditorProject CloneProject(EditorProject project) =>

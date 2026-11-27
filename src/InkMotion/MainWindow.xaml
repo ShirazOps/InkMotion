@@ -1065,6 +1065,8 @@
                                 <ToggleSwitch x:Name="AudioStemExportToggle" Header="Export aligned bus stems as a ZIP of WAV files"
                                               Toggled="AudioStemExport_Toggled"
                                               ToolTipService.ToolTip="Includes a direct-master stem and one solo stem per bus. Parent stems include their child buses; bus mutes and track solos are honoured, while bus solo states are ignored so every bus is exported." />
+                                <ToggleSwitch x:Name="AudioAdditiveStemsToggle" Header="Additive nested-bus stems (ordered residuals)" IsEnabled="False"
+                                              ToolTipService.ToolTip="Sum all files at unity to reconstruct the mix. Direct master first, then deepest buses; shared nonlinear processing is attributed in that order. Includes every send exactly once. Prefer float WAV; residuals can exceed the master ceiling. Off preserves legacy solo-bus stems." />
                                 <CheckBox x:Name="AudioTruePeakLimiterToggle" Content="Apply a 4× true-peak limiter to exported audio"
                                           Checked="AudioTruePeakLimiter_Changed" Unchecked="AudioTruePeakLimiter_Changed"
                                           ToolTipService.ToolTip="Output-only limiter, off by default. Linked channels, 4× 48-tap windowed-sinc detection, 48-frame look-ahead, 100 ms release and 0.8 dB reconstruction headroom. Not a certified meter or a post-encoding peak guarantee." />

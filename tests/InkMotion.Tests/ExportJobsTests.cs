@@ -162,8 +162,10 @@ public sealed class ExportJobsTests : IDisposable
         Assert.Equal(result, recovered);
     }
 
-    [Fact]
-    public async Task AudioStemExport_PersistsSettingsAndRunsInRealWorker()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AudioStemExport_PersistsSettingsAndRunsInRealWorker(bool additive)
     {
         string input = WriteTone();
         var bus = new AudioBusProject { Name = "Dialogue" };
@@ -174,7 +176,7 @@ public sealed class ExportJobsTests : IDisposable
         };
         string output = Path.Combine(_root, "stems.zip");
         var settings = new AudioExportSettings(AudioExportCodec.PcmWave, 44100, 16, ExportStems: true,
-            TruePeakLimiterEnabled: true, TruePeakCeilingDecibels: -6);
+            TruePeakLimiterEnabled: true, TruePeakCeilingDecibels: -6, AdditiveStems: additive);
         ExportJobStatus job = _store.Launch(project, output, settings, null, WorkerExecutable);
 
         Assert.Equal(settings, _store.ReadRequest(job.Id).Audio);

@@ -26,7 +26,7 @@ public sealed class ExportAudioMixer : IDisposable
     private readonly bool _reportVideoReadFailures;
 
     public ExportAudioMixer(EditorProject project, int sampleRate = ExportPlanning.AudioSampleRate,
-        bool reportVideoReadFailures = false)
+        bool reportVideoReadFailures = false, IReadOnlySet<string?>? includedDestinationBusIds = null)
     {
         ArgumentNullException.ThrowIfNull(project);
         if (!AudioExportSettings.SampleRates.Contains(sampleRate))
@@ -51,18 +51,21 @@ public sealed class ExportAudioMixer : IDisposable
             foreach (AudioTrackProject track in project.AudioTracks)
             {
                 bool trackSuppressed = hasSolo && !track.Solo;
-                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId),
+                AddAudioTrack(track, trackSuppressed || !AudioBuses.IsAudible(_buses, track.BusId) ||
+                    (includedDestinationBusIds is not null && !includedDestinationBusIds.Contains(track.BusId)),
                     track.BusId, outputGain: 1);
                 foreach (AudioAuxSendProject send in track.AuxSends ?? [])
                 {
                     AddAudioTrack(track,
-                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId),
+                        trackSuppressed || !AudioBuses.IsAudible(_buses, send.BusId) ||
+                            (includedDestinationBusIds is not null && !includedDestinationBusIds.Contains(send.BusId)),
                         send.BusId, AudioClipEditing.DecibelsToLinear(send.GainDecibels));
                 }
             }
 
             foreach (TimelineTrackProject track in project.VideoTracks.Where(track =>
                 !hasSolo && track.Kind is (TimelineTrackKind.Video or TimelineTrackKind.Compound) && !track.IsMuted &&
+                (includedDestinationBusIds is null || includedDestinationBusIds.Contains(track.AudioBusId)) &&
                 AudioBuses.IsAudible(_buses, track.AudioBusId)))
             {
                 foreach (TimelineClipProject clip in track.Clips)

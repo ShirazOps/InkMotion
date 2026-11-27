@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using Xunit;
@@ -179,8 +180,10 @@ public sealed class AudioExporterTests
             new(AudioExportCodec.PcmWave, 48000), @"C:\MEDIA\source.wav", null, CancellationToken.None));
     }
 
-    [Fact]
-    public void StemExport_WritesAlignedDirectNestedBusAndSendWaves()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StemExport_WritesAlignedDirectNestedBusAndSendWaves(bool additive)
     {
         string directInput = Path.Combine(Path.GetTempPath(), $"inkmotion-stem-direct-{Guid.NewGuid():N}.wav");
         string busInput = Path.Combine(Path.GetTempPath(), $"inkmotion-stem-bus-{Guid.NewGuid():N}.wav");
@@ -209,13 +212,13 @@ public sealed class AudioExporterTests
             };
 
             AudioExportResult result = AudioExporter.Export(project,
-                new(AudioExportCodec.PcmWave, 48000, 16, ExportStems: true), output, null, CancellationToken.None);
+                new(AudioExportCodec.PcmWave, 48000, 16, ExportStems: true, AdditiveStems: additive), output, null, CancellationToken.None);
 
             Assert.Equal(4, result.StemCount);
             using var archive = ZipFile.OpenRead(output);
             Assert.Equal(4, archive.Entries.Count);
             AssertStem(archive.GetEntry("Master (direct).wav")!, 0.1f);
-            AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Parent [", StringComparison.Ordinal)), 0.1f);
+            AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Parent [", StringComparison.Ordinal)), additive ? 0 : 0.1f);
             AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Child [", StringComparison.Ordinal)), 0.1f);
             AssertStem(archive.Entries.Single(entry => entry.Name.StartsWith("Auxiliary [", StringComparison.Ordinal)), 0.1f);
         }
@@ -241,6 +244,138 @@ public sealed class AudioExporterTests
             Assert.Throws<OperationCanceledException>(() => AudioExporter.Export(project,
                 new(AudioExportCodec.PcmWave, 48000, 16, ExportStems: true), output,
                 new CancelOnProgress(cancellation), cancellation.Token));
+            Assert.False(File.Exists(output));
+        }
+        finally
+        {
+            File.Delete(input);
+            File.Delete(output);
+        }
+    }
+
+    [Theory]
+    [InlineData(AudioChannelLayout.Mono, false, false)]
+    [InlineData(AudioChannelLayout.Stereo, true, false)]
+    [InlineData(AudioChannelLayout.Surround51, true, false)]
+    [InlineData(AudioChannelLayout.Mono, true, true)]
+    public void AdditiveStemsSumToFullMixWithNestedNonlinearProcessingAndEverySend(
+        AudioChannelLayout layout, bool masterLimiter, bool trackSolo)
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-additive-{Guid.NewGuid():N}.wav");
+        string zip = Path.ChangeExtension(input, ".zip");
+        string mix = Path.ChangeExtension(input, ".mix.wav");
+        try
+        {
+            WriteConstant(input, 0.3f);
+            var parent = new AudioBusProject
+            {
+                Name = "Parent",
+                GainDecibels = 3,
+                Effects = new()
+                {
+                    Enabled = true, CompressorThresholdDecibels = -18, CompressorRatio = 4,
+                    LimiterEnabled = true, LimiterTruePeak = true, LimiterCeilingDecibels = -9,
+                    DelayEnabled = true, DelayMilliseconds = 10, DelayFeedback = 0.1, DelayWetGain = 0.5,
+                },
+            };
+            var child = new AudioBusProject { Name = "Child", ParentBusId = parent.Id };
+            var leaf = new AudioBusProject { Name = "Leaf", ParentBusId = child.Id };
+            var muted = new AudioBusProject { Name = "Muted", Muted = true };
+            var nested = new EditorProject { AudioTracks = [new() { AudioPath = input, Volume = 0.5 }] };
+            var project = new EditorProject
+            {
+                AudioMixLayout = layout,
+                AudioBuses = [parent, child, leaf, muted],
+                AudioTracks =
+                [
+                    new() { AudioPath = input, Volume = 0.25, Solo = trackSolo,
+                        AuxSends = [new() { BusId = leaf.Id, GainDecibels = -12 }] },
+                    new() { AudioPath = input, BusId = leaf.Id, Solo = trackSolo,
+                        AuxSends = [new() { BusId = parent.Id, GainDecibels = -3 },
+                            new() { BusId = child.Id, GainDecibels = -6 }] },
+                    new() { AudioPath = input, BusId = parent.Id },
+                    new() { AudioPath = input, BusId = muted.Id },
+                ],
+                VideoTracks = [new()
+                {
+                    Kind = TimelineTrackKind.Compound, AudioBusId = child.Id,
+                    Clips = [new()
+                    {
+                        NestedProject = nested, NestedName = "Nested", SourceDurationSeconds = 0.1,
+                        DurationSeconds = 0.1,
+                    }],
+                }],
+            };
+            var settings = new AudioExportSettings(AudioExportCodec.FloatWave, 44100, 32,
+                TruePeakLimiterEnabled: masterLimiter, TruePeakCeilingDecibels: -12);
+            AudioExporter.Export(project, settings, mix, null, CancellationToken.None);
+            // Bus solos are ignored for both legacy and additive stem exports.
+            parent.Solo = true;
+            AudioExportResult result = AudioExporter.Export(project, settings with
+            {
+                ExportStems = true, AdditiveStems = true,
+            }, zip, null, CancellationToken.None);
+            Assert.Contains(result.Warnings, warning => warning.Contains("ordered residuals", StringComparison.Ordinal));
+            Assert.True(parent.Solo);
+            using var fullReader = new WaveFileReader(mix);
+            float[] expected = new float[(int)(fullReader.Length / sizeof(float))];
+            fullReader.ReadExactly(MemoryMarshal.AsBytes(expected.AsSpan()));
+            double[] sum = new double[expected.Length];
+            using var archive = ZipFile.OpenRead(zip);
+            Assert.Equal(5, archive.Entries.Count);
+            Assert.StartsWith("Master", archive.Entries[0].Name);
+            Assert.StartsWith("Leaf", archive.Entries[1].Name);
+            foreach (ZipArchiveEntry entry in archive.Entries)
+            {
+                using var data = new MemoryStream();
+                using (Stream stream = entry.Open()) stream.CopyTo(data);
+                data.Position = 0;
+                using var reader = new WaveFileReader(data);
+                Assert.Equal(fullReader.WaveFormat.Channels, reader.WaveFormat.Channels);
+                Assert.Equal(fullReader.WaveFormat.SampleRate, reader.WaveFormat.SampleRate);
+                float[] samples = new float[expected.Length];
+                Assert.Equal(fullReader.Length, reader.Length);
+                Assert.Equal(32, reader.WaveFormat.BitsPerSample);
+                reader.ReadExactly(MemoryMarshal.AsBytes(samples.AsSpan()));
+                for (int sample = 0; sample < samples.Length; sample++) sum[sample] += samples[sample];
+                if (entry.Name.StartsWith("Muted", StringComparison.Ordinal))
+                    Assert.All(samples, value => Assert.Equal(0, value));
+            }
+            Assert.True(expected.Any(value => Math.Abs(value) > 0.01));
+            for (int sample = 0; sample < expected.Length; sample++)
+                Assert.InRange(Math.Abs(sum[sample] - expected[sample]), 0, 0.000001);
+        }
+        finally
+        {
+            File.Delete(input);
+            File.Delete(zip);
+            File.Delete(mix);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AdditiveStemsCancelOrRejectPcmClippingWithoutLeavingAnArchive(bool cancel)
+    {
+        string input = Path.Combine(Path.GetTempPath(), $"inkmotion-additive-failure-{Guid.NewGuid():N}.wav");
+        string output = Path.ChangeExtension(input, ".zip");
+        try
+        {
+            WriteConstant(input, 0.8f);
+            var project = new EditorProject
+            {
+                AudioTracks = [new() { AudioPath = input }, new() { AudioPath = input }],
+            };
+            using var cancellation = new CancellationTokenSource();
+            var settings = new AudioExportSettings(cancel ? AudioExportCodec.FloatWave : AudioExportCodec.PcmWave,
+                48000, cancel ? 32 : 16, ExportStems: true, AdditiveStems: true);
+            if (cancel)
+                Assert.Throws<OperationCanceledException>(() => AudioExporter.Export(project, settings, output,
+                    new CancelOnProgress(cancellation), cancellation.Token));
+            else
+                Assert.Contains("float", Assert.Throws<InvalidOperationException>(() =>
+                    AudioExporter.Export(project, settings, output, null, CancellationToken.None)).Message);
             Assert.False(File.Exists(output));
         }
         finally
