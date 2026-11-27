@@ -206,6 +206,9 @@ public static class InkCompositeGraphs
             return "A compositing graph must have exactly one Output node.";
         foreach (InkCompositeNode node in graph.Nodes)
         {
+            if (node.Kind == InkCompositeNodeKind.Particles && node.Particles?.InteractionSceneId is string sceneId &&
+                !graph.Nodes.Any(candidate => candidate.Id == sceneId && candidate.Kind == InkCompositeNodeKind.Scene3D))
+                return "A particle emitter refers to a missing 3D scene.";
             if (node.Inputs.Any(input => input is not null && (input == node.Id || !ids.Contains(input))))
                 return "A compositing graph connection refers to a missing node.";
             if (node.Inputs.Any(input => input is not null &&

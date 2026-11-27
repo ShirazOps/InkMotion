@@ -43,11 +43,7 @@ internal static class InkCompositeScene3DRenderer
         float[] depth = new float[pixelCount];
         Array.Fill(depth, float.PositiveInfinity);
 
-        Vector3 camera = Direction(scene.CameraYaw, scene.CameraPitch) * (float)scene.CameraDistance;
-        Matrix4x4 view = Matrix4x4.CreateLookAt(camera, Vector3.Zero, Vector3.UnitY);
-        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
-            Radians(scene.FieldOfView), canvasWidth / canvasHeight, 0.05f, 400);
-        Matrix4x4 viewProjection = view * projection;
+        Matrix4x4 viewProjection = ViewProjection(scene, canvasWidth, canvasHeight);
         Vector3 light = Direction(scene.LightYaw, scene.LightPitch);
         var objects = scene.Objects.Where(item => item.Visible)
             .Select(item => (Item: item, World: WorldMatrix(item, seconds), Mesh: GetMesh(item))).ToList();
@@ -356,6 +352,13 @@ internal static class InkCompositeScene3DRenderer
         (byte)Math.Clamp((int)Math.Round(channel * brightness), 0, 255);
 
     private static float Radians(double degrees) => (float)(degrees * Math.PI / 180);
+
+    internal static Matrix4x4 ViewProjection(InkCompositeScene3D scene, float width, float height)
+    {
+        Vector3 camera = Direction(scene.CameraYaw, scene.CameraPitch) * (float)scene.CameraDistance;
+        return Matrix4x4.CreateLookAt(camera, Vector3.Zero, Vector3.UnitY) *
+            Matrix4x4.CreatePerspectiveFieldOfView(Radians(scene.FieldOfView), width / height, 0.05f, 400);
+    }
 
     private static float AnimatedAngle(double angle, double spin, double seconds) =>
         Radians(Math.IEEERemainder(angle + (spin * seconds), 360));

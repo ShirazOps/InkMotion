@@ -218,6 +218,7 @@ public sealed partial class InkCompositeGraphWindow : Window
         _graph.Nodes.Remove(node);
         foreach (InkCompositeNode other in _graph.Nodes)
         {
+            if (other.Particles?.InteractionSceneId == node.Id) other.Particles.InteractionSceneId = null;
             for (int index = 0; index < other.Inputs.Count; index++)
                 if (other.Inputs[index] == node.Id) other.Inputs[index] = null;
         }

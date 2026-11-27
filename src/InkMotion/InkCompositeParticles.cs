@@ -13,6 +13,10 @@ public sealed class InkCompositeParticleSettings
     public double Size { get; set; } = 0.02;
     public int Seed { get; set; } = 1;
     public uint Colour { get; set; } = 0xFFFFFFFF;
+    public string? InteractionSceneId { get; set; }
+    public double InteractionForce { get; set; }
+    public bool CollideWithObjects { get; set; }
+    public double Restitution { get; set; } = 0.7;
 
     public InkCompositeParticleSettings Clone() => (InkCompositeParticleSettings)MemberwiseClone();
 }
@@ -27,6 +31,8 @@ public static class InkCompositeParticles
         InRange(settings.Direction, -180, 180) && InRange(settings.Spread, 0, 360) &&
         InRange(settings.Speed, 0, 2) && InRange(settings.Gravity, -2, 2) &&
         InRange(settings.Size, 0.002, 0.2) && settings.Seed is >= 0 and <= 10000 &&
+        (settings.InteractionSceneId is null || !string.IsNullOrWhiteSpace(settings.InteractionSceneId) && settings.InteractionSceneId.Length <= 64) &&
+        InRange(settings.InteractionForce, -2, 2) && InRange(settings.Restitution, 0, 1) &&
         (settings.Colour >> 24) == 255;
 
     private static bool InRange(double value, double minimum, double maximum) =>
