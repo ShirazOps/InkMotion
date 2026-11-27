@@ -54,6 +54,46 @@ public sealed class InkCompositeMeshTests
     }
 
     [Fact]
+    public async Task ObjImportLoadsMtlAndTextureFromDisk()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-obj-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string obj = Path.Combine(directory, "mesh.obj");
+        string mtl = Path.Combine(directory, "material.mtl");
+        string bmp = Path.Combine(directory, "texture.bmp");
+        try
+        {
+            await File.WriteAllTextAsync(obj, "mtllib material.mtl\nusemtl brick\n" + Quad);
+            await File.WriteAllTextAsync(mtl, "newmtl brick\nKd 1 1 1\nmap_Kd texture.bmp");
+            using (var stream = File.Create(bmp))
+            using (var writer = new BinaryWriter(stream))
+            {
+                writer.Write((byte)'B'); writer.Write((byte)'M');
+                writer.Write(58); writer.Write(0); writer.Write(54);
+                writer.Write(40); writer.Write(1); writer.Write(1);
+                writer.Write((short)1); writer.Write((short)24);
+                writer.Write(0); writer.Write(4); writer.Write(0); writer.Write(0); writer.Write(0); writer.Write(0);
+                writer.Write(new byte[] { 7, 11, 23, 0 });
+            }
+            InkCompositeMesh mesh = await InkCompositeObjImporter.ImportAsync(obj);
+            InkMeshTexture texture = mesh.Materials[1].Texture!;
+            Assert.Equal(1, texture.Width);
+            Assert.Equal(1, texture.Height);
+            Assert.Equal(new byte[] { 7, 11, 23 }, texture.Pixels[..3]);
+            Assert.Equal(1, mesh.Triangles[0].Material);
+            await File.WriteAllTextAsync(obj, "v NaN 0 0\n");
+            await Assert.ThrowsAsync<InvalidDataException>(() => InkCompositeObjImporter.ImportAsync(obj));
+        }
+        finally
+        {
+            File.Delete(obj);
+            File.Delete(mtl);
+            File.Delete(bmp);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public void EmbeddedMeshTextureRoundTripsClonesAndMigrates()
     {
         InkCompositeMesh mesh = InkCompositeObjImporter.Parse(Quad, "quad.obj");

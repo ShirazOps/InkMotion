@@ -193,7 +193,7 @@ public sealed partial class InkCompositeGraphWindow
             Redraw();
             ShowProperties();
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or
             InvalidOperationException or NotSupportedException or OverflowException or COMException)
         {
             UpdateStatus($"3D import failed: {ex.Message}");

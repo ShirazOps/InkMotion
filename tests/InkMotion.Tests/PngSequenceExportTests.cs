@@ -8,8 +8,10 @@ namespace InkMotion.Tests;
 
 public sealed class PngSequenceExportTests
 {
-    [Fact]
-    public async Task Export_ParticleEffectsMatchPreviewAtTheSameTimes()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Export_ParticleEffectsMatchPreviewAtTheSameTimes(bool sceneInteraction)
     {
         string root = Path.Combine(Path.GetTempPath(), $"InkMotion particles {Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -23,10 +25,35 @@ public sealed class PngSequenceExportTests
         invert.Inputs[0] = particles.Id;
         InkCompositeNode result = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Output, "output", 0, 0);
         result.Inputs[0] = invert.Id;
+        var nodes = new List<InkCompositeNode> { particles, invert, result };
+        if (sceneInteraction)
+        {
+            InkCompositeNode scene = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Scene3D, "scene", 0, 0);
+            scene.Scene3D!.CameraYaw = 0;
+            scene.Scene3D.CameraPitch = 0;
+            scene.Scene3D.LightYaw = 45;
+            scene.Scene3D.LightPitch = 0;
+            scene.Scene3D.Shadows = true;
+            scene.Scene3D.Objects =
+            [
+                new() { Shape = InkComposite3DShape.Plane, ScaleX = 4, ScaleY = 4, CastsShadow = false },
+                new() { Shape = InkComposite3DShape.Cube, Z = 0.6,
+                    Texture = new InkMeshTexture { Width = 1, Height = 1, Pixels = [30, 60, 90, 255] } },
+            ];
+            particles.Particles.InteractionSceneId = scene.Id;
+            particles.Particles.InteractionForce = -0.5;
+            particles.Particles.CollideWithObjects = true;
+            InkCompositeNode merge = InkCompositeGraphs.CreateNode(InkCompositeNodeKind.Merge, "merge", 0, 0);
+            merge.Inputs[0] = scene.Id;
+            merge.Inputs[1] = particles.Id;
+            invert.Inputs[0] = merge.Id;
+            nodes.Add(scene);
+            nodes.Add(merge);
+        }
         var project = new EditorProject
         {
             Frames = [new() { ExposureFrames = 2 }],
-            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = [particles, invert, result] },
+            CompositeGraph = new InkCompositeGraph { Enabled = true, Nodes = nodes },
         };
 
         try
