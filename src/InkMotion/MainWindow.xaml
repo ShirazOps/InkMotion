@@ -463,6 +463,24 @@
                             <Button Grid.Column="1" Content="Image" HorizontalAlignment="Stretch" Click="AddImageClip_Click" ToolTipService.ToolTip="Add a still image" />
                             <Button Grid.Column="2" Content="Title" HorizontalAlignment="Stretch" Click="AddTitleClip_Click" ToolTipService.ToolTip="Add a text title" />
                         </Grid>
+                        <Expander Header="Local colour-managed still imports" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="6">
+                                <ContentControl x:Name="ColourImportControls" HorizontalContentAlignment="Stretch">
+                                  <StackPanel Spacing="6">
+                                    <TextBox x:Name="OcioToolPath" Header="OCIO-enabled OpenImageIO oiiotool.exe" />
+                                    <Button Content="Select local oiiotool..." Click="BrowseColourTool_Click" />
+                                    <ComboBox x:Name="AcesInputSpace" Header="EXR source interpretation (choose explicitly)" SelectedIndex="0">
+                                        <ComboBoxItem Content="ACEScg (scene-linear AP1)" />
+                                        <ComboBoxItem Content="ACES2065-1 (scene-linear AP0)" />
+                                    </ComboBox>
+                                    <Button Content="Import ACES EXR as SDR editing copy..." Click="ImportAcesStill_Click" />
+                                    <TextBlock Text="Requires your own OCIO-enabled OpenImageIO tool with the built-in cg-config-v2.2.0_aces-v1.3_ocio-v2.4 config and PNG/EXR codecs. Applies ACES 1.0 - SDR Video to sRGB - Display, producing a 16-bit PNG. The timeline remains SDR, not scene-linear ACES. RGB/RGBA stills only; no EXR sequences, deep EXR or motion RAW. Nothing is downloaded." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    <TextBlock Text="Editing copies are retained in LocalAppData\InkMotion\ImportedMedia and become linked project media. Keep and share them with the project. Original sources are never overwritten." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                  </StackPanel>
+                                </ContentControl>
+                                <Button x:Name="CancelColourImportButton" Content="Cancel colour import" Click="CancelColourImport_Click" IsEnabled="False" />
+                            </StackPanel>
+                        </Expander>
                         <Border Style="{StaticResource DividerStyle}" />
                         <TextBlock Text="TRACK" Style="{StaticResource SectionHeaderTextStyle}" />
                         <TextBox x:Name="TimelineTrackNameBox" Header="Name" MaxLength="64" LostFocus="TimelineTrackName_LostFocus" KeyDown="TimelineTrackName_KeyDown" />
@@ -673,6 +691,7 @@
                             </StackPanel>
                             <StackPanel x:Name="ClipColourGradingControls" Spacing="6">
                                 <TextBlock Text="COLOUR" Style="{StaticResource SectionHeaderTextStyle}" />
+                                <TextBlock x:Name="ColourSourceDescriptionText" TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                 <Grid ColumnSpacing="6" RowSpacing="4">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

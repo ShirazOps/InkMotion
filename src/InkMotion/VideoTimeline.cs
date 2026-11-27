@@ -206,6 +206,7 @@ public sealed class TimelineClipProject
     public List<VideoColourCurvePoint> GreenCurve { get; set; } = [new(0, 0), new(1, 1)];
     public List<VideoColourCurvePoint> BlueCurve { get; set; } = [new(0, 0), new(1, 1)];
     public string? ColourLutPath { get; set; }
+    public string? ColourSourceDescription { get; set; }
     public bool ChromaKeyEnabled { get; set; }
     public List<VideoChromaKeyEnabledKeyframe> ChromaKeyEnabledKeyframes { get; set; } = [];
     public uint ChromaKeyColour { get; set; } = 0xFF00FF00;
@@ -1172,6 +1173,7 @@ public static class VideoTimelineEditing
         GreenCurve = clip.GreenCurve?.ToList() ?? [],
         BlueCurve = clip.BlueCurve?.ToList() ?? [],
         ColourLutPath = clip.ColourLutPath,
+        ColourSourceDescription = clip.ColourSourceDescription,
         ChromaKeyEnabled = clip.ChromaKeyEnabled,
         ChromaKeyEnabledKeyframes = VideoChromaKeyEnabledKeyframes.CloneKeys(clip.ChromaKeyEnabledKeyframes),
         ChromaKeyColour = clip.ChromaKeyColour,
