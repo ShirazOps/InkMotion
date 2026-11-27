@@ -35,7 +35,7 @@ public sealed class ControlledScreenCaptureTests
                     DesktopRecordingFrames.Displays().Select(d => d.Bounds).ToArray(), 1920, 30);
                 var manifest = new ScreenRecordingManifest { Plan = plan };
                 using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var clock = Stopwatch.StartNew();
+                var clock = ScreenRecordingClock.StartNew();
                 ScreenRecordingEncoder.Record(directory, manifest, clock,
                     () => new GuardedFrames(plan, window, stop), () => ScreenRecordingStore.Save(directory, manifest), stop.Token);
                 clock.Stop();
@@ -56,6 +56,46 @@ public sealed class ControlledScreenCaptureTests
         }
     }
 
+    [ControlledScreenCaptureFact]
+    public async Task DesktopCapture_PauseCapturesNothingAndExcludesPausedTime()
+    {
+        using var dpi = new PhysicalPixels();
+        using var window = new SyntheticWindow();
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-controlled-pause-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var plan = ScreenCapturePlan.Create([window.Bounds],
+                DesktopRecordingFrames.Displays().Select(d => d.Bounds).ToArray(), 1920, 30);
+            var manifest = new ScreenRecordingManifest { Plan = plan };
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var clock = ScreenRecordingClock.StartNew();
+            var wall = Stopwatch.StartNew();
+            var frames = new GuardedFrames(plan, window, stop, clock, 4.5);
+            Task pauses = Task.Run(async () =>
+            {
+                await Task.Delay(1000);
+                clock.Pause();
+                await Task.Delay(1500);
+                clock.Resume();
+            });
+            ScreenRecordingEncoder.Record(directory, manifest, clock, () => frames,
+                () => ScreenRecordingStore.Save(directory, manifest), stop.Token);
+            await pauses;
+            clock.Stop();
+            Assert.Equal(0, frames.PausedCaptures);
+            Assert.Equal(1, clock.PauseCount);
+            ScreenRecordingManifest restored = ScreenRecordingStore.Read(directory);
+            double recorded = restored.Media.Where(m => m.Finalised).Sum(m => m.DurationSeconds);
+            Assert.InRange(recorded, 2.5, clock.Elapsed.TotalSeconds + 0.2);
+            Assert.True(wall.Elapsed.TotalSeconds - recorded >= 1.2, "Paused wall-clock time must not be recorded.");
+            using var reader = new MediaFoundationVideoReader(Path.Combine(directory, restored.Media.First(m => m.Finalised).FileName));
+            Assert.True(reader.TryGetFrame(1.5));
+            AssertPixel(reader.Pixels, reader.Width, 40, 40, red: true);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     private static void AssertPixel(byte[] pixels, int width, int x, int y, bool red)
     {
         int index = (y * width + x) * 4;
@@ -65,13 +105,15 @@ public sealed class ControlledScreenCaptureTests
     }
 
     private sealed class GuardedFrames(ScreenCapturePlan plan, SyntheticWindow window,
-        CancellationTokenSource stop) : IScreenRecordingFrames
+        CancellationTokenSource stop, ScreenRecordingClock? clock = null, double stopAfterSeconds = 3) : IScreenRecordingFrames
     {
         private readonly DesktopRecordingFrames _frames = new(plan, false);
         private readonly Stopwatch _time = Stopwatch.StartNew();
+        public int PausedCaptures { get; private set; }
 
         public byte[] Capture()
         {
+            if (clock?.IsPaused == true) PausedCaptures++;
             window.CheckVisible();
             byte[] pixels = _frames.Capture();
             window.CheckVisible();
@@ -79,7 +121,7 @@ public sealed class ControlledScreenCaptureTests
             for (int i = 0; i < pixels.Length; i += 4)
                 if (pixels[i] > 2 || pixels[i + 1] > 2)
                     throw new InvalidOperationException("The controlled window was obscured. No unexpected pixels were saved.");
-            if (_time.Elapsed.TotalSeconds >= 3) stop.Cancel();
+            if (_time.Elapsed.TotalSeconds >= stopAfterSeconds) stop.Cancel();
             return pixels;
         }
 

@@ -163,7 +163,7 @@ public sealed class ScreenRecordingTests
         Directory.CreateDirectory(directory);
         try
         {
-            await using var inputs = new ScreenRecordingInputs(directory, Stopwatch.StartNew());
+            await using var inputs = new ScreenRecordingInputs(directory, ScreenRecordingClock.StartNew());
             inputs.ThrowIfFailed();
             Assert.Empty(inputs.GetSnapshot().AudioTracks);
             Assert.Null(inputs.GetSnapshot().CameraTrack);
@@ -189,7 +189,7 @@ public sealed class ScreenRecordingTests
                 Plan = ScreenCapturePlan.Create([new(0, 0, 64, 64)], [new(0, 0, 64, 64)], 1920, 15),
             };
             using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var clock = Stopwatch.StartNew();
+            var clock = ScreenRecordingClock.StartNew();
             int captured = 0;
             await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, clock,
                 () => new SyntheticFrames(() => { if (++captured == 8) stop.Cancel(); }),
@@ -223,6 +223,174 @@ public sealed class ScreenRecordingTests
     }
 
     [Fact]
+    public void Clock_ExcludesPausedTimeAndCountsRepeatedPauses()
+    {
+        var clock = ScreenRecordingClock.StartNew();
+        Thread.Sleep(50);
+        Assert.True(clock.Pause());
+        Assert.False(clock.Pause());
+        TimeSpan paused = clock.Elapsed;
+        Thread.Sleep(150);
+        Assert.Equal(paused, clock.Elapsed);
+        Assert.False(clock.IsRunning);
+        Assert.True(clock.Resume());
+        Assert.False(clock.Resume());
+        Assert.True(clock.Pause());
+        Assert.True(clock.Resume());
+        Assert.Equal(2, clock.PauseCount);
+        Assert.True(clock.IsRunning);
+        clock.Stop();
+        Assert.False(clock.Resume());
+        Assert.Throws<InvalidOperationException>(clock.Start);
+    }
+
+    [Fact]
+    public async Task Clock_StopOrCancellationReleasesPausedWaiters()
+    {
+        var clock = ScreenRecordingClock.StartNew();
+        clock.Pause();
+        Task<bool> waiting = Task.Run(() => clock.WaitWhilePaused(CancellationToken.None));
+        await Task.Delay(100);
+        Assert.False(waiting.IsCompleted);
+        clock.Stop();
+        Assert.False(await waiting.WaitAsync(TimeSpan.FromSeconds(5)));
+        var second = ScreenRecordingClock.StartNew();
+        second.Pause();
+        using var cancel = new CancellationTokenSource(100);
+        Assert.False(await Task.Run(() => second.WaitWhilePaused(cancel.Token)).WaitAsync(TimeSpan.FromSeconds(5)));
+        second.Resume();
+        Assert.True(second.WaitWhilePaused(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task OptionalInputs_PauseAndResumeWithoutDevicesAndStopWhilePaused()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-inputs-pause-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var clock = ScreenRecordingClock.StartNew();
+            await using var inputs = new ScreenRecordingInputs(directory, clock);
+            clock.Pause();
+            await inputs.PauseAsync();
+            await inputs.ResumeAsync();
+            await inputs.PauseAsync();
+            ScreenRecordingInputsResult result = await inputs.StopAsync();
+            Assert.Empty(result.AudioTracks);
+            await Assert.ThrowsAsync<InvalidOperationException>(inputs.PauseAsync);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task LoopbackAudio_PauseResumeKeepsTrackAlignedToRecordedTime()
+    {
+        // Opt-in: captures the default output device's loopback (no microphone) for about two seconds.
+        if (Environment.GetEnvironmentVariable("INKMOTION_TEST_LOOPBACK_AUDIO") != "1") return;
+        ScreenRecordingAudioDevice device = ScreenRecordingInputs.ListAudioDevices()
+            .First(d => d.Flow == ScreenRecordingAudioFlow.RenderLoopback);
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-loopback-pause-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var clock = ScreenRecordingClock.StartNew();
+            var wall = Stopwatch.StartNew();
+            await using var inputs = new ScreenRecordingInputs(directory, clock);
+            await inputs.StartAudioAsync(device, CancellationToken.None);
+            await Task.Delay(1000);
+            clock.Pause();
+            await inputs.PauseAsync();
+            await Task.Delay(1500);
+            await inputs.ResumeAsync();
+            clock.Resume();
+            await Task.Delay(1000);
+            inputs.ThrowIfFailed();
+            clock.Stop();
+            ScreenRecordingAudioTrackResult track = Assert.Single((await inputs.StopAsync()).AudioTracks);
+            using var reader = new NAudio.Wave.WaveFileReader(track.Path);
+            Assert.InRange(reader.TotalTime.TotalSeconds, clock.Elapsed.TotalSeconds - 0.15, clock.Elapsed.TotalSeconds + 0.15);
+            Assert.True(wall.Elapsed.TotalSeconds - reader.TotalTime.TotalSeconds >= 1.3);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Encoder_RepeatedPausesCaptureNothingAndExcludePausedTime()
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-encoder-pause-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var manifest = new ScreenRecordingManifest
+            {
+                Plan = ScreenCapturePlan.Create([new(0, 0, 64, 64)], [new(0, 0, 64, 64)], 1920, 15),
+            };
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var clock = ScreenRecordingClock.StartNew();
+            var wall = Stopwatch.StartNew();
+            int captured = 0, pausedCaptures = 0;
+            var resumes = new List<Task>();
+            await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, clock,
+                () => new SyntheticFrames(() =>
+                {
+                    if (clock.IsPaused) pausedCaptures++;
+                    captured++;
+                    if (captured is 4 or 8)
+                    {
+                        clock.Pause();
+                        resumes.Add(Task.Delay(700).ContinueWith(_ => clock.Resume()));
+                    }
+                    if (captured == 12) stop.Cancel();
+                }),
+                () => ScreenRecordingStore.Save(directory, manifest), stop.Token));
+            await Task.WhenAll(resumes);
+            clock.Stop();
+            Assert.Equal(0, pausedCaptures);
+            Assert.Equal(2, clock.PauseCount);
+            ScreenRecordingMedia media = Assert.Single(ScreenRecordingStore.Read(directory).Media, media => media.Finalised);
+            Assert.InRange(media.OffsetSeconds + media.DurationSeconds, 0.8, clock.Elapsed.TotalSeconds + 0.2);
+            Assert.True(wall.Elapsed.TotalSeconds - clock.Elapsed.TotalSeconds >= 1.3);
+            using var reader = new MediaFoundationVideoReader(Path.Combine(directory, media.FileName));
+            Assert.True(reader.TryGetFrame(0));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task Encoder_StopWhilePausedFinalisesRecordedSegment()
+    {
+        if (!VideoExportTests.HasH264Encoder) return;
+        string directory = Path.Combine(Path.GetTempPath(), $"inkmotion-encoder-pause-stop-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var manifest = new ScreenRecordingManifest
+            {
+                Plan = ScreenCapturePlan.Create([new(0, 0, 64, 64)], [new(0, 0, 64, 64)], 1920, 15),
+            };
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var clock = ScreenRecordingClock.StartNew();
+            int captured = 0;
+            await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, clock,
+                () => new SyntheticFrames(() =>
+                {
+                    if (++captured == 6)
+                    {
+                        clock.Pause();
+                        stop.CancelAfter(500);
+                    }
+                }),
+                () => ScreenRecordingStore.Save(directory, manifest), stop.Token));
+            Assert.True(clock.IsPaused);
+            Assert.Equal(6, captured);
+            ScreenRecordingMedia media = Assert.Single(ScreenRecordingStore.Read(directory).Media, media => media.Finalised);
+            Assert.InRange(media.DurationSeconds, 0.3, clock.Elapsed.TotalSeconds + 0.2);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task Encoder_FailureLeavesPriorSegmentPlayableAndRecoverable()
     {
         if (!VideoExportTests.HasH264Encoder) return;
@@ -234,7 +402,7 @@ public sealed class ScreenRecordingTests
             {
                 Plan = ScreenCapturePlan.Create([new(0, 0, 64, 64)], [new(0, 0, 64, 64)], 1920, 15),
             };
-            var clock = Stopwatch.StartNew();
+            var clock = ScreenRecordingClock.StartNew();
             await Assert.ThrowsAsync<IOException>(() => Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, clock,
                 () => new FailingFrames(), () => ScreenRecordingStore.Save(directory, manifest), CancellationToken.None)));
             ScreenRecordingManifest restored = ScreenRecordingStore.Read(directory);

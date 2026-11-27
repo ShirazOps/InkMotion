@@ -74,14 +74,14 @@ public sealed class ScreenRecordingInputException : Exception
 }
 
 /// <summary>
-/// Captures optional independent system-audio, microphone, and video tracks against a caller-owned Stopwatch.
+/// Captures optional independent system-audio, microphone, and video tracks against a caller-owned recording clock.
 /// Call InitializeCameraAsync before starting the shared clock to keep device initialization out of the recording.
 /// </summary>
 public sealed class ScreenRecordingInputs : IAsyncDisposable
 {
     private static readonly TimeSpan RecordingStoppedTimeout = TimeSpan.FromSeconds(10);
     private readonly string _outputFolder;
-    private readonly Stopwatch _sessionClock;
+    private readonly ScreenRecordingClock _sessionClock;
     private readonly SemaphoreSlim _stopLock = new(1, 1);
     private readonly Dictionary<ScreenRecordingAudioFlow, AudioTrackCapture> _audioTracks = new();
     private readonly List<string> _outputFiles = new();
@@ -92,13 +92,15 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
     private double _cameraStopOffset;
     private bool _cameraStartAttempted;
     private bool _cameraFileFinalised;
+    private bool _cameraPaused;
+    private bool _paused;
     private Exception? _cameraError;
     private double? _sessionStopElapsed;
     private ScreenRecordingInputException? _stopFailure;
     private bool _stopped;
     private bool _disposed;
 
-    public ScreenRecordingInputs(string durableOutputFolder, Stopwatch sessionClock)
+    public ScreenRecordingInputs(string durableOutputFolder, ScreenRecordingClock sessionClock)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(durableOutputFolder);
         ArgumentNullException.ThrowIfNull(sessionClock);
@@ -186,7 +188,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
 
     /// <summary>
     /// Opens and initializes the explicitly selected camera without starting a recording.
-    /// Invoke this before starting the shared Stopwatch.
+    /// Invoke this before starting the shared recording clock.
     /// </summary>
     public async Task InitializeCameraAsync(string deviceId, CancellationToken cancellationToken = default)
     {
@@ -258,7 +260,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>Starts MP4 video-only capture. Initialize the camera before starting the shared Stopwatch.</summary>
+    /// <summary>Starts MP4 video-only capture. Initialize the camera before starting the shared recording clock.</summary>
     public async Task StartCameraAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfUnavailable();
@@ -294,6 +296,138 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
         {
             _cameraError = ex;
             throw CreateCaptureException("The selected camera could not start recording.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Pauses every started input after the shared clock has been paused. Audio endpoints are closed and the
+    /// webcam releases its hardware, so nothing is captured until <see cref="ResumeAsync"/>. Audio tracks are
+    /// padded with silence to the pause point to keep them aligned with the recording clock.
+    /// </summary>
+    public async Task PauseAsync()
+    {
+        await _stopLock.WaitAsync();
+        try
+        {
+            ThrowIfUnavailable();
+            if (_paused)
+            {
+                return;
+            }
+
+            _paused = true;
+            double elapsed = _sessionClock.Elapsed.TotalSeconds;
+            var errors = new List<Exception>();
+            Task[] pauses = _audioTracks.Values.Select(track => track.PauseAsync(elapsed)).Append(PauseCameraAsync()).ToArray();
+            foreach (Task pause in pauses)
+            {
+                try
+                {
+                    await pause;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(ex);
+                }
+            }
+
+            if (errors.Count > 0)
+            {
+                throw new ScreenRecordingInputException(
+                    "One or more recording inputs could not pause; the take will stop and save.",
+                    _outputFiles,
+                    errors.Distinct(),
+                    GetFinalisedTracks());
+            }
+        }
+        finally
+        {
+            _stopLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reopens the same explicitly selected devices. Resume the shared clock only after this succeeds.
+    /// A removed device or changed audio format throws rather than appending mismatched media.
+    /// </summary>
+    public async Task ResumeAsync(CancellationToken cancellationToken = default)
+    {
+        await _stopLock.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfUnavailable();
+            if (!_paused)
+            {
+                return;
+            }
+
+            Exception[] earlier = GetCaptureErrors();
+            if (earlier.Length > 0)
+            {
+                throw new ScreenRecordingInputException(
+                    "A recording input failed while paused; the take will stop and save.",
+                    _outputFiles,
+                    earlier,
+                    GetFinalisedTracks());
+            }
+
+            try
+            {
+                await ResumeCameraAsync(cancellationToken);
+                foreach (AudioTrackCapture track in _audioTracks.Values)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    track.Resume();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw CreateCaptureException("A recording input could not resume; the take will stop and save.", ex);
+            }
+
+            _paused = false;
+        }
+        finally
+        {
+            _stopLock.Release();
+        }
+    }
+
+    private async Task PauseCameraAsync()
+    {
+        if (!_cameraStartAttempted || _mediaCapture is null || _cameraPaused)
+        {
+            return;
+        }
+
+        try
+        {
+            await _mediaCapture.PauseRecordAsync(Windows.Media.Devices.MediaCapturePauseBehavior.ReleaseHardwareResources);
+            _cameraPaused = true;
+        }
+        catch (Exception ex)
+        {
+            Interlocked.CompareExchange(ref _cameraError, ex, null);
+            throw;
+        }
+    }
+
+    private async Task ResumeCameraAsync(CancellationToken cancellationToken)
+    {
+        if (!_cameraPaused || _mediaCapture is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _mediaCapture.ResumeRecordAsync().AsTask(cancellationToken);
+            _cameraPaused = false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Interlocked.CompareExchange(ref _cameraError, ex, null);
+            throw;
         }
     }
 
@@ -490,7 +624,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
     {
         if (!_sessionClock.IsRunning)
         {
-            throw new InvalidOperationException("Start the shared Stopwatch before starting capture.");
+            throw new InvalidOperationException("Start the shared recording clock before starting capture.");
         }
     }
 
@@ -519,7 +653,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
         private readonly ScreenRecordingInputs _owner;
         private readonly ScreenRecordingAudioDevice _device;
         private readonly object _sync = new();
-        private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private IWaveIn? _capture;
         private WaveFileWriter? _writer;
         private FileStream? _fileStream;
@@ -532,6 +666,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
         private bool _started;
         private bool _stopRequested;
         private bool _closing;
+        private bool _paused;
         private bool _finalised;
         private bool _resourcesClosed;
         private double _startOffset;
@@ -571,12 +706,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
         {
             using var enumerator = new MMDeviceEnumerator();
             using MMDevice endpoint = enumerator.GetDevice(_device.Id);
-            _capture = _device.Flow switch
-            {
-                ScreenRecordingAudioFlow.RenderLoopback => new WasapiLoopbackCapture(endpoint),
-                ScreenRecordingAudioFlow.Microphone => new WasapiCapture(endpoint),
-                _ => throw new ArgumentOutOfRangeException(nameof(_device.Flow)),
-            };
+            _capture = CreateCapture(endpoint);
 
             WaveFormat format = _capture.WaveFormat;
             if (format.Encoding is not (WaveFormatEncoding.Pcm or WaveFormatEncoding.IeeeFloat or WaveFormatEncoding.Extensible))
@@ -606,6 +736,160 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
                 _error ??= error;
             }
         }
+
+        // Closes the endpoint so nothing is captured while paused, then pads silence to the pause point.
+        public async Task PauseAsync(double pauseOffset)
+        {
+            IWaveIn? capture;
+            lock (_sync)
+            {
+                if (!_started || _paused || _stopRequested || _resourcesClosed)
+                {
+                    return;
+                }
+
+                _paused = true;
+                capture = _capture;
+            }
+
+            Exception? pauseError = null;
+            if (capture is not null)
+            {
+                try
+                {
+                    capture.StopRecording();
+                    await _stopped.Task.WaitAsync(RecordingStoppedTimeout);
+                }
+                catch (Exception ex)
+                {
+                    pauseError = ex;
+                }
+
+                capture.DataAvailable -= Capture_DataAvailable;
+                capture.RecordingStopped -= Capture_RecordingStopped;
+                try
+                {
+                    capture.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    pauseError ??= ex;
+                }
+
+                _capture = null;
+            }
+
+            lock (_sync)
+            {
+                if (pauseError is null && _writer is not null && _error is null)
+                {
+                    try
+                    {
+                        long desiredBytes = FramesToBytes(pauseOffset - _startOffset);
+                        WriteSilence(Math.Max(0, desiredBytes - _writtenBytes));
+                        _writer.Flush();
+                        _fileStream!.Flush(flushToDisk: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        pauseError = ex;
+                    }
+                }
+
+                if (pauseError is not null)
+                {
+                    _error ??= pauseError;
+                }
+                else if (_error is not null)
+                {
+                    pauseError = _error;
+                }
+            }
+
+            if (pauseError is not null)
+            {
+                throw pauseError;
+            }
+        }
+
+        // Reopens the same endpoint; a removed device or a different mix format fails instead of corrupting the WAV.
+        public void Resume()
+        {
+            lock (_sync)
+            {
+                if (!_paused)
+                {
+                    return;
+                }
+
+                if (_error is not null)
+                {
+                    throw _error;
+                }
+            }
+
+            IWaveIn? capture = null;
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                using MMDevice endpoint = enumerator.GetDevice(_device.Id);
+                if (endpoint.State != DeviceState.Active)
+                {
+                    throw new InvalidOperationException($"The audio device '{_device.Name}' is no longer available.");
+                }
+
+                capture = CreateCapture(endpoint);
+                if (_format is null || !capture.WaveFormat.Equals(_format))
+                {
+                    throw new InvalidOperationException(
+                        $"The audio device '{_device.Name}' changed format while paused, so it cannot continue the same track.");
+                }
+
+                _stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                capture.DataAvailable += Capture_DataAvailable;
+                capture.RecordingStopped += Capture_RecordingStopped;
+                _capture = capture;
+                lock (_sync)
+                {
+                    _paused = false;
+                }
+
+                capture.StartRecording();
+            }
+            catch (Exception ex)
+            {
+                lock (_sync)
+                {
+                    _paused = true;
+                    _error ??= ex;
+                }
+
+                if (capture is not null)
+                {
+                    capture.DataAvailable -= Capture_DataAvailable;
+                    capture.RecordingStopped -= Capture_RecordingStopped;
+                    try
+                    {
+                        capture.Dispose();
+                    }
+                    catch
+                    {
+                        // The original failure is more useful to the user.
+                    }
+                }
+
+                _capture = null;
+                _stopped.TrySetResult();
+                throw;
+            }
+        }
+
+        private IWaveIn CreateCapture(MMDevice endpoint) => _device.Flow switch
+        {
+            ScreenRecordingAudioFlow.RenderLoopback => new WasapiLoopbackCapture(endpoint),
+            ScreenRecordingAudioFlow.Microphone => new WasapiCapture(endpoint),
+            _ => throw new ArgumentOutOfRangeException(nameof(_device.Flow)),
+        };
 
         public void CloseAfterStartFailure()
         {
@@ -795,7 +1079,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
             var warnings = new List<string>
             {
                 "Audio start offset is measured immediately before the capture start call; device startup latency may add an unreported offset.",
-                "Audio block timestamps are estimated from callback delivery time; inserted silence aligns observed gaps and trailing duration to the shared Stopwatch.",
+                "Audio block timestamps are estimated from callback delivery time; inserted silence aligns observed gaps and trailing duration to the shared recording clock; paused time is excluded.",
             };
             if (Error is not null)
             {
@@ -837,7 +1121,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
             bool stopCapture = false;
             lock (_sync)
             {
-                if (_writer is null || _error is not null || _closing)
+                if (_writer is null || _error is not null || _closing || _paused)
                 {
                     return;
                 }
@@ -929,7 +1213,7 @@ public sealed class ScreenRecordingInputs : IAsyncDisposable
                 {
                     _error ??= args.Exception;
                 }
-                else if (!_stopRequested && _error is null)
+                else if (!_stopRequested && !_paused && _error is null)
                 {
                     _error = new InvalidOperationException("The audio endpoint stopped unexpectedly.");
                 }
