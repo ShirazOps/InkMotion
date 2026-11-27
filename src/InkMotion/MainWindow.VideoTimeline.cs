@@ -3435,6 +3435,7 @@ public sealed partial class MainWindow
         ClipWhiteBalanceTintBox.Value = grading.Tint;
         ClipSaturationBox.Value = grading.Saturation;
         ClipGammaBox.Value = grading.Gamma;
+        UpdateHslQualifierControls(clip.HslQualifier);
         int gradingFrameOffset = VideoColourGradingKeyframes.GetFrameOffset(clip, opacitySeconds, _frameRate);
         bool gradingPlayheadInside = VideoColourGradingKeyframes.CanSetAtFrame(
             clip, kind, gradingFrameOffset, _frameRate);

@@ -39,6 +39,7 @@ public static class VideoColourGrading
         value.Tint == 0 &&
         value.Saturation == 1 &&
         value.Gamma == 1 &&
+        !clip.HslQualifier.Enabled &&
         string.IsNullOrWhiteSpace(clip.ColourLutPath) &&
         IsNeutralCurve(clip.MasterCurve) &&
         IsNeutralCurve(clip.RedCurve) &&
@@ -138,7 +139,7 @@ public static class VideoColourGrading
             double.IsFinite(clip.Gamma) && clip.Gamma is >= MinimumGamma and <= MaximumGamma &&
             IsValidCurve(clip.MasterCurve) && IsValidCurve(clip.RedCurve) &&
             IsValidCurve(clip.GreenCurve) && IsValidCurve(clip.BlueCurve);
-        if (!valid)
+        if (!valid || clip.HslQualifier is null || !clip.HslQualifier.IsValid)
         {
             return "Clip colour settings are outside their supported ranges.";
         }
@@ -170,6 +171,9 @@ public sealed class VideoColourGradingEffect : IDisposable
     private VideoColourCurvePoint[]? _greenCurve;
     private VideoColourCurvePoint[]? _blueCurve;
     private double _tableGamma = double.NaN;
+    private readonly TableTransfer3DEffect _qualifierEffect = new();
+    private EffectTransferTable3D? _qualifierTable;
+    private VideoHslQualifier? _qualifier;
 
     public ICanvasImage GetOutput(
         CanvasBitmap source,
@@ -190,7 +194,7 @@ public sealed class VideoColourGradingEffect : IDisposable
         UpdateCurveTables(clip, value.Gamma);
         if (string.IsNullOrWhiteSpace(clip.ColourLutPath))
         {
-            return _curves;
+            return ApplyQualifier(source.Device, _curves, clip.HslQualifier);
         }
 
         if (!string.Equals(_lutPath, clip.ColourLutPath, StringComparison.OrdinalIgnoreCase))
@@ -203,7 +207,21 @@ public sealed class VideoColourGradingEffect : IDisposable
 
         _lutEffect.Source = _curves;
         _lutEffect.Table = _lutTable;
-        return _lutEffect;
+        return ApplyQualifier(source.Device, _lutEffect, clip.HslQualifier);
+    }
+
+    private ICanvasImage ApplyQualifier(CanvasDevice device, ICanvasImage source, VideoHslQualifier qualifier)
+    {
+        if (!qualifier.IsActive) return source;
+        if (_qualifier != qualifier)
+        {
+            _qualifierTable?.Dispose();
+            _qualifierTable = qualifier.BuildTable().CreateTransferTable(device);
+            _qualifier = qualifier;
+        }
+        _qualifierEffect.Source = source;
+        _qualifierEffect.Table = _qualifierTable;
+        return _qualifierEffect;
     }
 
     private void UpdateCurveTables(TimelineClipProject clip, double gamma)
@@ -251,6 +269,8 @@ public sealed class VideoColourGradingEffect : IDisposable
 
     public void Dispose()
     {
+        _qualifierEffect.Dispose();
+        _qualifierTable?.Dispose();
         _lutEffect.Dispose();
         _lutTable?.Dispose();
         _curves.Dispose();

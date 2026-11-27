@@ -172,6 +172,7 @@ public static class VideoClipJoining
             left.Exposure != right.Exposure || left.Contrast != right.Contrast ||
             left.WhiteBalanceTemperature != right.WhiteBalanceTemperature || left.WhiteBalanceTint != right.WhiteBalanceTint ||
             left.Saturation != right.Saturation || left.Gamma != right.Gamma ||
+            left.HslQualifier != right.HslQualifier ||
             !left.MasterCurve.SequenceEqual(right.MasterCurve) ||
             !left.RedCurve.SequenceEqual(right.RedCurve) ||
             !left.GreenCurve.SequenceEqual(right.GreenCurve) ||

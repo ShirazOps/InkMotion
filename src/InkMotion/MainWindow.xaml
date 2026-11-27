@@ -718,6 +718,23 @@
                                     <Button Content="Load 3D LUT (.cube)..." Click="LoadClipColourLut_Click" />
                                     <Button x:Name="RemoveClipColourLutButton" Content="Remove LUT" Click="RemoveClipColourLut_Click" />
                                 </StackPanel>
+                                <Expander Header="HSL qualifier" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                    <StackPanel Spacing="6">
+                                        <CheckBox x:Name="QualifierEnabled" Content="Enable selective HSL correction" />
+                                        <NumberBox x:Name="QualifierHue" Header="Hue centre (degrees)" Minimum="0" Maximum="360" />
+                                        <NumberBox x:Name="QualifierWidth" Header="Hue half-width (degrees)" Minimum="0" Maximum="180" />
+                                        <NumberBox x:Name="QualifierSaturationMin" Header="Minimum saturation" Minimum="0" Maximum="1" />
+                                        <NumberBox x:Name="QualifierSaturationMax" Header="Maximum saturation" Minimum="0" Maximum="1" />
+                                        <NumberBox x:Name="QualifierLightnessMin" Header="Minimum HSL lightness" Minimum="0" Maximum="1" />
+                                        <NumberBox x:Name="QualifierLightnessMax" Header="Maximum HSL lightness" Minimum="0" Maximum="1" />
+                                        <NumberBox x:Name="QualifierSoftness" Header="Selection feather (0 to 1)" Minimum="0" Maximum="1" SmallChange="0.05" />
+                                        <NumberBox x:Name="QualifierHueShift" Header="Selected hue shift (degrees)" Minimum="-180" Maximum="180" />
+                                        <NumberBox x:Name="QualifierSaturation" Header="Selected saturation multiplier" Minimum="0" Maximum="2" SmallChange="0.1" />
+                                        <NumberBox x:Name="QualifierLightness" Header="Selected lightness offset" Minimum="-1" Maximum="1" SmallChange="0.05" />
+                                        <Button Content="Apply HSL qualifier" Click="ApplyHslQualifier_Click" />
+                                        <TextBlock Text="Static, clip-wide selection after primary grading and the LUT. Hue wraps through red; feather extends outside the selected ranges. Uses a 33-point interpolated RGB table, not a spatial mask or scene-linear HDR qualifier." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    </StackPanel>
+                                </Expander>
                                 <TextBlock Text="CHROMA KEY" Style="{StaticResource SectionHeaderTextStyle}" />
                                 <ToggleButton x:Name="ClipChromaKeyEnabled" Content="Remove key colour" Click="ClipChromaKey_Changed" />
                                 <StackPanel Orientation="Horizontal" Spacing="6">
