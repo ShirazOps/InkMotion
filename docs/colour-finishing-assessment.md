@@ -41,3 +41,28 @@ Linking the libraries in-process was rejected for this release because it would 
 - **Camera RAW:** stills only. `.dng`, `.cr2`, `.cr3`, `.nef`, `.arw`, `.raf`, `.rw2`, `.orf` and `.pef` are offered as candidates, but decoding succeeds only for cameras and compression schemes supported by the user's LibRaw build. Automated verification covers an uncompressed Bayer DNG, not every camera or compression variant. Development settings are baked at import; changing them requires reimporting.
 - **Motion RAW (Blackmagic RAW, REDCODE R3D, ARRIRAW, Canon Cinema RAW Light, ProRes RAW):** not supported. Decoding requires vendor SDKs or platform decoders under proprietary licence terms, and none is integrated into this project. No such support is claimed.
 - **HDR projects:** HSL qualifiers and shot matching are SDR-only and must be cleared before switching a project to HDR.
+
+## HDR10+ and Dolby Vision
+
+Assessed for package 1.0.66.0.
+
+### HDR10+ (implemented)
+
+HDR10+ is SMPTE ST 2094-40 Application 4 dynamic metadata, carried in HEVC as ITU-T T.35 user-data SEI messages. x265 inserts those messages from an "LLC" JSON file passed through its `dhdr10-info` option, reading `SceneInfo` entries strictly in array order from the first frame of each encoder instance. InkMotion therefore generates the metadata itself and hands x265 one slice per resumable segment, indexed from zero:
+
+- **Measurement.** A first render pass measures every final output frame from the same 16-bit PQ Rec.2020 frames sent to the encoder. Each pixel's maxRGB code is counted in a 65,536-bin histogram, so percentiles are exact for the 16-bit signal. Values are decoded through the ST 2084 EOTF and written in the ST 2094-40 0.00001 (0.1 cd/m²) step, clamped to 0–100,000.
+- **Scenes.** A scene starts where the 64-bin normalised PQ maxRGB distribution moves by an L1 distance above 0.5 from the previous frame. Every frame in a scene carries that scene's MaxSCL (per-channel maximum), average linear maxRGB and the 1, 5, 10, 25, 50, 75, 90, 95 and 99 % maxRGB levels, as the standard intends metadata to be stable within a scene.
+- **Profile.** Profile A only: a targeted system display maximum luminance of 0 and no Bézier tone-mapping curve. Profile B curves are creative tone-mapping decisions that cannot be derived deterministically from measurement, so none are fabricated.
+- **Alignment.** The second pass encodes, re-measures every rendered frame and compares it with the first-pass signature (per-channel maxima, maxRGB sum and histogram hash). Any mismatch stops the export without writing a file. Each generated slice is also validated for consecutive frame indices before encoding.
+- **Static metadata.** MaxCLL and MaxFALL are set from the measured frames (brightest component, and highest frame-average maxRGB) instead of the mastering peak and an unknown MaxFALL. The mastering display colour volume is unchanged.
+- **Interoperability.** Verified with a libx265 FFmpeg build and the independent `hdr10plus_tool` parser: metadata extracted from the exported HEVC matches the generated values for every frame. x265 always writes one processing window, application version 1, a zero fraction of bright pixels and no actual-peak or colour-saturation data, so those fields are not signalled.
+
+Limitations: statistics describe the signal before the encoder's 10-bit 4:2:0 conversion; export takes roughly twice as long because the timeline is rendered twice; hardware encoders, AV1 and HLG projects are not supported, because their FFmpeg paths cannot carry the metadata from a sidecar. ST 2094-40 and the x265 option are openly documented. InkMotion makes no HDR10+ certification or logo claim; that requires the HDR10+ Technologies licensing and certification programme.
+
+User-supplied HDR10+ JSON sidecars remain supported and are validated as before; the two modes are mutually exclusive.
+
+### Dolby Vision (blocked)
+
+Dolby Vision is not implemented. A conformant stream needs reference processing unit (RPU) metadata produced by Dolby's proprietary content-mapping analysis, available only through licensed Dolby software such as the Dolby Encoding Engine or Dolby Vision professional tools, and distributing Dolby Vision content and branding is subject to Dolby's licence terms. x265 and open tools can only carry or edit RPUs created elsewhere; generating RPUs without Dolby's analysis would produce metadata that does not represent a Dolby Vision grade, and InkMotion will not fabricate it.
+
+InkMotion does not include, download, distribute or enable any Dolby encoder or SDK. Support could be revisited only if the user explicitly approves and holds a suitable Dolby licence and a locally installed licensed encoder, which InkMotion would then invoke as an external process.

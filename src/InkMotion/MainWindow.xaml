@@ -982,10 +982,12 @@
                             <ComboBoxItem Content="FFmpeg · AMD AMF (required, no fallback)" />
                         </ComboBox>
                         <StackPanel x:Name="Hdr10PlusMetadataPanel" Spacing="6" Visibility="Collapsed">
+                            <CheckBox x:Name="GenerateHdr10PlusCheckBox" Content="Generate HDR10+ metadata automatically"
+                                      Checked="GenerateHdr10Plus_Changed" Unchecked="GenerateHdr10Plus_Changed" />
                             <TextBox x:Name="Hdr10PlusMetadataPathBox" Header="HDR10+ JSON sidecar (optional)"
                                      PlaceholderText="Select locally generated metadata" TextWrapping="Wrap" />
-                            <Button Content="Choose HDR10+ metadata…" Click="ChooseHdr10PlusMetadata_Click" />
-                            <TextBlock Text="For PQ HDR projects only. Supply metadata generated for the exact final frame sequence. Requires FFmpeg software HEVC with x265; export is encoded as one segment to preserve frame alignment. InkMotion does not generate or download metadata."
+                            <Button x:Name="ChooseHdr10PlusMetadataButton" Content="Choose HDR10+ metadata…" Click="ChooseHdr10PlusMetadata_Click" />
+                            <TextBlock Text="For PQ HDR projects only, with FFmpeg software HEVC through x265. Automatic generation renders the timeline twice: it measures every final frame locally, writes scene-based SMPTE ST 2094-40 Profile A metadata and measured MaxCLL/MaxFALL, and stops if a frame renders differently on the encoding pass. Alternatively, supply metadata generated for the exact final frame sequence; a supplied sidecar is encoded as one segment to preserve frame alignment. Dolby Vision is not available."
                                        TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                         </StackPanel>
                         <ComboBox x:Name="VideoContainerSelector" Header="Video container" SelectedIndex="0"

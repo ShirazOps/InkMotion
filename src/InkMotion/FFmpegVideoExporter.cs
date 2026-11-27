@@ -13,7 +13,7 @@ public enum FFmpegVideoAudioCodec { Aac, Pcm, Flac, Opus, Wma }
 
 public sealed record FFmpegVideoSettings(string ExecutablePath, FFmpegVideoEncoder Encoder,
     FFmpegVideoContainer Container, FFmpegVideoAudioCodec AudioCodec, int AudioBits = 24,
-    string? Hdr10PlusMetadataPath = null)
+    string? Hdr10PlusMetadataPath = null, bool GenerateHdr10Plus = false)
 {
     public string Extension => Container switch { FFmpegVideoContainer.Mp4 => ".mp4",
         FFmpegVideoContainer.Matroska => ".mkv", FFmpegVideoContainer.Asf => ".wmv",
@@ -157,8 +157,10 @@ public static class FFmpegVideoExporter
         string temporary = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(request.OutputPath))!,
             $".inkmotion-{Guid.NewGuid():N}{settings.Extension}");
         string audioPath = Path.Combine(directory, "audio.wav");
+        string analysisPath = Path.Combine(directory, "hdr10plus-analysis.bin");
         int audioChannels = 0;
         var segments = new List<string>();
+        var generatedMetadata = new List<string>();
         bool completed = false;
         string? stemPath = null;
         try
@@ -167,8 +169,16 @@ public static class FFmpegVideoExporter
                 ? Math.Max(1, (int)Math.Round(request.Profile.FrameRate * 5))
                 : count;
             using (var device = new CanvasDevice())
-            using (var renderer = new VideoExporter.FrameRenderer(device, request, warnings))
             {
+                Hdr10PlusAnalyser? analysis = settings.GenerateHdr10Plus
+                    ? AnalyseHdr10Plus(device, request, count, analysisPath, warnings, progress, cancellationToken)
+                    : null;
+                if (analysis is not null)
+                {
+                    Hdr10LightLevel level = analysis.LightLevel;
+                    warnings.Add($"HDR10+ Profile A metadata was generated from the rendered frames; measured MaxCLL {level.MaxCll} cd/m², MaxFALL {level.MaxFall} cd/m².");
+                }
+                using var renderer = new VideoExporter.FrameRenderer(device, request, warnings);
                 for (int start = 0; start < count; start += segmentFrames)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -181,6 +191,14 @@ public static class FFmpegVideoExporter
                         continue;
                     }
                     string partial = segment + ".partial";
+                    string? metadata = settings.Hdr10PlusMetadataPath;
+                    if (analysis is not null)
+                    {
+                        metadata = Path.Combine(directory, $"hdr10plus-{start:D10}.json");
+                        generatedMetadata.Add(metadata);
+                        analysis.Write(metadata, start, end);
+                        Hdr10PlusMetadata.Validate(metadata, end - start);
+                    }
                     try
                     {
                         IEnumerable<byte[]> Frames()
@@ -188,11 +206,17 @@ public static class FFmpegVideoExporter
                             for (int frame = start; frame < end; frame++)
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
-                                yield return renderer.Render(frame);
+                                byte[] pixels = renderer.Render(frame);
+                                if (analysis is not null && Hdr10PlusAnalyser.Sign(pixels, request.Profile.Width,
+                                        request.Profile.Height) != analysis.Signatures[frame])
+                                {
+                                    throw new InvalidOperationException($"Frame {frame + 1} rendered differently from the HDR10+ analysis pass, so the generated metadata would not describe it. Export stopped; no HDR10+ file was written.");
+                                }
+                                yield return pixels;
                                 if (frame % 5 == 0) progress?.Report(new(frame + 1, count, $"Encoding with {encoder}"));
                             }
                         }
-                        EncodeSegment(request, partial, Frames(), cancellationToken, settings.Hdr10PlusMetadataPath);
+                        EncodeSegment(request, partial, Frames(), cancellationToken, metadata, analysis?.LightLevel);
                         File.Move(partial, segment, overwrite: true);
                     }
                     finally
@@ -265,7 +289,8 @@ public static class FFmpegVideoExporter
             if (File.Exists(audioPath)) File.Delete(audioPath);
             if (completed || request.CheckpointDirectory is null)
             {
-                foreach (string path in segments.Append(manifest).Append(Path.Combine(directory, "segments.txt")))
+                foreach (string path in segments.Concat(generatedMetadata).Append(analysisPath).Append(manifest)
+                    .Append(Path.Combine(directory, "segments.txt")))
                 {
                     try { if (File.Exists(path)) File.Delete(path); }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -314,6 +339,16 @@ public static class FFmpegVideoExporter
             if (request.Codec is not (VideoExportCodec.Hevc or VideoExportCodec.Av1))
                 throw new ArgumentException($"{colour.DisplayName} projects export as 10-bit HEVC or AV1; choose one of those codecs.");
         }
+        if (request.FFmpeg is { GenerateHdr10Plus: true } generated)
+        {
+            if (generated.Hdr10PlusMetadataPath is { Length: > 0 })
+                throw new ArgumentException("Choose either automatic HDR10+ metadata or a supplied HDR10+ JSON sidecar, not both.");
+            if (request.Project.Colour?.Space != ProjectColourSpace.Hdr10Pq ||
+                request.Codec != VideoExportCodec.Hevc || generated.Encoder != FFmpegVideoEncoder.Software)
+            {
+                throw new ArgumentException("Automatic HDR10+ metadata requires a PQ HDR project and the FFmpeg software HEVC encoder.");
+            }
+        }
         if (request.FFmpeg?.Hdr10PlusMetadataPath is { Length: > 0 } metadataPath)
         {
             if (request.Project.Colour?.Space != ProjectColourSpace.Hdr10Pq ||
@@ -328,7 +363,7 @@ public static class FFmpegVideoExporter
     }
 
     public static IReadOnlyList<string> BuildSegmentArguments(VideoExportRequest request, string path,
-        string? hdr10PlusMetadataFileName = null)
+        string? hdr10PlusMetadataFileName = null, Hdr10LightLevel? measuredLightLevel = null)
     {
         FFmpegVideoSettings settings = request.FFmpeg!;
         ProjectColourSettings? colour = request.Project.Colour;
@@ -368,7 +403,11 @@ public static class FFmpegVideoExporter
                 string x265 = $"repeat-headers=1:colorprim=bt2020:transfer={transfer}:colormatrix=bt2020nc:range=limited";
                 if (colour.Space == ProjectColourSpace.Hdr10Pq)
                 {
-                    x265 += $":hdr10=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L({peak * 10000},50):max-cll={peak},0";
+                    // Measured light levels replace the conservative peak-based MaxCLL and unknown MaxFALL.
+                    string maxCll = measuredLightLevel is { } level
+                        ? $"{Math.Min(level.MaxCll, 65535)},{Math.Min(level.MaxFall, 65535)}"
+                        : $"{peak},0";
+                    x265 += $":hdr10=1:master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L({peak * 10000},50):max-cll={maxCll}";
                     if (hdr10PlusMetadataFileName is not null)
                         x265 += $":dhdr10-info={hdr10PlusMetadataFileName}";
                 }
@@ -390,8 +429,41 @@ public static class FFmpegVideoExporter
         return arguments;
     }
 
+    /// <summary>
+    /// First pass of automatic HDR10+: renders every output frame once to measure it. The analysis is saved in the
+    /// checkpoint directory so a resumed export reuses it.
+    /// </summary>
+    private static Hdr10PlusAnalyser AnalyseHdr10Plus(CanvasDevice device, VideoExportRequest request, int count,
+        string analysisPath, List<string> warnings, IProgress<VideoExportProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        int width = request.Profile.Width, height = request.Profile.Height;
+        if (File.Exists(analysisPath))
+        {
+            progress?.Report(new(0, count, "Reusing HDR10+ analysis"));
+            return Hdr10PlusAnalyser.Load(analysisPath, width, height, count);
+        }
+        var analyser = new Hdr10PlusAnalyser(width, height);
+        using (var renderer = new VideoExporter.FrameRenderer(device, request, warnings))
+        {
+            if (!renderer.IsHdr)
+                throw new InvalidOperationException("Automatic HDR10+ metadata needs HDR frames from the renderer.");
+            for (int frame = 0; frame < count; frame++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                analyser.Add(renderer.Render(frame));
+                if (frame % 5 == 0) progress?.Report(new(frame + 1, count, "Analysing frames for HDR10+ metadata (pass 1 of 2)"));
+            }
+        }
+        string partial = analysisPath + ".partial";
+        analyser.Save(partial);
+        File.Move(partial, analysisPath, overwrite: true);
+        return analyser;
+    }
+
     private static void EncodeSegment(VideoExportRequest request, string path, IEnumerable<byte[]> frames,
-        CancellationToken cancellationToken, string? hdr10PlusMetadataPath = null)
+        CancellationToken cancellationToken, string? hdr10PlusMetadataPath = null,
+        Hdr10LightLevel? measuredLightLevel = null)
     {
         FFmpegVideoSettings settings = request.FFmpeg!;
         string? workingDirectory = null;
@@ -402,7 +474,7 @@ public static class FFmpegVideoExporter
             workingDirectory = Path.GetDirectoryName(fullMetadataPath)!;
             metadataFileName = Path.GetFileName(fullMetadataPath);
         }
-        IReadOnlyList<string> arguments = BuildSegmentArguments(request, path, metadataFileName);
+        IReadOnlyList<string> arguments = BuildSegmentArguments(request, path, metadataFileName, measuredLightLevel);
         using Process process = FFmpegAudioEncoder.Start(settings.ExecutablePath, arguments,
             redirectInput: true, workingDirectory);
         using CancellationTokenRegistration registration = cancellationToken.Register(() => FFmpegAudioEncoder.Terminate(process));

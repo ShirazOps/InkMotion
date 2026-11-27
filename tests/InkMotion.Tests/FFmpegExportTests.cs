@@ -199,6 +199,30 @@ public sealed class FFmpegExportTests
     }
 
     [Fact]
+    public void AutomaticHdr10PlusUsesMeasuredLightLevelsAndExcludesSuppliedMetadata()
+    {
+        var settings = new FFmpegVideoSettings(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software,
+            FFmpegVideoContainer.Mp4, FFmpegVideoAudioCodec.Aac, GenerateHdr10Plus: true);
+        var request = new VideoExportRequest(new EditorProject { Colour = new(ProjectColourSpace.Hdr10Pq) },
+            VideoExportProfile.Create(ExportResolution.P720, 30), VideoExportCodec.Hevc, "out.mp4", 720,
+            FFmpeg: settings);
+
+        FFmpegVideoExporter.ValidateColour(request);
+        string parameters = string.Join(' ', FFmpegVideoExporter.BuildSegmentArguments(
+            request, "segment.mp4", "hdr10plus-0000000000.json", new Hdr10LightLevel(812, 97)));
+        Assert.Contains("max-cll=812,97", parameters);
+        Assert.Contains("dhdr10-info=hdr10plus-0000000000.json", parameters);
+        Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+            request with { FFmpeg = settings with { Hdr10PlusMetadataPath = "supplied.json" } }));
+        Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+            request with { Project = new EditorProject { Colour = new(ProjectColourSpace.Hlg) } }));
+        Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+            request with { FFmpeg = settings with { Encoder = FFmpegVideoEncoder.Nvidia } }));
+        Assert.Throws<ArgumentException>(() => FFmpegVideoExporter.ValidateColour(
+            request with { Codec = VideoExportCodec.Av1 }));
+    }
+
+    [Fact]
     public void WindowsMediaAndAv1_ValidateExplicitContainersAndBackends()
     {
         var wmv = new FFmpegVideoSettings(@"C:\ffmpeg.exe", FFmpegVideoEncoder.Software,
