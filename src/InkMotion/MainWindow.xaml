@@ -34,6 +34,8 @@
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Package project with linked media…" Click="PackageProject_Click" />
+                        <MenuFlyoutItem Text="Import picture timeline (XML, EDL)…" Click="ImportPictureTimeline_Click" />
+                        <MenuFlyoutItem Text="Export picture timeline (XML, EDL)…" Click="ExportPictureTimeline_Click" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Add video clip…" Click="AddVideoClip_Click" />
                         <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
