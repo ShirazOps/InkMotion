@@ -11,7 +11,11 @@ namespace InkMotion;
 internal readonly record struct Hdr10PlusFrameSignature(ushort MaxRed, ushort MaxGreen, ushort MaxBlue,
     long MaxRgbCodeSum, ulong HistogramHash);
 
-/// <summary>Measured static light levels in cd/m² (CTA-861.3 MaxCLL and MaxFALL) of the analysed frames.</summary>
+/// <summary>
+/// Measured static light levels in cd/m² (CTA-861.3 MaxCLL and MaxFALL) of the analysed frames. As CTA-861.3
+/// Annex A specifies, both use each pixel's brightest linear component, maxRGB = max(R, G, B), rather than its
+/// luminance: MaxCLL is the highest maxRGB and MaxFALL the highest frame-average maxRGB.
+/// </summary>
 public readonly record struct Hdr10LightLevel(int MaxCll, int MaxFall);
 
 /// <summary>
