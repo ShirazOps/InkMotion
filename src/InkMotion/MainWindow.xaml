@@ -33,6 +33,8 @@
                             <MenuFlyoutItem.KeyboardAccelerators><KeyboardAccelerator Modifiers="Control" Key="S" /></MenuFlyoutItem.KeyboardAccelerators>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Package project with linked media…" Click="PackageProject_Click" />
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Add video clip…" Click="AddVideoClip_Click" />
                         <MenuFlyoutItem Text="Add image…" Click="AddImageClip_Click" />
                         <MenuFlyoutItem Text="AI cut-out image…" Click="CutOutImage_Click" />

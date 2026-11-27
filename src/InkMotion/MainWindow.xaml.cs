@@ -254,6 +254,7 @@ public sealed partial class MainWindow : Window
         FinishActiveEdit();
         var picker = new FileOpenPicker();
         picker.FileTypeFilter.Add(".inkmotion");
+        picker.FileTypeFilter.Add(ProjectPackage.Extension);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
 
         StorageFile? file = await picker.PickSingleFileAsync();
@@ -264,7 +265,18 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            EditorProject project = EditorProjectSerialiser.Deserialise(await FileIO.ReadTextAsync(file));
+            if (file.FileType.Equals(ProjectPackage.Extension, StringComparison.OrdinalIgnoreCase))
+            {
+                var folderPicker = new FolderPicker();
+                folderPicker.FileTypeFilter.Add("*");
+                InitializeWithWindow.Initialize(folderPicker, WindowNative.GetWindowHandle(this));
+                StorageFolder? folder = await folderPicker.PickSingleFolderAsync();
+                if (folder is null) return;
+                string packagePath = file.Path;
+                string extracted = await Task.Run(() => ProjectPackage.Extract(packagePath, folder.Path));
+                file = await StorageFile.GetFileFromPathAsync(extracted);
+            }
+            EditorProject project = ProjectMediaPaths.Resolve(await FileIO.ReadTextAsync(file), Path.GetDirectoryName(file.Path)!);
             ClearEditingClipboard();
             ClearHistory();
             RestoreProjectState(project);
@@ -316,7 +328,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await FileIO.WriteTextAsync(file, EditorProjectSerialiser.Serialise(CreateProjectSnapshot()));
+            await FileIO.WriteTextAsync(file, ProjectMediaPaths.Serialise(CreateProjectSnapshot(), Path.GetDirectoryName(file.Path)!));
             _projectFile = file;
             UnsavedIndicator.Visibility = Visibility.Collapsed;
             StatusText.Text = $"Project saved  ·  {file.Name}";
