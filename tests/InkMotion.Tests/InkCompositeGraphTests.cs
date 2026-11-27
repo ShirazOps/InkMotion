@@ -367,6 +367,26 @@ public sealed class InkCompositeGraphTests
     }
 
     [Fact]
+    public void ParticleSceneInteractionAffectsTheCompositeAndRemainsSeekable()
+    {
+        InkCompositeNode particle = Node(InkCompositeNodeKind.Particles, "particles");
+        particle.Particles = new InkCompositeParticleSettings
+        {
+            EmitterX = 0.2, EmitterY = 0.5, Rate = 1, Lifetime = 2, Speed = 0, Gravity = 0,
+            Size = 0.08, InteractionSceneId = "scene", InteractionForce = 0.1,
+        };
+        InkCompositeNode scene = Node(InkCompositeNodeKind.Scene3D, "scene");
+        var project = new EditorProject { CompositeGraph = LinearGraph(particle) };
+        project.CompositeGraph.Nodes.Add(scene);
+        Assert.Null(InkCompositeGraphs.Validate(project.CompositeGraph));
+        byte[] interacted = Render(project, 0.5);
+        _ = Render(project, 0.25);
+        Assert.Equal(interacted, Render(project, 0.5));
+        particle.Particles.InteractionSceneId = null;
+        Assert.False(interacted.SequenceEqual(Render(project, 0.5)));
+    }
+
+    [Fact]
     public void TransformMovesRotatesPersistsAndSamplesTheInput()
     {
         EditorProject project = CreateProject(new InkLayerProject { Id = "ink-1" });

@@ -46,7 +46,7 @@ public static partial class TimelineCompositor
                 InkCompositeNodeKind.Scene3D => DrawGraphScene3D(device, node, targetWidth, targetHeight,
                     width, height, seconds, drawingTransform),
                 InkCompositeNodeKind.Particles => DrawGraphParticles(device, node, targetWidth, targetHeight,
-                    width, height, seconds, drawingTransform),
+                    width, height, seconds, drawingTransform, nodes),
                 InkCompositeNodeKind.Merge => MergeGraphImages(device, Input(node, 0), Input(node, 1), node, targetWidth, targetHeight),
                 InkCompositeNodeKind.Blur => BlurGraphImage(device, Input(node, 0), node, sizeScale, targetWidth, targetHeight),
                 InkCompositeNodeKind.Glow => Input(node, 0) is CanvasRenderTarget glowSource
@@ -166,14 +166,20 @@ public static partial class TimelineCompositor
     }
 
     private static CanvasRenderTarget DrawGraphParticles(ICanvasResourceCreator device, InkCompositeNode node,
-        float targetWidth, float targetHeight, float width, float height, double seconds, Matrix3x2 drawingTransform)
+        float targetWidth, float targetHeight, float width, float height, double seconds, Matrix3x2 drawingTransform,
+        IReadOnlyDictionary<string, InkCompositeNode> nodes)
     {
         InkCompositeParticleSettings particles = node.Particles ??
             throw new InvalidOperationException("The particle emitter settings are missing.");
+        InkCompositeScene3D? scene = null;
+        if (particles.InteractionSceneId is string id)
+            scene = nodes.TryGetValue(id, out InkCompositeNode? source) && source.Kind == InkCompositeNodeKind.Scene3D
+                ? source.Scene3D ?? throw new InvalidOperationException("The interaction scene is missing its settings.")
+                : throw new InvalidOperationException("The particle interaction scene is missing.");
         return DrawGraphTarget(device, targetWidth, targetHeight, session =>
         {
             session.Transform = drawingTransform;
-            InkCompositeParticleRenderer.Draw(session, particles, width, height, seconds);
+            InkCompositeParticleRenderer.Draw(session, particles, width, height, seconds, scene);
         });
     }
 

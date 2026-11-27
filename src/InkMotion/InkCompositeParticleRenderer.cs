@@ -1,4 +1,5 @@
 using Microsoft.Graphics.Canvas;
+using System.Numerics;
 using Windows.UI;
 
 namespace InkMotion;
@@ -6,7 +7,7 @@ namespace InkMotion;
 internal static class InkCompositeParticleRenderer
 {
     public static void Draw(CanvasDrawingSession session, InkCompositeParticleSettings settings,
-        float width, float height, double seconds)
+        float width, float height, double seconds, InkCompositeScene3D? scene = null)
     {
         if (!InkCompositeParticles.IsValid(settings))
             throw new ArgumentException("The particle emitter has invalid settings.", nameof(settings));
@@ -14,6 +15,9 @@ internal static class InkCompositeParticleRenderer
             throw new ArgumentOutOfRangeException(nameof(seconds), "The particle time must be finite and within the supported range.");
         if (seconds < 0) return;
 
+        List<InkCompositeParticleInteraction.Obstacle>? obstacles = scene is not null &&
+            (settings.CollideWithObjects || settings.InteractionForce != 0)
+            ? InkCompositeParticleInteraction.Project(scene, width, height) : null;
         long last = (long)Math.Floor(seconds * settings.Rate);
         long first = Math.Max(0, (long)Math.Floor((seconds - settings.Lifetime) * settings.Rate) + 1);
         for (long index = first; index <= last; index++)
@@ -28,6 +32,15 @@ internal static class InkCompositeParticleRenderer
             float x = (float)((settings.EmitterX * width) + (Math.Sin(angle) * distance));
             float y = (float)((settings.EmitterY * height) - (Math.Cos(angle) * distance) +
                 (0.5 * settings.Gravity * height * age * age));
+            if (obstacles is { Count: > 0 })
+            {
+                var start = new Vector2((float)(settings.EmitterX * width / height), (float)settings.EmitterY);
+                var velocity = new Vector2((float)(Math.Sin(angle) * settings.Speed),
+                    (float)(-Math.Cos(angle) * settings.Speed));
+                Vector2 position = InkCompositeParticleInteraction.Simulate(settings, start, velocity, age, obstacles);
+                x = position.X * height;
+                y = position.Y * height;
+            }
             var colour = Color.FromArgb(alpha, (byte)(settings.Colour >> 16),
                 (byte)(settings.Colour >> 8), (byte)settings.Colour);
             session.FillCircle(x, y, (float)(settings.Size * height / 2), colour);

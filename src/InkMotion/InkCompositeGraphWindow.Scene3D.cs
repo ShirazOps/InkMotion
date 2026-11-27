@@ -1,5 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Runtime.InteropServices;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace InkMotion;
 
@@ -18,7 +21,7 @@ public sealed partial class InkCompositeGraphWindow
             _selectedSceneObjectIndex = 0;
         }
 
-        Hint("A perspective scene with opaque primitives and depth. Position is in scene units; spin is in degrees per second.");
+        Hint("A perspective scene with opaque meshes and depth. Import OBJ/MTL or apply a diffuse texture. Assets are embedded in the project.");
         AddSlider("Camera yaw", -180, 180, 1, scene.CameraYaw, value => scene.CameraYaw = value);
         AddSlider("Camera pitch", -89, 89, 1, scene.CameraPitch, value => scene.CameraPitch = value);
         AddSlider("Camera distance", 1, 100, 0.1, scene.CameraDistance, value => scene.CameraDistance = value);
@@ -26,6 +29,15 @@ public sealed partial class InkCompositeGraphWindow
         AddSlider("Light yaw", -180, 180, 1, scene.LightYaw, value => scene.LightYaw = value);
         AddSlider("Light pitch", -90, 90, 1, scene.LightPitch, value => scene.LightPitch = value);
         AddSlider("Ambient light", 0, 1, 0.01, scene.AmbientLight, value => scene.AmbientLight = value);
+        var shadows = new ToggleSwitch { Header = "Directional shadows", IsOn = scene.Shadows };
+        shadows.Toggled += (_, _) =>
+        {
+            scene.Shadows = shadows.IsOn;
+            Commit("Changed directional shadows.");
+            Redraw();
+        };
+        _properties.Children.Add(shadows);
+        AddSlider("Shadow strength", 0, 1, 0.01, scene.ShadowStrength, value => scene.ShadowStrength = value);
 
         _selectedSceneObjectIndex = scene.Objects.Count == 0
             ? -1
@@ -73,9 +85,25 @@ public sealed partial class InkCompositeGraphWindow
         if (_selectedSceneObjectIndex < 0) return;
 
         InkComposite3DObject item = scene.Objects[_selectedSceneObjectIndex];
+        var castsShadow = new ToggleSwitch { Header = "Cast shadows", IsOn = item.CastsShadow };
+        castsShadow.Toggled += (_, _) =>
+        {
+            item.CastsShadow = castsShadow.IsOn;
+            Commit("Changed shadow casting.");
+            Redraw();
+        };
+        _properties.Children.Add(castsShadow);
+        var receivesShadow = new ToggleSwitch { Header = "Receive shadows", IsOn = item.ReceivesShadow };
+        receivesShadow.Toggled += (_, _) =>
+        {
+            item.ReceivesShadow = receivesShadow.IsOn;
+            Commit("Changed shadow receiving.");
+            Redraw();
+        };
+        _properties.Children.Add(receivesShadow);
         var shapes = new ComboBox { Header = "Shape", HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (InkComposite3DShape shape in Enum.GetValues<InkComposite3DShape>())
-            shapes.Items.Add(shape.ToString());
+            if (shape != InkComposite3DShape.Mesh || item.Mesh is not null) shapes.Items.Add(shape.ToString());
         shapes.SelectedItem = item.Shape.ToString();
         shapes.SelectionChanged += (_, _) =>
         {
@@ -87,6 +115,25 @@ public sealed partial class InkCompositeGraphWindow
             ShowProperties();
         };
         _properties.Children.Add(shapes);
+        var import = new Button { Content = "Import OBJ mesh..." };
+        import.Click += async (_, _) => await ImportSceneAssetAsync(node, scene, item, mesh: true);
+        _properties.Children.Add(import);
+        if (item.Mesh is not null) Hint($"{item.Mesh.Name}: {item.Mesh.Triangles.Count} triangles, {item.Mesh.Materials.Count} materials.");
+        var texture = new Button { Content = "Apply diffuse texture..." };
+        texture.Click += async (_, _) => await ImportSceneAssetAsync(node, scene, item, mesh: false);
+        _properties.Children.Add(texture);
+        if (item.Texture is not null)
+        {
+            var clear = new Button { Content = "Remove texture override" };
+            clear.Click += (_, _) =>
+            {
+                item.Texture = null;
+                Commit("Removed the 3D texture override.");
+                Redraw();
+                ShowProperties();
+            };
+            _properties.Children.Add(clear);
+        }
         var visible = new ToggleSwitch { Header = "Object visibility", IsOn = item.Visible };
         visible.Toggled += (_, _) =>
         {
@@ -108,5 +155,48 @@ public sealed partial class InkCompositeGraphWindow
         AddSlider("Spin Y", -360, 360, 1, item.SpinY, value => item.SpinY = value);
         AddSlider("Spin Z", -360, 360, 1, item.SpinZ, value => item.SpinZ = value);
         AddOpaqueColourPicker("Object colour", item.Colour, value => item.Colour = value, "3D object colour changed.");
+    }
+
+    private async Task ImportSceneAssetAsync(InkCompositeNode node, InkCompositeScene3D scene,
+        InkComposite3DObject item, bool mesh)
+    {
+        _commitPending();
+        try
+        {
+            var picker = new FileOpenPicker();
+            foreach (string extension in mesh ? new[] { ".obj" } : new[] { ".png", ".jpg", ".jpeg", ".bmp" })
+                picker.FileTypeFilter.Add(extension);
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            Windows.Storage.StorageFile? file = await picker.PickSingleFileAsync();
+            if (file is null) return;
+            InkComposite3DObject replacement = item.Clone();
+            if (mesh)
+            {
+                replacement.Mesh = await InkCompositeObjImporter.ImportAsync(file.Path);
+                replacement.Shape = InkComposite3DShape.Mesh;
+                replacement.Colour = 0xFFFFFFFF;
+                replacement.Texture = null;
+            }
+            else replacement.Texture = await InkCompositeObjImporter.LoadTextureAsync(file.Path);
+            if (_graph?.Nodes.Contains(node) != true || node.Scene3D != scene || !scene.Objects.Contains(item))
+            {
+                UpdateStatus("The scene changed during import. Select the object and import again.");
+                return;
+            }
+            InkCompositeScene3D candidate = scene.Clone();
+            int index = scene.Objects.IndexOf(item);
+            candidate.Objects[index] = replacement;
+            if (!InkCompositeScenes3D.IsValid(candidate))
+                throw new InvalidDataException("The imported asset exceeds the scene triangle or embedded texture limits.");
+            scene.Objects[index] = replacement;
+            Commit(mesh ? "Imported an embedded OBJ mesh and its diffuse materials." : "Applied an embedded diffuse texture.");
+            Redraw();
+            ShowProperties();
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or ArgumentException or
+            InvalidOperationException or NotSupportedException or OverflowException or COMException)
+        {
+            UpdateStatus($"3D import failed: {ex.Message}");
+        }
     }
 }
