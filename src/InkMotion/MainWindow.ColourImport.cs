@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.UI.Xaml;
 using Windows.Storage;
+using Windows.Graphics.Imaging;
 
 namespace InkMotion;
 
@@ -12,38 +13,60 @@ public sealed partial class MainWindow
     private async void BrowseColourTool_Click(object sender, RoutedEventArgs e)
     {
         StorageFile? file = await PickTimelineFileAsync([".exe"]);
-        if (file is not null) OcioToolPath.Text = file.Path;
+        if (file is null) return;
+        if (sender is FrameworkElement { Tag: "raw" }) RawToolPath.Text = file.Path;
+        else OcioToolPath.Text = file.Path;
     }
 
-    private async void ImportAcesStill_Click(object sender, RoutedEventArgs e)
+    private async void ImportAcesStill_Click(object sender, RoutedEventArgs e) =>
+        await ImportColourStillAsync(raw: false);
+
+    private async void ImportRawStill_Click(object sender, RoutedEventArgs e) =>
+        await ImportColourStillAsync(raw: true);
+
+    private async Task ImportColourStillAsync(bool raw)
     {
         if (_colourImportCancellation is not null) return;
         if (_projectColour is not null)
         {
-            StatusText.Text = "ACES display imports create SDR editing copies. Use an SDR project.";
+            StatusText.Text = "Colour-managed still imports create SDR editing copies. Use an SDR project.";
             return;
         }
         PausePlayback();
         FinishActiveEdit();
-        StorageFile? file = await PickTimelineFileAsync([".exr"]);
+        StorageFile? file = await PickTimelineFileAsync(raw ? LocalColourImport.RawExtensions : [".exr"]);
         if (file is null || _colourImportClosed) return;
         string before = EditorProjectSerialiser.Serialise(CreateProjectSnapshot());
         int frame = PlayheadFrameNumber;
-        string executable = OcioToolPath.Text.Trim();
+        string executable = (raw ? RawToolPath.Text : OcioToolPath.Text).Trim();
         string inputSpace = AcesInputSpace.SelectedIndex == 1 ? "ACES2065-1" : "ACEScg";
+        bool cameraWhiteBalance = RawWhiteBalance.SelectedIndex != 1;
+        double exposure = RawDevelopmentExposure.Value;
         string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "InkMotion", "ImportedMedia");
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         _colourImportCancellation = timeout;
         ColourImportControls.IsEnabled = false;
         CancelColourImportButton.IsEnabled = true;
-        StatusText.Text = "Applying the local ACES display transform. The source remains unchanged.";
+        StatusText.Text = raw ? "Developing the RAW sensor image locally. The source remains unchanged." :
+            "Applying the local ACES display transform. The source remains unchanged.";
         PreparedColourStill? prepared = null;
         bool added = false;
         try
         {
-            prepared = await Task.Run(() => LocalColourImport.PrepareAces(
-                file.Path, executable, directory, inputSpace, timeout.Token));
+            prepared = await Task.Run(() => raw
+                ? LocalColourImport.PrepareRaw(file.Path, executable, directory, cameraWhiteBalance, exposure, timeout.Token)
+                : LocalColourImport.PrepareAces(file.Path, executable, directory, inputSpace, timeout.Token));
+            if (_colourImportClosed) return;
+            StorageFile result = await StorageFile.GetFileFromPathAsync(prepared.Path);
+            if (_colourImportClosed) return;
+            using (var stream = await result.OpenAsync(FileAccessMode.Read))
+            {
+                var decoder = await BitmapDecoder.CreateAsync(stream);
+                if ((long)decoder.PixelWidth * decoder.PixelHeight > LocalColourImport.MaximumPixels)
+                    throw new InvalidDataException("The editing copy exceeds 64 megapixels.");
+            }
+            timeout.Token.ThrowIfCancellationRequested();
             if (_colourImportClosed) return;
             using (var bitmap = await CanvasBitmap.LoadAsync(CompositionSurface.Device, prepared.Path))
             {
@@ -54,16 +77,11 @@ public sealed partial class MainWindow
             if (_colourImportClosed) return;
             if (before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) || frame != PlayheadFrameNumber)
                 throw new InvalidOperationException("The project or playhead changed during conversion. Import again.");
-            StorageFile result = await StorageFile.GetFileFromPathAsync(prepared.Path);
-            timeout.Token.ThrowIfCancellationRequested();
-            if (_colourImportClosed || before != EditorProjectSerialiser.Serialise(CreateProjectSnapshot()) ||
-                frame != PlayheadFrameNumber)
-                throw new InvalidOperationException("The project or playhead changed during import. Import again.");
             RegisterTimelineSource(result);
             AddTimelineClip(TimelineTrackKind.Image, new TimelineClipProject
             {
                 SourcePath = result.Path, StartFrame = frame, ColourSourceDescription = prepared.Description,
-            }, "Added ACES display-referred SDR editing copy.");
+            }, raw ? "Added developed RAW still as an SDR editing copy." : "Added ACES display-referred SDR editing copy.");
             added = true;
         }
         catch (OperationCanceledException)
@@ -77,7 +95,15 @@ public sealed partial class MainWindow
         }
         finally
         {
-            if (!added && prepared is not null) File.Delete(prepared.Path);
+            if (!added && prepared is not null)
+            {
+                try { File.Delete(prepared.Path); }
+                catch (Exception ex) when (IsFileAccessException(ex))
+                {
+                    System.Diagnostics.Trace.TraceError($"Could not remove unused colour copy {prepared.Path}: {ex.Message}");
+                    if (!_colourImportClosed) StatusText.Text += $" Could not remove unused editing copy: {prepared.Path}: {ex.Message}";
+                }
+            }
             _colourImportCancellation = null;
             if (!_colourImportClosed)
             {

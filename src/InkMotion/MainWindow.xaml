@@ -475,6 +475,15 @@
                                     </ComboBox>
                                     <Button Content="Import ACES EXR as SDR editing copy..." Click="ImportAcesStill_Click" />
                                     <TextBlock Text="Requires your own OCIO-enabled OpenImageIO tool with the built-in cg-config-v2.2.0_aces-v1.3_ocio-v2.4 config and PNG/EXR codecs. Applies ACES 1.0 - SDR Video to sRGB - Display, producing a 16-bit PNG. The timeline remains SDR, not scene-linear ACES. RGB/RGBA stills only; no EXR sequences, deep EXR or motion RAW. Nothing is downloaded." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
+                                    <TextBox x:Name="RawToolPath" Header="LibRaw dcraw_emu.exe" />
+                                    <Button Content="Select local LibRaw tool..." Tag="raw" Click="BrowseColourTool_Click" />
+                                    <ComboBox x:Name="RawWhiteBalance" Header="RAW white balance" SelectedIndex="0">
+                                        <ComboBoxItem Content="Camera white balance (where available)" />
+                                        <ComboBoxItem Content="Automatic white balance" />
+                                    </ComboBox>
+                                    <NumberBox x:Name="RawDevelopmentExposure" Header="RAW development exposure (EV)" Minimum="-2" Maximum="2" Value="0" SmallChange="0.1" />
+                                    <Button Content="Develop camera-RAW still as SDR editing copy..." Click="ImportRawStill_Click" />
+                                    <TextBlock Text="Requires your own LibRaw dcraw_emu.exe. Attempts DNG, CR2/CR3, NEF, ARW, RAF, RW2, ORF and PEF; the exact camera and compression must be supported by your decoder. Performs sensor demosaicing into 16-bit sRGB TIFF, not embedded-thumbnail extraction. No BRAW, R3D, ARRIRAW, CRM or RAW video. Development is baked, not a live RAW timeline." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                     <TextBlock Text="Editing copies are retained in LocalAppData\InkMotion\ImportedMedia and become linked project media. Keep and share them with the project. Original sources are never overwritten." TextWrapping="Wrap" Style="{StaticResource HintTextStyle}" />
                                   </StackPanel>
                                 </ContentControl>

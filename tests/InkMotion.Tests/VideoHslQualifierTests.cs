@@ -43,6 +43,42 @@ public sealed class VideoHslQualifierTests
     }
 
     [Fact]
+    public async Task HslAndShotMatchAgreeInLiveCompositorAndExportFrameRenderer()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"inkmotion-finishing-{Guid.NewGuid():N}.png");
+        try
+        {
+            using var device = new CanvasDevice(true);
+            using var source = CanvasBitmap.CreateFromBytes(device,
+                Enumerable.Repeat(new byte[] { 0, 0, 255, 255 }, 16 * 16).SelectMany(p => p).ToArray(),
+                16, 16, DirectXPixelFormat.B8G8R8A8UIntNormalized);
+            await source.SaveAsync(path, CanvasBitmapFileFormat.Png);
+            var clip = new TimelineClipProject { SourcePath = path,
+                HslQualifier = new() { Enabled = true, Saturation = 0 },
+                ShotMatch = new() { RedOffset = 0.1 } };
+            using var preview = new CanvasRenderTarget(device, 64, 64, 96);
+            using (var drawing = preview.CreateDrawingSession())
+            {
+                drawing.Clear(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+                TimelineCompositor.DrawFitted(drawing, source, source.Bounds, 64, 64, 1, 0.5, 0.5, 1, colourGrade: clip);
+            }
+            var project = new EditorProject { VideoTracks = [new() { Kind = TimelineTrackKind.Image, Clips = [clip] }] };
+            var restored = EditorProjectSerialiser.Deserialise(EditorProjectSerialiser.Serialise(project));
+            var request = new VideoExportRequest(restored, VideoExportProfile.Create(64, 64, 24),
+                VideoExportCodec.H264, string.Empty, 64);
+            var warnings = new List<string>();
+            using var export = new VideoExporter.FrameRenderer(device, request, warnings);
+            byte[] expected = preview.GetPixelBytes(32, 32, 1, 1);
+            byte[] actual = export.RenderSurface(0, transparent: true).GetPixelBytes(32, 32, 1, 1);
+            Assert.Equal(expected, actual);
+            Assert.InRange(actual[2], 151, 155);
+            Assert.InRange(actual[1], 126, 130);
+            Assert.Empty(warnings);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void SharedEffectDesaturatesOnlyQualifiedPixelsAndPreservesAlpha()
     {
         using var device = new CanvasDevice(true);

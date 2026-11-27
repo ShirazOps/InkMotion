@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 
 namespace InkMotion;
 
@@ -10,6 +11,35 @@ public static class LocalColourImport
     public const string AcesDisplay = "sRGB - Display";
     public const string AcesView = "ACES 1.0 - SDR Video";
     public const long MaximumPixels = 64 * 1024 * 1024;
+    public static IReadOnlyList<string> RawExtensions { get; } =
+        Array.AsReadOnly(new[] { ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".rw2", ".orf", ".pef" });
+
+    public static PreparedColourStill PrepareRaw(string sourcePath, string executable, string directory,
+        bool cameraWhiteBalance, double exposure, CancellationToken cancellationToken)
+    {
+        if (!RawExtensions.Contains(System.IO.Path.GetExtension(sourcePath), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidDataException("Choose a supported still-RAW extension; motion RAW is not supported.");
+        if (!double.IsFinite(exposure) || exposure is < -2 or > 2)
+            throw new ArgumentOutOfRangeException(nameof(exposure), "RAW development exposure must be between -2 and +2 EV.");
+        ValidateExecutable(executable, "LibRaw dcraw_emu.exe");
+        return Prepare(sourcePath, directory, ".tiff", (input, output) =>
+        {
+            RunTool(executable, ["-T", "-6", "-W", "-o", "1", "-g", "2.4", "12.92",
+                "-q", "3", "-H", "2", cameraWhiteBalance ? "-w" : "-a",
+                "-b", Math.Pow(2, exposure).ToString("R", CultureInfo.InvariantCulture),
+                "-Z", output, input], cancellationToken);
+            using var stream = File.OpenRead(output);
+            Span<byte> header = stackalloc byte[4];
+            stream.ReadExactly(header);
+            if (!header.SequenceEqual(new byte[] { 73, 73, 42, 0 }) &&
+                !header.SequenceEqual(new byte[] { 77, 77, 0, 42 }))
+                throw new InvalidDataException("LibRaw did not produce a genuine TIFF editing copy.");
+        }, $"LibRaw still-RAW development: {System.IO.Path.GetFileName(sourcePath)}; " +
+            $"{(cameraWhiteBalance ? "camera white balance where available" : "automatic white balance")}; " +
+            $"{exposure.ToString("0.##", CultureInfo.InvariantCulture)} EV; AHD demosaic; highlight blend; " +
+            "16-bit sRGB TIFF editing copy. Camera/compression support depends on the selected decoder; not motion RAW.",
+            cancellationToken);
+    }
 
     public static PreparedColourStill PrepareAces(string sourcePath, string executable, string directory,
         string inputSpace, CancellationToken cancellationToken)
