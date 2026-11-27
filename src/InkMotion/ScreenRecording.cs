@@ -94,6 +94,7 @@ public sealed class ScreenRecordingManifest
     public bool WebcamPictureInPicture { get; set; } = true;
     public List<ScreenRecordingMedia> Media { get; set; } = [];
     public int DroppedFrames { get; set; }
+    public int PauseCount { get; set; }
     public List<string> Warnings { get; set; } = [];
 }
 
@@ -238,13 +239,15 @@ public interface IScreenRecordingFrames : IDisposable
 public static class ScreenRecordingEncoder
 {
     // Finalised segments survive a crash even if the current MP4 has no closing index.
-    public static void Record(string directory, ScreenRecordingManifest manifest, Stopwatch clock,
+    // Frames are timed against the recording clock, so paused time is neither captured nor encoded.
+    public static void Record(string directory, ScreenRecordingManifest manifest, ScreenRecordingClock clock,
         Func<IScreenRecordingFrames> createFrames, Action checkpoint, CancellationToken stop)
     {
         ScreenCapturePlan plan = manifest.Plan ?? throw new ArgumentException("A capture plan is required.");
         using IScreenRecordingFrames frames = createFrames();
         while (!stop.IsCancellationRequested)
         {
+            if (!clock.WaitWhilePaused(stop)) break;
             int index = manifest.Media.Count(media => media.Kind == "Screen");
             var media = new ScreenRecordingMedia { FileName = $"Screen-{index:D5}.mp4", OffsetSeconds =
                 Math.Ceiling(clock.Elapsed.TotalSeconds * plan.FrameRate) / plan.FrameRate };
@@ -255,10 +258,17 @@ public static class ScreenRecordingEncoder
             byte[]? previous = null;
             while (!stop.IsCancellationRequested && next < plan.FrameRate * 5)
             {
+                if (!clock.WaitWhilePaused(stop)) break;
                 double due = media.OffsetSeconds + next / (double)plan.FrameRate;
                 double delay = due - clock.Elapsed.TotalSeconds;
-                if (delay > 0 && stop.WaitHandle.WaitOne(TimeSpan.FromSeconds(delay))) break;
+                if (delay > 0)
+                {
+                    if (stop.WaitHandle.WaitOne(TimeSpan.FromSeconds(delay))) break;
+                    if (!clock.IsRunning) continue;
+                }
                 byte[] pixels = frames.Capture();
+                // Discard a frame grabbed while a pause or stop was being requested.
+                if (!clock.IsRunning) continue;
                 int current = Math.Max(next, (int)Math.Floor((clock.Elapsed.TotalSeconds - media.OffsetSeconds) * plan.FrameRate));
                 current = Math.Min(plan.FrameRate * 5 - 1, current);
                 while (next <= current)

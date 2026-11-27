@@ -35,8 +35,10 @@ public sealed partial class ScreenRecorderWindow : Window
         Maximum = 1440, SmallChange = 1, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
     private readonly CheckBox _minimize = new() { Content = "Minimise this recorder when capture starts" };
     private readonly CheckBox _stopShortcut = new() { Content = "Ctrl+Shift+F10 stops and saves from any application" };
+    private readonly CheckBox _pauseShortcut = new() { Content = "Ctrl+Shift+F9 pauses and resumes from any application" };
     private readonly CheckBox _openWhenSaved = new() { Content = "Open the saved recording in the editor", IsChecked = true };
     private readonly Button _start = new() { Content = "Start recording", IsEnabled = false };
+    private readonly Button _pause = new() { Content = "Pause", IsEnabled = false };
     private readonly Button _stop = new() { Content = "Stop and save", IsEnabled = false };
     private readonly ComboBox _library = new() { Header = "Saved / interrupted recordings", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly DispatcherQueueTimer _timer;
@@ -47,7 +49,7 @@ public sealed partial class ScreenRecorderWindow : Window
     private string? _directory;
     private ScreenRecordingManifest? _manifest;
     private CancellationTokenSource? _stopCapture;
-    private readonly Stopwatch _clock = new();
+    private readonly ScreenRecordingClock _clock = new();
     private Task? _run;
     private bool _selectingArea;
     private ScreenRegionSelector? _pendingSelector;
@@ -66,7 +68,7 @@ public sealed partial class ScreenRecorderWindow : Window
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         root.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var actions = Row(_start, _stop);
+        var actions = Row(_start, _pause, _stop);
         root.Children.Add(actions);
         Grid.SetRow(_status, 1);
         root.Children.Add(_status);
@@ -139,7 +141,8 @@ public sealed partial class ScreenRecorderWindow : Window
         _configuration.Children.Add(Row(_countdown, _stopAfter));
         _configuration.Children.Add(_minimize);
         _configuration.Children.Add(_stopShortcut);
-        _configuration.Children.Add(Hint("The optional stop shortcut works while minimised and cancels an active countdown. It is reserved only for this take and released when saving starts. If another application owns it, recording will not start; turn the shortcut off or free the key combination."));
+        _configuration.Children.Add(_pauseShortcut);
+        _configuration.Children.Add(Hint("Optional shortcuts work while minimised; the stop shortcut also cancels an active countdown. They are reserved only for this take and released when saving starts. If another application owns one, recording will not start; turn that shortcut off or free the key combination. Pause stops screen, audio and webcam capture (the webcam is released) and paused time is left out of the recording, so every track stays in sync. Resume reopens the same devices; if one was removed or changed while paused, the take stops and saves what was recorded."));
         _configuration.Children.Add(_openWhenSaved);
         _configuration.Children.Add(Hint("Cancel countdown stops before capture begins. A timed stop starts when capture starts, excluding the countdown, and saves normally. Turn off automatic opening to keep the take in the library and record another. Minimising affects only this recorder, not the editor or other windows. InkMotion is not excluded from capture: arrange the editor yourself. Use Stop and save here, or File > Screen recorder to return. This records the interactive desktop only; protected content, secure/UAC desktops, lock screens, HDR fidelity and exclusive fullscreen capture are not guaranteed. 15–30 fps is best-effort; slow frames repeat to preserve timing. Display changes stop recording."));
         body.Children.Add(Heading("Durable recording library"));
@@ -160,6 +163,7 @@ public sealed partial class ScreenRecorderWindow : Window
             SetCoordinates(display.Bounds);
         };
         _start.Click += async (_, _) => await StartAsync();
+        _pause.Click += async (_, _) => await TogglePauseAsync();
         _stop.Click += (_, _) => RequestStop();
         _timer = DispatcherQueue.CreateTimer();
         _timer.Interval = TimeSpan.FromSeconds(1);
@@ -304,7 +308,7 @@ public sealed partial class ScreenRecorderWindow : Window
             try
             {
                 ScreenRecordingManifest manifest = ScreenRecordingStore.Read(directory);
-                string status = manifest.Status is "Preparing" or "Recording" &&
+                string status = manifest.Status is "Preparing" or "Recording" or "Paused" &&
                     (!_busy || directory != _directory) ? "Interrupted (unclosed session)" : manifest.Status;
                 label = $"{manifest.CreatedUtc.ToLocalTime():g} · {status} · {size / 1048576d:0.0} MiB" +
                     $" · {manifest.Media.Count(media => media.Finalised)} completed source(s)";
@@ -365,7 +369,8 @@ public sealed partial class ScreenRecorderWindow : Window
 
     private void RequestStop()
     {
-        UnregisterStopShortcut();
+        UnregisterShortcuts();
+        _pause.IsEnabled = false;
         _stopCapture?.Cancel();
         _clock.Stop();
         if (_timer.IsRunning && _inputs is not null) _stoppingInputs ??= _inputs.StopAsync();

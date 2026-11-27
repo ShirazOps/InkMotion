@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Microsoft.UI.Windowing;
 
 namespace InkMotion;
@@ -11,6 +10,8 @@ public sealed partial class ScreenRecorderWindow
     private string? _completedProjectPath;
     private TimeSpan _captureLimit;
     private bool _timedStop;
+    private bool _capturing;
+    private bool _pauseTransition;
 
     private sealed record DeviceChoice(string Label, object? Device = null)
     {
@@ -71,9 +72,10 @@ public sealed partial class ScreenRecorderWindow
             var drive = new DriveInfo(Path.GetPathRoot(ScreenRecordingStore.Root)!);
             if (drive.AvailableFreeSpace < 1024L * 1024 * 1024)
                 throw new IOException("At least 1 GiB of free recording storage is required.");
-            if (_shortcutRegistered)
+            if (_shortcutRegistered || _pauseShortcutRegistered)
                 throw new InvalidOperationException("The previous recording shortcut could not be released. Close and reopen the recorder before starting another take.");
             if (_stopShortcut.IsChecked == true) RegisterStopShortcut();
+            if (_pauseShortcut.IsChecked == true) RegisterPauseShortcut();
             CloseAreaOutlines();
             _busy = true;
             _captureError = null;
@@ -99,12 +101,14 @@ public sealed partial class ScreenRecorderWindow
         }
         finally
         {
-            UnregisterStopShortcut();
+            UnregisterShortcuts();
             _busy = false;
             _start.IsEnabled = _connectedDisplays.Count > 0;
             _configurationHost.IsEnabled = true;
             _stop.IsEnabled = false;
             _stop.Content = "Stop and save";
+            _pause.IsEnabled = false;
+            _pause.Content = "Pause";
             _stopCapture?.Dispose();
             _stopCapture = null;
         }
@@ -143,6 +147,8 @@ public sealed partial class ScreenRecorderWindow
             manifest.Status = "Recording";
             Checkpoint();
             _timer.Start();
+            _capturing = true;
+            _pause.IsEnabled = true;
             UpdateRecordingStatus();
             await Task.Run(() => ScreenRecordingEncoder.Record(directory, manifest, _clock,
                 () => new DesktopRecordingFrames(plan, cursor), Checkpoint, stop));
@@ -158,7 +164,9 @@ public sealed partial class ScreenRecorderWindow
         }
         finally
         {
-            UnregisterStopShortcut();
+            _capturing = false;
+            _pause.IsEnabled = false;
+            UnregisterShortcuts();
             _timedStop |= stop.IsCancellationRequested && _clock.IsRunning &&
                 _captureLimit > TimeSpan.Zero && _clock.Elapsed >= _captureLimit;
             _clock.Stop();
@@ -185,6 +193,7 @@ public sealed partial class ScreenRecorderWindow
             lock (manifest)
             {
                 manifest.Error = _captureError;
+                manifest.PauseCount = _clock.PauseCount;
                 manifest.Status = _captureError is not null ? "Interrupted" :
                     manifest.Media.Any(media => media.Kind == "Screen" && media.Finalised) ? "Completed" : "No screen footage";
                 try
@@ -203,6 +212,7 @@ public sealed partial class ScreenRecorderWindow
                 projectPath is not null ? (_timedStop ? "Recording limit reached. Recording saved." : "Recording saved.") :
                 !_clock.IsRunning && _clock.Elapsed == TimeSpan.Zero ? "Countdown cancelled. Nothing was recorded." :
                 "No completed screen video was captured.") +
+                (manifest.PauseCount > 0 ? $"\nPaused {manifest.PauseCount} time(s); paused time is not part of the recording." : "") +
                 $"\nSources retained at {directory}. Repeated slow frames: {manifest.DroppedFrames}.";
             try { RefreshLibrary(); }
             catch (Exception ex) when (IsCaptureException(ex)) { _status.Text += $"\nCould not refresh storage: {ex.Message}"; }
@@ -262,9 +272,10 @@ public sealed partial class ScreenRecorderWindow
             if (new DriveInfo(Path.GetPathRoot(_directory)!).AvailableFreeSpace < 512L * 1024 * 1024)
                 throw new IOException("Recording stopped because less than 512 MiB of storage remains.");
             Checkpoint();
-            _status.Text = $"RECORDING · {_clock.Elapsed:hh\\:mm\\:ss} · {ScreenRecordingStore.StorageBytes(_directory) / 1048576d:0.0} MiB" +
+            bool paused = _clock.IsPaused;
+            _status.Text = (paused ? $"PAUSED · nothing is being captured · {_clock.Elapsed:hh\\:mm\\:ss} recorded" : $"RECORDING · {_clock.Elapsed:hh\\:mm\\:ss}") + $" · {ScreenRecordingStore.StorageBytes(_directory) / 1048576d:0.0} MiB" +
                 $" · {_manifest.DroppedFrames} slow frames repeated" +
-                (_captureLimit > TimeSpan.Zero ? $" · stops in {TimeSpan.FromTicks(Math.Max(0, (_captureLimit - _clock.Elapsed).Ticks)):hh\\:mm\\:ss}" : "") +
+                (_captureLimit > TimeSpan.Zero ? $" · stops {(paused ? "after another" : "in")} {TimeSpan.FromTicks(Math.Max(0, (_captureLimit - _clock.Elapsed).Ticks)):hh\\:mm\\:ss}" : "") +
                 $"\n{_directory}";
         }
         catch (Exception ex) when (IsCaptureException(ex) || ex is ScreenRecordingInputException)
@@ -272,6 +283,62 @@ public sealed partial class ScreenRecorderWindow
             _captureError = DescribeError(ex);
             RequestStop();
             _timer.Stop();
+        }
+    }
+
+    private async Task TogglePauseAsync()
+    {
+        if (!_capturing || _pauseTransition || _inputs is not { } inputs || _manifest is not { } manifest ||
+            _stopCapture is not { } stopCapture) return;
+        CancellationToken stop = stopCapture.Token;
+        if (stop.IsCancellationRequested) return;
+        _pauseTransition = true;
+        _pause.IsEnabled = false;
+        try
+        {
+            if (!_clock.IsPaused)
+            {
+                if (!_clock.Pause()) return;
+                // The timed limit counts recorded time only, so it must not expire during a pause.
+                if (_captureLimit > TimeSpan.Zero) stopCapture.CancelAfter(Timeout.Infinite);
+                lock (manifest)
+                {
+                    manifest.Status = "Paused";
+                    manifest.PauseCount = _clock.PauseCount;
+                }
+                _pause.Content = "Resume";
+                UpdateRecordingStatus();
+                await inputs.PauseAsync();
+            }
+            else
+            {
+                await inputs.ResumeAsync(stop);
+                if (stop.IsCancellationRequested) return;
+                if (_captureLimit > TimeSpan.Zero)
+                {
+                    TimeSpan remaining = _captureLimit - _clock.Elapsed;
+                    if (remaining <= TimeSpan.Zero) { _timedStop = true; RequestStop(); return; }
+                    stopCapture.CancelAfter(remaining);
+                }
+                if (!_clock.Resume()) return;
+                lock (manifest) manifest.Status = "Recording";
+                _pause.Content = "Pause";
+            }
+            Checkpoint();
+            UpdateRecordingStatus();
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
+        catch (Exception ex) when ((IsCaptureException(ex) || ex is ScreenRecordingInputException) && !stop.IsCancellationRequested)
+        {
+            _captureError = JoinError(_captureError, DescribeError(ex));
+            RequestStop();
+        }
+        catch (ObjectDisposedException) when (stop.IsCancellationRequested) { }
+        catch (InvalidOperationException) when (stop.IsCancellationRequested) { }
+        finally
+        {
+            _pauseTransition = false;
+            _pause.IsEnabled = _capturing && !stop.IsCancellationRequested;
         }
     }
 
