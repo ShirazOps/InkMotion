@@ -10,7 +10,11 @@ InkMotion is a Windows desktop application built with WinUI 3 and the Windows Ap
 
 Use **File > Package project with linked media** to create a portable `.inkpkg`;
 **Open project** extracts and reopens it without overwriting existing folders.
-See [project transfer](docs/project-transfer.md) for included assets and limits.
+The File menu also provides strict **FCP 7 XML / CMX 3600 EDL picture-cut**
+interchange and optional **AAF linked mono PCM WAV audio** interchange through a
+user-selected Python/pyaaf2 environment. These are limited subsets, not complete
+NLE/DAW project conversion. See [project transfer](docs/project-transfer.md) for
+supported features, explicit omissions, dependencies and interoperability evidence.
 
 InkMotion has no in-app cloud synchronisation, live co-editing, presence, or merge/conflict resolution. A `.inkmotion` project is saved as a single file, and its media and LUTs remain externally linked. You can keep project files in a network or cloud-synchronised folder, but that is file storage rather than collaboration. Do not edit the same project in multiple InkMotion instances at once; close it elsewhere and let synchronisation finish before reopening it. Keep a backup and share the linked media separately.
 

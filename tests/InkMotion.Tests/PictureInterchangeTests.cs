@@ -88,6 +88,7 @@ public sealed class PictureInterchangeTests
     public void ProjectExport_RejectsEffectsArtworkSubframesAndWrongMediaRate()
     {
         var project = PictureInterchange.ToProject(Example());
+        project.AudioTracks.Add(new AudioTrackProject());
         var metadata = new Dictionary<string, PictureMediaInfo> { [MediaPath] = new(24, 1920, 1080) };
         Assert.Equal(2, PictureInterchange.FromProject(project, metadata).Tracks[0].Cuts.Count);
         project.VideoTracks[0].Clips[0].Opacity = 0.5;

@@ -10,6 +10,15 @@ Reshape InkMotion into dedicated Video Editor, Audio Editor, and Ink Editor work
 
 The baseline video, audio, ink, export and durable screen-recording implementation phases are complete. The expanded sequence below records delivered capabilities and their limits; historical version entries describe increments, not missing features. This is not a claim of full parity with every feature of the reference products.
 
+Packages 1.0.62.0-1.0.64.0 add portable project/media packages and strict timeline
+interchange. Packages preserve embedded editing state and include linked media,
+proxies and LUTs, including compound timelines, with manifest/checksum/path
+validation and fresh-folder extraction. FCP 7 xmeml v4/v5 XML and CMX 3600 EDL
+transfer plain picture cuts; optional genuine binary AAF transfers linked mono
+PCM WAV audio through user-selected Python/pyaaf2. Unsupported/lossy features
+are explicitly rejected or confirmed. See [project transfer](docs/project-transfer.md)
+for exact subsets, architecture/licensing decisions and external-parser evidence.
+
 Local release validation on 25 October 2026 passed the full x86 and x64 Release suites with optional FFmpeg enabled (1,160 passed, none skipped per architecture); x64 Video/Audio/Ink/Export workspace navigation was smoke-checked. The optional tests used an external portable Gyan FFmpeg 9.0.2 essentials build, not a bundled dependency, and synthetic media only. They cover FLAC sample rates/depths, Opus, offered video-container/audio combinations, explicit hardware-selection success or named failure without fallback, and checkpoint reuse/cancellation. Native integration tests run serially to avoid concurrent Win2D/Media Foundation pressure in x86 address space. The recorder timing regression stops after actual synthetic frames rather than assuming encoder startup fits a fixed 1.4-second window.
 
 Physical GPU/codec/resolution certification, sustained mixed-DPI/multi-monitor recording, audio/webcam synchronisation, and pen/touch interaction remain device-dependent checks, not missing implementations. A hardware-selection test may correctly reject an unavailable encoder; its passing result does not certify every GPU or driver. Advanced adaptive noise reduction, plug-in hosting and unspecified additional video effects are separate future scope.

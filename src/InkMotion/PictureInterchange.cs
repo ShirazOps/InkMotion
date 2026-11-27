@@ -21,7 +21,8 @@ public static class PictureInterchange
     {
         EditorProjectValidation.Validate(project);
         int rate = Rate(project.FrameRate);
-        if (project.AudioTracks.Count > 0 || project.AudioPath is not null || project.Colour is not null ||
+        if (project.AudioTracks.Any(t => !string.IsNullOrWhiteSpace(t.AudioPath)) ||
+            !string.IsNullOrWhiteSpace(project.AudioPath) || project.Colour is not null ||
             project.VideoMulticamGroups.Count > 0 || project.Markers.Count > 0 || project.CompositeGraph is not null ||
             project.CharacterRig is not null || project.AudioBuses.Count > 0 ||
             project.Frames.Any(frame => frame.Strokes.Count > 0 || frame.LayerStrokes.Values.Any(s => s.Count > 0) ||

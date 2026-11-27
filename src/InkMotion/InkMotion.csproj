@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="InkMotion.Tests" />
+    <Content Include="Tools\aaf_bridge.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
