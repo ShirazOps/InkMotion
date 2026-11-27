@@ -2842,13 +2842,16 @@ public sealed partial class MainWindow : Window
         SyncAudioTracks(position, startPlayback: true);
         SyncVideoPreview(position.TotalSeconds, forceSeek: false);
         int framePosition = Math.Max(0, (int)Math.Floor(position.TotalSeconds * _frameRate));
+        if (framePosition == _playheadFramePosition)
+        {
+            return;
+        }
         EnsureFrameExists(framePosition);
         _playheadFramePosition = framePosition;
         SelectFrame(
             InkTimeline.GetFrameIndexAtPosition(_frames, framePosition),
             seekVideo: false,
             preservePlayhead: true);
-        UpdateFrameReadout();
         CompositionSurface.Invalidate();
         InvalidateVideoTimeline();
     }

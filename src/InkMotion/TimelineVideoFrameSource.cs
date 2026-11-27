@@ -11,7 +11,8 @@ internal sealed class TimelineVideoFrameSource : IDisposable
     private CanvasBitmap? _rollingBitmap;
     private byte[]? _rollingPixels;
     private long _version = -1;
-    private double _sourceSeconds = double.NaN;
+
+    internal int BitmapUploadCount { get; private set; }
 
     public TimelineVideoFrameSource(string path, HdrDecodeOptions? hdr = null)
     {
@@ -43,8 +44,7 @@ internal sealed class TimelineVideoFrameSource : IDisposable
 
         long frameVersion = _reader?.FrameVersion ?? _hdr!.FrameVersion;
         bool frameChanged = frameVersion != _version;
-        bool positionChanged = !double.IsFinite(_sourceSeconds) || Math.Abs(_sourceSeconds - sourceSeconds) > 1e-7;
-        if ((frameChanged || positionChanged) && Width > 0 && Height > 0)
+        if (frameChanged && Width > 0 && Height > 0)
         {
             byte[] pixels = Pixels;
             if (_reader is not null)
@@ -78,7 +78,7 @@ internal sealed class TimelineVideoFrameSource : IDisposable
             }
 
             _version = frameVersion;
-            _sourceSeconds = sourceSeconds;
+            BitmapUploadCount++;
         }
 
         // Rolling-shutter warping works on 8-bit pixels; half-float HDR frames are returned uncorrected.
